@@ -24,7 +24,6 @@ applyTheme(initialTheme);
 
 export const useAppStore = create((set, get) => ({
   sideChatOpen: false,
-  availableModels: [],
   ollamaConnected: false,
   chatSessions: [],
   activeChatId: null,
@@ -45,8 +44,6 @@ export const useAppStore = create((set, get) => ({
   setSideChatOpen: (open) => set({ sideChatOpen: open }),
   toggleSideChat: () => set((s) => ({ sideChatOpen: !s.sideChatOpen })),
 
-  setAvailableModels: (models) =>
-    set({ availableModels: models, ollamaConnected: true }),
   setOllamaConnected: (v) => set({ ollamaConnected: v }),
 
   // Load all sessions from DB on startup (replaces in-memory state)

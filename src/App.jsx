@@ -6,31 +6,19 @@ import ChatPane from "./components/ChatPane";
 import SidePanel from "./components/SidePanel";
 import { useAppStore } from "./store/appStore";
 import { useMainChat } from "./store/chatStore";
-import { fetchModels } from "./lib/ollama";
+import { isOllamaReachable } from "./lib/ollama";
 import { useDbInit } from "./hooks/useDbInit";
 import { getTheme } from "./theme";
 import "./index.css";
 
 export default function App() {
-  const {
-    sideChatOpen,
-    toggleSideChat,
-    setAvailableModels,
-    setOllamaConnected,
-    theme,
-  } = useAppStore();
+  const { sideChatOpen, toggleSideChat, setOllamaConnected, theme } =
+    useAppStore();
   useDbInit();
   const t = getTheme(theme);
 
   useEffect(() => {
-    fetchModels().then((models) => {
-      if (models.length > 0) {
-        setAvailableModels(models);
-        setOllamaConnected(true);
-      } else {
-        setOllamaConnected(false);
-      }
-    });
+    isOllamaReachable().then(setOllamaConnected);
   }, []);
 
   return (
