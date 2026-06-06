@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Plus, MessageSquare, Settings, Wifi, WifiOff } from 'lucide-react'
-import { useAppStore, useMainChat, useSideChat } from '../store/chatStore'
+import { useAppStore, useMainChat, useSideChat } from '../store'
 
 export default function Sidebar() {
   const { chatSessions, activeChatId, ollamaConnected, setActiveChatId } = useAppStore()

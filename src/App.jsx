@@ -1,20 +1,17 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect } from 'react'
 import { PanelRight, PanelRightClose } from 'lucide-react'
 import TitleBar from './components/TitleBar'
 import Sidebar from './components/Sidebar'
 import ChatPane from './components/ChatPane'
-import { useAppStore, useMainChat, useSideChat } from './store/chatStore'
+import SidePanel from './components/SidePanel'
+import { useAppStore } from './store/appStore'
+import { useMainChat } from './store/chatStore'
 import { fetchModels } from './lib/ollama'
 import './index.css'
 
 export default function App() {
   const { sideChatOpen, toggleSideChat, setAvailableModels, setOllamaConnected } = useAppStore()
-  const [sideWidth, setSideWidth] = useState(380)
-  const isDragging = useRef(false)
-  const dragStartX = useRef(0)
-  const dragStartWidth = useRef(0)
 
-  // Check Ollama connection on mount
   useEffect(() => {
     fetchModels().then(models => {
       if (models.length > 0) {
@@ -24,35 +21,6 @@ export default function App() {
         setOllamaConnected(false)
       }
     })
-  }, [])
-
-  // Drag to resize side panel
-  const onMouseDown = (e) => {
-    isDragging.current = true
-    dragStartX.current = e.clientX
-    dragStartWidth.current = sideWidth
-    document.body.style.userSelect = 'none'
-    document.body.style.cursor = 'col-resize'
-  }
-
-  useEffect(() => {
-    const onMouseMove = (e) => {
-      if (!isDragging.current) return
-      const delta = dragStartX.current - e.clientX
-      const newWidth = Math.max(280, Math.min(600, dragStartWidth.current + delta))
-      setSideWidth(newWidth)
-    }
-    const onMouseUp = () => {
-      isDragging.current = false
-      document.body.style.userSelect = ''
-      document.body.style.cursor = ''
-    }
-    window.addEventListener('mousemove', onMouseMove)
-    window.addEventListener('mouseup', onMouseUp)
-    return () => {
-      window.removeEventListener('mousemove', onMouseMove)
-      window.removeEventListener('mouseup', onMouseUp)
-    }
   }, [])
 
   return (
@@ -67,23 +35,11 @@ export default function App() {
     }}>
       <TitleBar />
 
-      <div style={{
-        display: 'flex',
-        flex: 1,
-        overflow: 'hidden',
-      }}>
-        {/* Sidebar */}
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <Sidebar />
 
-        {/* Main chat area */}
-        <div style={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-          position: 'relative',
-        }}>
-          {/* Top bar with "Open Side Chat" button */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          {/* Top bar */}
           <div style={{
             padding: '0 16px',
             height: '38px',
@@ -135,62 +91,15 @@ export default function App() {
           </div>
 
           {/* Chat area */}
-          <div style={{
-            flex: 1,
-            display: 'flex',
-            overflow: 'hidden',
-          }}>
-            {/* Main chat pane */}
-            <div style={{
-              flex: 1,
-              overflow: 'hidden',
-              transition: 'flex 0.25s ease',
-            }}>
+          <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+            <div style={{ flex: 1, overflow: 'hidden', transition: 'flex 0.25s ease' }}>
               <ChatPane
                 store={useMainChat}
                 placeholder="Ask anything…"
                 label="Main Chat"
               />
             </div>
-
-            {/* Resizable divider + Side chat panel */}
-            {sideChatOpen && (
-              <>
-                {/* Drag handle */}
-                <div
-                  onMouseDown={onMouseDown}
-                  style={{
-                    width: '4px',
-                    background: '#1a1a1e',
-                    cursor: 'col-resize',
-                    flexShrink: 0,
-                    transition: 'background 0.15s',
-                    position: 'relative',
-                    zIndex: 10,
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.background = '#a78bfa44'}
-                  onMouseLeave={e => e.currentTarget.style.background = '#1a1a1e'}
-                />
-
-                {/* Side chat pane */}
-                <div style={{
-                  width: `${sideWidth}px`,
-                  minWidth: '280px',
-                  maxWidth: '600px',
-                  borderLeft: '1px solid #1a1a1e',
-                  overflow: 'hidden',
-                  animation: 'slideInRight 0.2s ease-out',
-                }}>
-                  <ChatPane
-                    store={useSideChat}
-                    contextStore={useMainChat}
-                    placeholder="Side questions…"
-                    label="Side Chat"
-                    compact={true}
-                  />
-                </div>
-              </>
-            )}
+            {sideChatOpen && <SidePanel />}
           </div>
         </div>
       </div>

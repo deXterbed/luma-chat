@@ -1,9 +1,8 @@
 import { useRef, useEffect, useState, useCallback } from 'react'
 import { Send, Square, Paperclip, X, ChevronDown } from 'lucide-react'
-import { v4 as uuidv4 } from 'uuid'
 import MessageBubble from './MessageBubble'
 import { streamChat, fileToBase64 } from '../lib/ollama'
-import { useAppStore } from '../store/chatStore'
+import { useChatSession } from '../hooks/useChatSession'
 
 const DEFAULT_MODELS = [
   'minimax-m3:cloud',
@@ -17,10 +16,12 @@ const DEFAULT_MODELS = [
 ]
 
 export default function ChatPane({
-  store,           // zustand store instance
-  contextStore,    // optional: inject this store's messages as context (side chat uses main chat)
+  store,
+  contextStore,
+  sideChatId,   // set on side chat panes to scope saving to the session
+  sessionId,    // the main chat session this pane belongs to
   placeholder = 'Ask anything…',
-  compact = false, // true for side chat (smaller padding)
+  compact = false,
   label = 'Chat',
 }) {
   const {
@@ -41,11 +42,11 @@ export default function ChatPane({
   } = store()
 
   const [input, setInput] = useState('')
-  const [attachedImages, setAttachedImages] = useState([]) // [{base64, name}]
+  const [attachedImages, setAttachedImages] = useState([])
   const [showModelPicker, setShowModelPicker] = useState(false)
   const [customModelInput, setCustomModelInput] = useState('')
 
-  const { activeChatId, addChatSession, updateChatSession, setActiveChatId } = useAppStore()
+  const { activeChatId, createSession, saveOnReply } = useChatSession({ compact, sideChatId, sessionId, store })
 
   const bottomRef = useRef(null)
   const fileInputRef = useRef(null)
@@ -77,13 +78,8 @@ export default function ChatPane({
     setInput('')
     setAttachedImages([])
 
-    // Create a session entry when main chat starts a new conversation
-    let sessionId = activeChatId
-    if (!compact && isFirstMessage) {
-      sessionId = uuidv4()
-      addChatSession({ id: sessionId, title: text.slice(0, 60), model })
-      setActiveChatId(sessionId)
-    }
+    let currentSessionId = activeChatId
+    if (!compact && isFirstMessage) currentSessionId = createSession(text, model)
 
     const streamId = addStreamingMessage()
     const ctrl = new AbortController()
@@ -113,12 +109,7 @@ export default function ChatPane({
         onToken: (_, full) => updateStreamingMessage(streamId, full),
         onDone: (full) => {
           finalizeMessage(streamId, full)
-          if (!compact && sessionId) {
-            const updatedMessages = store.getState().messages.map(m =>
-              m.id === streamId ? { ...m, content: full, isStreaming: false } : m
-            )
-            updateChatSession(sessionId, { messages: updatedMessages, model })
-          }
+          saveOnReply(streamId, full, model, currentSessionId)
         },
         signal: ctrl.signal,
       })

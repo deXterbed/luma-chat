@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { v4 as uuidv4 } from 'uuid'
+import { v4 as uuidv4 } from 'uuid' // used by addMessage / addStreamingMessage
 
 // Factory to create an independent chat store
 // Both main chat and side chat use this same factory — fully isolated state
@@ -80,26 +80,3 @@ export const createChatStore = (id) => create((set, get) => ({
 // Singleton stores — one for each pane
 export const useMainChat = createChatStore('main')
 export const useSideChat = createChatStore('side')
-
-// Global app store (sidebar, panel visibility, model list)
-export const useAppStore = create((set) => ({
-  sideChatOpen: false,
-  availableModels: [],
-  ollamaConnected: false,
-
-  // Chat history (sidebar list)
-  chatSessions: [],
-  activeChatId: null,
-
-  setSideChatOpen: (open) => set({ sideChatOpen: open }),
-  toggleSideChat: () => set(s => ({ sideChatOpen: !s.sideChatOpen })),
-
-  setAvailableModels: (models) => set({ models, ollamaConnected: true }),
-  setOllamaConnected: (v) => set({ ollamaConnected: v }),
-
-  addChatSession: (session) =>
-    set(s => ({ chatSessions: [session, ...s.chatSessions] })),
-  updateChatSession: (id, updates) =>
-    set(s => ({ chatSessions: s.chatSessions.map(c => c.id === id ? { ...c, ...updates } : c) })),
-  setActiveChatId: (id) => set({ activeChatId: id }),
-}))
