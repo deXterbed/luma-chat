@@ -1,7 +1,9 @@
 import { useRef, useEffect, useState, useCallback } from 'react'
 import { Send, Square, Paperclip, X, ChevronDown } from 'lucide-react'
+import { v4 as uuidv4 } from 'uuid'
 import MessageBubble from './MessageBubble'
 import { streamChat, fileToBase64 } from '../lib/ollama'
+import { useAppStore } from '../store/chatStore'
 
 const DEFAULT_MODELS = [
   'minimax-m3:cloud',
@@ -43,6 +45,8 @@ export default function ChatPane({
   const [showModelPicker, setShowModelPicker] = useState(false)
   const [customModelInput, setCustomModelInput] = useState('')
 
+  const { activeChatId, addChatSession, updateChatSession, setActiveChatId } = useAppStore()
+
   const bottomRef = useRef(null)
   const fileInputRef = useRef(null)
   const textareaRef = useRef(null)
@@ -67,10 +71,19 @@ export default function ChatPane({
 
     clearError()
 
+    const isFirstMessage = messages.length === 0
     const images = attachedImages.map(img => img.base64)
     addMessage('user', text, images)
     setInput('')
     setAttachedImages([])
+
+    // Create a session entry when main chat starts a new conversation
+    let sessionId = activeChatId
+    if (!compact && isFirstMessage) {
+      sessionId = uuidv4()
+      addChatSession({ id: sessionId, title: text.slice(0, 60), model })
+      setActiveChatId(sessionId)
+    }
 
     const streamId = addStreamingMessage()
     const ctrl = new AbortController()
@@ -98,7 +111,15 @@ export default function ChatPane({
         model,
         messages: messagesForApi,
         onToken: (_, full) => updateStreamingMessage(streamId, full),
-        onDone: (full) => finalizeMessage(streamId, full),
+        onDone: (full) => {
+          finalizeMessage(streamId, full)
+          if (!compact && sessionId) {
+            const updatedMessages = store.getState().messages.map(m =>
+              m.id === streamId ? { ...m, content: full, isStreaming: false } : m
+            )
+            updateChatSession(sessionId, { messages: updatedMessages, model })
+          }
+        },
         signal: ctrl.signal,
       })
     } catch (err) {

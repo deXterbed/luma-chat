@@ -61,6 +61,8 @@ export const createChatStore = (id) => create((set, get) => ({
 
   clearMessages: () => set({ messages: [], error: null }),
 
+  loadMessages: (messages, model) => set({ messages, model, error: null, isStreaming: false, abortController: null }),
+
   // Build messages array for Ollama API (includes image data)
   getApiMessages: () => {
     return get().messages
@@ -97,5 +99,7 @@ export const useAppStore = create((set) => ({
 
   addChatSession: (session) =>
     set(s => ({ chatSessions: [session, ...s.chatSessions] })),
+  updateChatSession: (id, updates) =>
+    set(s => ({ chatSessions: s.chatSessions.map(c => c.id === id ? { ...c, ...updates } : c) })),
   setActiveChatId: (id) => set({ activeChatId: id }),
 }))

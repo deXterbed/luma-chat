@@ -6,10 +6,17 @@ export default function Sidebar() {
   const { chatSessions, activeChatId, ollamaConnected, setActiveChatId } = useAppStore()
   const clearMain = useMainChat(s => s.clearMessages)
   const clearSide = useSideChat(s => s.clearMessages)
+  const loadMessages = useMainChat(s => s.loadMessages)
 
   const handleNewChat = () => {
     clearMain()
     clearSide()
+    setActiveChatId(null)
+  }
+
+  const handleLoadSession = (session) => {
+    if (session.messages) loadMessages(session.messages, session.model)
+    setActiveChatId(session.id)
   }
 
   return (
@@ -90,7 +97,7 @@ export default function Sidebar() {
         {chatSessions.map(session => (
           <button
             key={session.id}
-            onClick={() => setActiveChatId(session.id)}
+            onClick={() => handleLoadSession(session)}
             style={{
               width: '100%',
               padding: '7px 8px',
