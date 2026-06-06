@@ -1,5 +1,9 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron')
+const { app, BrowserWindow } = require('electron')
 const path = require('path')
+const db = require('./db')
+const ipc = require('./ipc')
+
+app.commandLine.appendSwitch('disable-gpu-shader-disk-cache')
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 
@@ -21,27 +25,21 @@ function createWindow() {
     icon: path.join(__dirname, '../src/assets/icon.ico'),
   })
 
+  ipc.register(win)
+
   if (isDev) {
     win.loadURL('http://localhost:5173')
   } else {
     win.loadFile(path.join(__dirname, '../dist/index.html'))
   }
-
-  // Window controls via IPC
-  ipcMain.on('window-minimize', () => win.minimize())
-  ipcMain.on('window-maximize', () => {
-    if (win.isMaximized()) win.unmaximize()
-    else win.maximize()
-  })
-  ipcMain.on('window-close', () => win.close())
-
-  ipcMain.handle('window-is-maximized', () => win.isMaximized())
-
-  win.on('maximize', () => win.webContents.send('window-maximized', true))
-  win.on('unmaximize', () => win.webContents.send('window-maximized', false))
 }
 
-app.whenReady().then(createWindow)
+app.whenReady().then(() => {
+  db.init()
+  createWindow()
+})
+
+app.on('before-quit', () => db.close())
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()

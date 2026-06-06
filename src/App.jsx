@@ -7,10 +7,12 @@ import SidePanel from './components/SidePanel'
 import { useAppStore } from './store/appStore'
 import { useMainChat } from './store/chatStore'
 import { fetchModels } from './lib/ollama'
+import { useDbInit } from './hooks/useDbInit'
 import './index.css'
 
 export default function App() {
   const { sideChatOpen, toggleSideChat, setAvailableModels, setOllamaConnected } = useAppStore()
+  useDbInit()
 
   useEffect(() => {
     fetchModels().then(models => {
