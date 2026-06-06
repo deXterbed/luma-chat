@@ -1,78 +1,95 @@
-import { useEffect, useRef, useState } from 'react'
-import ChatPane from './ChatPane'
-import { useAppStore } from '../store/appStore'
-import { useMainChat, useSideChat } from '../store/chatStore'
+import { useEffect, useRef, useState } from "react";
+import ChatPane from "./ChatPane";
+import { useAppStore } from "../store/appStore";
+import { useMainChat, useSideChat } from "../store/chatStore";
+import { getTheme } from "../theme";
 
 export default function SidePanel() {
-  const { chatSessions, activeChatId, addSideChat, setActiveSideChatId } = useAppStore()
+  const {
+    chatSessions,
+    activeChatId,
+    addSideChat,
+    setActiveSideChatId,
+    theme,
+  } = useAppStore();
+  const t = getTheme(theme);
 
-  const currentSession = chatSessions.find(s => s.id === activeChatId) ?? null
-  const sessionSideChats = currentSession?.sideChats ?? []
-  const activeSideChatId = currentSession?.activeSideChatId ?? null
+  const currentSession =
+    chatSessions.find((s) => s.id === activeChatId) ?? null;
+  const sessionSideChats = currentSession?.sideChats ?? [];
+  const activeSideChatId = currentSession?.activeSideChatId ?? null;
 
-  const [sideWidth, setSideWidth] = useState(380)
-  const isDragging = useRef(false)
-  const dragStartX = useRef(0)
-  const dragStartWidth = useRef(0)
+  const [sideWidth, setSideWidth] = useState(380);
+  const isDragging = useRef(false);
+  const dragStartX = useRef(0);
+  const dragStartWidth = useRef(0);
 
   // Resize drag
   const onMouseDown = (e) => {
-    isDragging.current = true
-    dragStartX.current = e.clientX
-    dragStartWidth.current = sideWidth
-    document.body.style.userSelect = 'none'
-    document.body.style.cursor = 'col-resize'
-  }
+    isDragging.current = true;
+    dragStartX.current = e.clientX;
+    dragStartWidth.current = sideWidth;
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+  };
 
   useEffect(() => {
     const onMouseMove = (e) => {
-      if (!isDragging.current) return
-      const delta = dragStartX.current - e.clientX
-      setSideWidth(Math.max(280, Math.min(600, dragStartWidth.current + delta)))
-    }
+      if (!isDragging.current) return;
+      const delta = dragStartX.current - e.clientX;
+      setSideWidth(
+        Math.max(280, Math.min(600, dragStartWidth.current + delta)),
+      );
+    };
     const onMouseUp = () => {
-      isDragging.current = false
-      document.body.style.userSelect = ''
-      document.body.style.cursor = ''
-    }
-    window.addEventListener('mousemove', onMouseMove)
-    window.addEventListener('mouseup', onMouseUp)
+      isDragging.current = false;
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+    };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
     return () => {
-      window.removeEventListener('mousemove', onMouseMove)
-      window.removeEventListener('mouseup', onMouseUp)
-    }
-  }, [])
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
 
   // Load the correct side chat when the active session changes
   useEffect(() => {
-    if (!activeChatId || !currentSession) return
+    if (!activeChatId || !currentSession) return;
     if (sessionSideChats.length === 0) {
-      addSideChat(activeChatId, useSideChat.getState().model)
-      useSideChat.getState().clearMessages()
+      addSideChat(activeChatId, useSideChat.getState().model);
+      useSideChat.getState().clearMessages();
     } else {
-      const sc = sessionSideChats.find(sc => sc.id === activeSideChatId) ?? sessionSideChats[0]
-      useSideChat.getState().loadMessages(sc.messages ?? [], sc.model ?? 'minimax-m3:cloud')
-      if (!activeSideChatId) setActiveSideChatId(activeChatId, sc.id)
+      const sc =
+        sessionSideChats.find((sc) => sc.id === activeSideChatId) ??
+        sessionSideChats[0];
+      useSideChat
+        .getState()
+        .loadMessages(sc.messages ?? [], sc.model ?? "minimax-m3:cloud");
+      if (!activeSideChatId) setActiveSideChatId(activeChatId, sc.id);
     }
-  }, [activeChatId])
+  }, [activeChatId]);
 
   // Clear side chat when no session is active
   useEffect(() => {
-    if (!activeChatId) useSideChat.getState().clearMessages()
-  }, [activeChatId])
+    if (!activeChatId) useSideChat.getState().clearMessages();
+  }, [activeChatId]);
 
   const handleAddSideChat = () => {
-    if (!activeChatId) return
-    addSideChat(activeChatId, useSideChat.getState().model)
-    useSideChat.getState().clearMessages()
-  }
+    if (!activeChatId) return;
+    addSideChat(activeChatId, useSideChat.getState().model);
+    useSideChat.getState().clearMessages();
+  };
 
   const handleSwitchSideChat = (id) => {
-    const sc = sessionSideChats.find(sc => sc.id === id)
-    if (!sc) return
-    useSideChat.getState().loadMessages(sc.messages ?? [], sc.model ?? 'minimax-m3:cloud')
-    setActiveSideChatId(activeChatId, id)
-  }
+    const sc = sessionSideChats.find((sc) => sc.id === id);
+    if (!sc) return;
+    useSideChat
+      .getState()
+      .loadMessages(sc.messages ?? [], sc.model ?? "minimax-m3:cloud");
+    setActiveSideChatId(activeChatId, id);
+  };
 
   return (
     <>
@@ -80,57 +97,74 @@ export default function SidePanel() {
       <div
         onMouseDown={onMouseDown}
         style={{
-          width: '4px',
-          background: '#1a1a1e',
-          cursor: 'col-resize',
+          width: "4px",
+          background: "var(--handlebar)",
+          cursor: "col-resize",
           flexShrink: 0,
-          transition: 'background 0.15s',
+          transition: "background 0.15s",
           zIndex: 10,
         }}
-        onMouseEnter={e => e.currentTarget.style.background = '#a78bfa44'}
-        onMouseLeave={e => e.currentTarget.style.background = '#1a1a1e'}
+        onMouseEnter={(e) =>
+          (e.currentTarget.style.background = t.accentSubtle)
+        }
+        onMouseLeave={(e) =>
+          (e.currentTarget.style.background = "var(--handlebar)")
+        }
       />
 
       {/* Panel */}
-      <div style={{
-        width: `${sideWidth}px`,
-        minWidth: '280px',
-        maxWidth: '600px',
-        borderLeft: '1px solid #1a1a1e',
-        overflow: 'hidden',
-        display: 'flex',
-        flexDirection: 'column',
-        animation: 'slideInRight 0.2s ease-out',
-      }}>
+      <div
+        style={{
+          width: `${sideWidth}px`,
+          minWidth: "280px",
+          maxWidth: "600px",
+          borderLeft: "1px solid var(--border)",
+          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column",
+          animation: "slideInRight 0.2s ease-out",
+        }}
+      >
         {/* Tab bar */}
         {activeSideChatId && (
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            borderBottom: '1px solid #1a1a1e',
-            background: '#0a0a0c',
-            flexShrink: 0,
-            overflowX: 'auto',
-            scrollbarWidth: 'none',
-          }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              borderBottom: "1px solid var(--border)",
+              background: "var(--bg-alt)",
+              flexShrink: 0,
+              overflowX: "auto",
+              scrollbarWidth: "none",
+            }}
+          >
             {sessionSideChats.map((sc, i) => (
               <button
                 key={sc.id}
                 onClick={() => handleSwitchSideChat(sc.id)}
                 style={{
-                  padding: '6px 14px',
-                  background: 'transparent',
-                  border: 'none',
-                  borderBottom: sc.id === activeSideChatId ? '2px solid #a78bfa' : '2px solid transparent',
-                  color: sc.id === activeSideChatId ? '#a78bfa' : '#404050',
-                  fontSize: '10px',
+                  padding: "6px 14px",
+                  background: "transparent",
+                  border: "none",
+                  borderBottom:
+                    sc.id === activeSideChatId
+                      ? "2px solid " + t.accent
+                      : "2px solid transparent",
+                  color: sc.id === activeSideChatId ? t.accent : t.textFaint,
+                  fontSize: "10px",
                   fontFamily: "'JetBrains Mono', monospace",
-                  cursor: 'pointer',
+                  cursor: "pointer",
                   flexShrink: 0,
-                  transition: 'color 0.15s',
+                  transition: "color 0.15s",
                 }}
-                onMouseEnter={e => { if (sc.id !== activeSideChatId) e.currentTarget.style.color = '#8080a0' }}
-                onMouseLeave={e => { if (sc.id !== activeSideChatId) e.currentTarget.style.color = '#404050' }}
+                onMouseEnter={(e) => {
+                  if (sc.id !== activeSideChatId)
+                    e.currentTarget.style.color = t.textSubtle;
+                }}
+                onMouseLeave={(e) => {
+                  if (sc.id !== activeSideChatId)
+                    e.currentTarget.style.color = t.textFaint;
+                }}
               >
                 {i + 1}
               </button>
@@ -138,18 +172,18 @@ export default function SidePanel() {
             <button
               onClick={handleAddSideChat}
               style={{
-                padding: '4px 10px',
-                background: 'transparent',
-                border: 'none',
-                color: '#404050',
-                fontSize: '14px',
-                cursor: 'pointer',
+                padding: "4px 10px",
+                background: "transparent",
+                border: "none",
+                color: t.textFaint,
+                fontSize: "14px",
+                cursor: "pointer",
                 flexShrink: 0,
                 lineHeight: 1,
-                transition: 'color 0.15s',
+                transition: "color 0.15s",
               }}
-              onMouseEnter={e => e.currentTarget.style.color = '#a78bfa'}
-              onMouseLeave={e => e.currentTarget.style.color = '#404050'}
+              onMouseEnter={(e) => (e.currentTarget.style.color = t.accent)}
+              onMouseLeave={(e) => (e.currentTarget.style.color = t.textFaint)}
               title="New side chat"
             >
               +
@@ -157,9 +191,9 @@ export default function SidePanel() {
           </div>
         )}
 
-        <div style={{ flex: 1, overflow: 'hidden' }}>
+        <div style={{ flex: 1, overflow: "hidden" }}>
           <ChatPane
-            key={activeSideChatId ?? 'default'}
+            key={activeSideChatId ?? "default"}
             store={useSideChat}
             contextStore={useMainChat}
             sideChatId={activeSideChatId}
@@ -171,5 +205,5 @@ export default function SidePanel() {
         </div>
       </div>
     </>
-  )
+  );
 }

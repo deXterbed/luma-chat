@@ -1,28 +1,30 @@
-import { useRef, useEffect, useState, useCallback } from 'react'
-import { Send, Square, Paperclip, X, ChevronDown } from 'lucide-react'
-import MessageBubble from './MessageBubble'
-import { streamChat, fileToBase64 } from '../lib/ollama'
-import { useChatSession } from '../hooks/useChatSession'
+import { useRef, useEffect, useState, useCallback } from "react";
+import { Send, Square, Paperclip, X, ChevronDown } from "lucide-react";
+import MessageBubble from "./MessageBubble";
+import { streamChat, fileToBase64 } from "../lib/ollama";
+import { useChatSession } from "../hooks/useChatSession";
+import { useAppStore } from "../store/appStore";
+import { getTheme } from "../theme";
 
 const DEFAULT_MODELS = [
-  'minimax-m3:cloud',
-  'kimi-k2.6:cloud',
-  'glm-5.1:cloud',
-  'qwen3.5:cloud',
-  'nemotron-3-super:cloud',
-  'gemma4:31b-cloud',
-  'gemma4',
-  'qwen3.6',
-]
+  "minimax-m3:cloud",
+  "kimi-k2.6:cloud",
+  "glm-5.1:cloud",
+  "qwen3.5:cloud",
+  "nemotron-3-super:cloud",
+  "gemma4:31b-cloud",
+  "gemma4",
+  "qwen3.6",
+];
 
 export default function ChatPane({
   store,
   contextStore,
-  sideChatId,   // set on side chat panes to scope saving to the session
-  sessionId,    // the main chat session this pane belongs to
-  placeholder = 'Ask anything…',
+  sideChatId,
+  sessionId,
+  placeholder = "Ask anything…",
   compact = false,
-  label = 'Chat',
+  label = "Chat",
 }) {
   const {
     messages,
@@ -39,67 +41,82 @@ export default function ChatPane({
     setAbortController,
     stopStreaming,
     getApiMessages,
-  } = store()
+  } = store();
 
-  const [input, setInput] = useState('')
-  const [attachedImages, setAttachedImages] = useState([])
-  const [showModelPicker, setShowModelPicker] = useState(false)
-  const [customModelInput, setCustomModelInput] = useState('')
+  const [input, setInput] = useState("");
+  const [attachedImages, setAttachedImages] = useState([]);
+  const [showModelPicker, setShowModelPicker] = useState(false);
+  const [customModelInput, setCustomModelInput] = useState("");
 
-  const { activeChatId, createSession, saveOnReply } = useChatSession({ compact, sideChatId, sessionId, store })
+  const { activeChatId, createSession, saveOnReply } = useChatSession({
+    compact,
+    sideChatId,
+    sessionId,
+    store,
+  });
 
-  const bottomRef = useRef(null)
-  const fileInputRef = useRef(null)
-  const textareaRef = useRef(null)
+  const theme = useAppStore((s) => s.theme);
+  const t = getTheme(theme);
 
-  // Auto scroll to bottom on new messages
+  const bottomRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const textareaRef = useRef(null);
+
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
-  // Auto resize textarea
   useEffect(() => {
     if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto'
-      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 160) + 'px'
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height =
+        Math.min(textareaRef.current.scrollHeight, 160) + "px";
     }
-  }, [input])
+  }, [input]);
 
   const handleSend = useCallback(async () => {
-    const text = input.trim()
-    if (!text && attachedImages.length === 0) return
-    if (isStreaming) return
+    const text = input.trim();
+    if (!text && attachedImages.length === 0) return;
+    if (isStreaming) return;
 
-    clearError()
+    clearError();
 
-    const isFirstMessage = messages.length === 0
-    const images = attachedImages.map(img => img.base64)
-    addMessage('user', text, images)
-    setInput('')
-    setAttachedImages([])
+    const isFirstMessage = messages.length === 0;
+    const images = attachedImages.map((img) => img.base64);
+    addMessage("user", text, images);
+    setInput("");
+    setAttachedImages([]);
 
-    let currentSessionId = activeChatId
-    if (!compact && isFirstMessage) currentSessionId = createSession(text, model)
+    let currentSessionId = activeChatId;
+    if (!compact && isFirstMessage)
+      currentSessionId = createSession(text, model);
 
-    const streamId = addStreamingMessage()
-    const ctrl = new AbortController()
-    setAbortController(ctrl)
+    const streamId = addStreamingMessage();
+    const ctrl = new AbortController();
+    setAbortController(ctrl);
 
     try {
-      const apiMessages = getApiMessages()
-      // Remove the empty streaming placeholder from api messages
-      let messagesForApi = apiMessages.filter(m => m.content !== '' || (m.images && m.images.length > 0))
+      const apiMessages = getApiMessages();
+      let messagesForApi = apiMessages.filter(
+        (m) => m.content !== "" || (m.images && m.images.length > 0),
+      );
 
       if (contextStore) {
-        const ctxMessages = contextStore.getState().getApiMessages()
+        const ctxMessages = contextStore.getState().getApiMessages();
         if (ctxMessages.length > 0) {
           const transcript = ctxMessages
-            .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
-            .join('\n\n')
+            .map(
+              (m) =>
+                `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`,
+            )
+            .join("\n\n");
           messagesForApi = [
-            { role: 'system', content: `The following is the conversation from the main chat. Use it as context when answering the user's questions.\n\n${transcript}` },
+            {
+              role: "system",
+              content: `The following is the conversation from the main chat. Use it as context when answering the user's questions.\n\n${transcript}`,
+            },
             ...messagesForApi,
-          ]
+          ];
         }
       }
 
@@ -108,192 +125,228 @@ export default function ChatPane({
         messages: messagesForApi,
         onToken: (_, full) => updateStreamingMessage(streamId, full),
         onDone: (full) => {
-          finalizeMessage(streamId, full)
-          saveOnReply(streamId, full, model, currentSessionId)
+          finalizeMessage(streamId, full);
+          saveOnReply(streamId, full, model, currentSessionId);
         },
         signal: ctrl.signal,
-      })
+      });
     } catch (err) {
-      if (err.name === 'AbortError') {
-        finalizeMessage(streamId, store().messages.find(m => m.id === streamId)?.content || '')
+      if (err.name === "AbortError") {
+        finalizeMessage(
+          streamId,
+          store().messages.find((m) => m.id === streamId)?.content || "",
+        );
       } else {
-        finalizeMessage(streamId, '')
-        setError(err.message)
+        finalizeMessage(streamId, "");
+        setError(err.message);
       }
     }
-  }, [input, attachedImages, isStreaming, model])
+  }, [input, attachedImages, isStreaming, model]);
 
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
     }
-  }
+  };
 
   const handleFileAttach = async (e) => {
-    const files = Array.from(e.target.files)
-    const imageFiles = files.filter(f => f.type.startsWith('image/'))
+    const files = Array.from(e.target.files);
+    const imageFiles = files.filter((f) => f.type.startsWith("image/"));
     const converted = await Promise.all(
       imageFiles.map(async (f) => ({
         base64: await fileToBase64(f),
         name: f.name,
         preview: URL.createObjectURL(f),
-      }))
-    )
-    setAttachedImages(prev => [...prev, ...converted])
-    e.target.value = ''
-  }
+      })),
+    );
+    setAttachedImages((prev) => [...prev, ...converted]);
+    e.target.value = "";
+  };
 
   const removeImage = (index) => {
-    setAttachedImages(prev => prev.filter((_, i) => i !== index))
-  }
+    setAttachedImages((prev) => prev.filter((_, i) => i !== index));
+  };
 
   const handlePaste = useCallback(async (e) => {
-    const items = Array.from(e.clipboardData?.items || [])
-    const imageItems = items.filter(item => item.type.startsWith('image/'))
-    if (imageItems.length === 0) return
-    e.preventDefault()
+    const items = Array.from(e.clipboardData?.items || []);
+    const imageItems = items.filter((item) => item.type.startsWith("image/"));
+    if (imageItems.length === 0) return;
+    e.preventDefault();
     const converted = await Promise.all(
       imageItems.map(async (item) => {
-        const file = item.getAsFile()
+        const file = item.getAsFile();
         return {
           base64: await fileToBase64(file),
-          name: file.name || 'pasted-image.png',
+          name: file.name || "pasted-image.png",
           preview: URL.createObjectURL(file),
-        }
-      })
-    )
-    setAttachedImages(prev => [...prev, ...converted])
-  }, [])
+        };
+      }),
+    );
+    setAttachedImages((prev) => [...prev, ...converted]);
+  }, []);
 
-  const canAttachImages = true
+  const canAttachImages = true;
 
-  const px = compact ? '12px' : '20px'
+  const px = compact ? "12px" : "20px";
 
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      height: '100%',
-      background: '#0e0e10',
-      position: 'relative',
-    }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        background: "var(--bg)",
+        position: "relative",
+      }}
+    >
       {/* Pane header */}
-      <div style={{
-        padding: `10px ${px}`,
-        borderBottom: '1px solid #1a1a1e',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        flexShrink: 0,
-        background: '#0a0a0c',
-      }}>
-        <span style={{
-          fontFamily: "'Syne', sans-serif",
-          fontSize: compact ? '10px' : '11px',
-          fontWeight: '600',
-          color: '#404050',
-          textTransform: 'uppercase',
-          letterSpacing: '0.1em',
-        }}>
+      <div
+        style={{
+          padding: `10px ${px}`,
+          borderBottom: "1px solid var(--border)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexShrink: 0,
+          background: "var(--bg-alt)",
+        }}
+      >
+        <span
+          style={{
+            fontFamily: "'Syne', sans-serif",
+            fontSize: compact ? "10px" : "11px",
+            fontWeight: "600",
+            color: "var(--text-faint)",
+            textTransform: "uppercase",
+            letterSpacing: "0.1em",
+          }}
+        >
           {label}
         </span>
 
         {/* Model selector */}
-        <div style={{ position: 'relative' }}>
+        <div style={{ position: "relative" }}>
           <button
             onClick={() => setShowModelPicker(!showModelPicker)}
             style={{
-              background: '#141418',
-              border: '1px solid #2a2a30',
-              borderRadius: '5px',
-              padding: '4px 8px',
-              color: '#7070a0',
-              fontSize: '10px',
+              background: "var(--surface)",
+              border: "1px solid var(--border-strong)",
+              borderRadius: "5px",
+              padding: "4px 8px",
+              color: "var(--accent-dim)",
+              fontSize: "10px",
               fontFamily: "'JetBrains Mono', monospace",
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '5px',
-              transition: 'all 0.15s',
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+              transition: "all 0.15s",
             }}
-            onMouseEnter={e => e.currentTarget.style.borderColor = '#4a4a5a'}
-            onMouseLeave={e => e.currentTarget.style.borderColor = '#2a2a30'}
+            onMouseEnter={(e) =>
+              (e.currentTarget.style.borderColor = t.textSubtle)
+            }
+            onMouseLeave={(e) =>
+              (e.currentTarget.style.borderColor = t.borderStrong)
+            }
           >
-            <span style={{ maxWidth: compact ? '100px' : '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <span
+              style={{
+                maxWidth: compact ? "100px" : "160px",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
               {model}
             </span>
             <ChevronDown size={9} />
           </button>
 
           {showModelPicker && (
-            <div style={{
-              position: 'absolute',
-              top: '100%',
-              right: 0,
-              marginTop: '4px',
-              background: '#141418',
-              border: '1px solid #2a2a30',
-              borderRadius: '7px',
-              overflow: 'hidden',
-              zIndex: 100,
-              minWidth: '200px',
-              boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
-            }}>
-              {DEFAULT_MODELS.map(m => (
+            <div
+              style={{
+                position: "absolute",
+                top: "100%",
+                right: 0,
+                marginTop: "4px",
+                background: "var(--surface)",
+                border: "1px solid var(--border-strong)",
+                borderRadius: "7px",
+                overflow: "hidden",
+                zIndex: 100,
+                minWidth: "200px",
+                boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+              }}
+            >
+              {DEFAULT_MODELS.map((m) => (
                 <button
                   key={m}
-                  onClick={() => { setModel(m); setShowModelPicker(false) }}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    background: m === model ? '#1e1e2a' : 'transparent',
-                    border: 'none',
-                    color: m === model ? '#a78bfa' : '#8080a0',
-                    fontSize: '11px',
-                    fontFamily: "'JetBrains Mono', monospace",
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    transition: 'background 0.1s',
+                  onClick={() => {
+                    setModel(m);
+                    setShowModelPicker(false);
                   }}
-                  onMouseEnter={e => { if (m !== model) e.currentTarget.style.background = '#1a1a22' }}
-                  onMouseLeave={e => { if (m !== model) e.currentTarget.style.background = 'transparent' }}
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    background: m === model ? t.surfaceActive : "transparent",
+                    border: "none",
+                    color: m === model ? t.accent : t.textSubtle,
+                    fontSize: "11px",
+                    fontFamily: "'JetBrains Mono', monospace",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    transition: "background 0.1s",
+                  }}
+                  onMouseEnter={(e) => {
+                    if (m !== model)
+                      e.currentTarget.style.background = t.surface;
+                  }}
+                  onMouseLeave={(e) => {
+                    if (m !== model)
+                      e.currentTarget.style.background = "transparent";
+                  }}
                 >
                   {m}
                 </button>
               ))}
-              <div style={{ borderTop: '1px solid #1e1e24', padding: '6px 8px' }}>
+              <div
+                style={{
+                  borderTop: "1px solid var(--border)",
+                  padding: "6px 8px",
+                }}
+              >
                 <input
                   autoFocus
                   value={customModelInput}
-                  onChange={e => setCustomModelInput(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && customModelInput.trim()) {
-                      setModel(customModelInput.trim())
-                      setCustomModelInput('')
-                      setShowModelPicker(false)
+                  onChange={(e) => setCustomModelInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && customModelInput.trim()) {
+                      setModel(customModelInput.trim());
+                      setCustomModelInput("");
+                      setShowModelPicker(false);
                     }
-                    e.stopPropagation()
+                    e.stopPropagation();
                   }}
-                  onClick={e => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
                   placeholder="custom model…"
                   style={{
-                    width: '100%',
-                    background: '#0e0e12',
-                    border: '1px solid #2a2a30',
-                    borderRadius: '4px',
-                    padding: '5px 8px',
-                    color: '#c0c0cc',
-                    fontSize: '11px',
+                    width: "100%",
+                    background: "var(--bg)",
+                    border: "1px solid var(--border-strong)",
+                    borderRadius: "4px",
+                    padding: "5px 8px",
+                    color: "var(--input-text)",
+                    fontSize: "11px",
                     fontFamily: "'JetBrains Mono', monospace",
-                    outline: 'none',
-                    boxSizing: 'border-box',
+                    outline: "none",
+                    boxSizing: "border-box",
                   }}
-                  onFocus={e => e.target.style.borderColor = '#a78bfa55'}
-                  onBlur={e => e.target.style.borderColor = '#2a2a30'}
+                  onFocus={(e) => (e.target.style.borderColor = t.accentSubtle)}
+                  onBlur={(e) => (e.target.style.borderColor = t.borderStrong)}
                 />
               </div>
             </div>
@@ -306,64 +359,74 @@ export default function ChatPane({
         onClick={() => setShowModelPicker(false)}
         style={{
           flex: 1,
-          overflowY: 'auto',
-          padding: compact ? '16px 14px' : '24px 20px',
-          scrollbarWidth: 'thin',
-          scrollbarColor: '#2a2a30 transparent',
+          overflowY: "auto",
+          padding: compact ? "16px 14px" : "24px 20px",
+          scrollbarWidth: "thin",
+          scrollbarColor: "var(--scrollbar) transparent",
         }}
       >
         {messages.length === 0 && (
-          <div style={{
-            height: '100%',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '8px',
-            opacity: 0.25,
-          }}>
-            <div style={{
-              width: compact ? '28px' : '36px',
-              height: compact ? '28px' : '36px',
-              borderRadius: '50%',
-              background: 'linear-gradient(135deg, #a78bfa22, #60a5fa22)',
-              border: '1px solid #a78bfa33',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}>
-              <div style={{
-                width: compact ? '8px' : '10px',
-                height: compact ? '8px' : '10px',
-                borderRadius: '50%',
-                background: 'linear-gradient(135deg, #a78bfa, #60a5fa)',
-              }} />
+          <div
+            style={{
+              height: "100%",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+              opacity: 0.25,
+            }}
+          >
+            <div
+              style={{
+                width: compact ? "28px" : "36px",
+                height: compact ? "28px" : "36px",
+                borderRadius: "50%",
+                background: "linear-gradient(135deg, #a78bfa22, #60a5fa22)",
+                border: "1px solid #a78bfa33",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <div
+                style={{
+                  width: compact ? "8px" : "10px",
+                  height: compact ? "8px" : "10px",
+                  borderRadius: "50%",
+                  background: "linear-gradient(135deg, #a78bfa, #60a5fa)",
+                }}
+              />
             </div>
-            <span style={{
-              fontFamily: "'Syne', sans-serif",
-              fontSize: compact ? '11px' : '12px',
-              color: '#6060a0',
-            }}>
+            <span
+              style={{
+                fontFamily: "'Syne', sans-serif",
+                fontSize: compact ? "11px" : "12px",
+                color: t.accentDim,
+              }}
+            >
               {placeholder}
             </span>
           </div>
         )}
 
-        {messages.map(msg => (
+        {messages.map((msg) => (
           <MessageBubble key={msg.id} message={msg} />
         ))}
 
         {error && (
-          <div style={{
-            padding: '10px 14px',
-            background: '#1a0a0a',
-            border: '1px solid #4a1a1a',
-            borderRadius: '6px',
-            color: '#f87171',
-            fontSize: '12px',
-            fontFamily: "'JetBrains Mono', monospace",
-            marginBottom: '12px',
-          }}>
+          <div
+            style={{
+              padding: "10px 14px",
+              background: "var(--error-bg)",
+              border: "1px solid var(--error-border)",
+              borderRadius: "6px",
+              color: "var(--status-err)",
+              fontSize: "12px",
+              fontFamily: "'JetBrains Mono', monospace",
+              marginBottom: "12px",
+            }}
+          >
             {error}
           </div>
         )}
@@ -373,42 +436,47 @@ export default function ChatPane({
 
       {/* Image previews */}
       {attachedImages.length > 0 && (
-        <div style={{
-          padding: '8px 14px 0',
-          display: 'flex',
-          gap: '6px',
-          flexWrap: 'wrap',
-          borderTop: '1px solid #1a1a1e',
-        }}>
+        <div
+          style={{
+            padding: "8px 14px 0",
+            display: "flex",
+            gap: "6px",
+            flexWrap: "wrap",
+            borderTop: "1px solid var(--border)",
+          }}
+        >
           {attachedImages.map((img, i) => (
-            <div key={i} style={{ position: 'relative', display: 'inline-flex' }}>
+            <div
+              key={i}
+              style={{ position: "relative", display: "inline-flex" }}
+            >
               <img
                 src={img.preview}
                 alt={img.name}
                 style={{
-                  width: '52px',
-                  height: '52px',
-                  objectFit: 'cover',
-                  borderRadius: '5px',
-                  border: '1px solid #2a2a30',
+                  width: "52px",
+                  height: "52px",
+                  objectFit: "cover",
+                  borderRadius: "5px",
+                  border: "1px solid var(--border-strong)",
                 }}
               />
               <button
                 onClick={() => removeImage(i)}
                 style={{
-                  position: 'absolute',
-                  top: '-4px',
-                  right: '-4px',
-                  width: '16px',
-                  height: '16px',
-                  borderRadius: '50%',
-                  background: '#2a2a3a',
-                  border: '1px solid #3a3a4a',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#c0c0cc',
+                  position: "absolute",
+                  top: "-4px",
+                  right: "-4px",
+                  width: "16px",
+                  height: "16px",
+                  borderRadius: "50%",
+                  background: t.surface,
+                  border: "1px solid var(--border-strong)",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "var(--text-subtle)",
                 }}
               >
                 <X size={8} />
@@ -419,23 +487,25 @@ export default function ChatPane({
       )}
 
       {/* Input area */}
-      <div style={{
-        padding: compact ? '10px 12px' : '14px 16px',
-        borderTop: '1px solid #1a1a1e',
-        background: '#0a0a0c',
-        flexShrink: 0,
-      }}>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          background: '#141418',
-          border: '1px solid #2a2a30',
-          borderRadius: '8px',
-          padding: '8px 10px',
-          transition: 'border-color 0.15s',
+      <div
+        style={{
+          padding: compact ? "10px 12px" : "14px 16px",
+          borderTop: "1px solid var(--border)",
+          background: "var(--bg-alt)",
+          flexShrink: 0,
         }}
-          onFocus={() => {}}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            background: "var(--surface)",
+            border: "1px solid var(--border-strong)",
+            borderRadius: "8px",
+            padding: "8px 10px",
+            transition: "border-color 0.15s",
+          }}
         >
           {/* File attach for vision models */}
           {canAttachImages && (
@@ -445,22 +515,24 @@ export default function ChatPane({
                 type="file"
                 accept="image/*"
                 multiple
-                style={{ display: 'none' }}
+                style={{ display: "none" }}
                 onChange={handleFileAttach}
               />
               <button
                 onClick={() => fileInputRef.current?.click()}
                 style={{
-                  background: 'transparent',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: '#404050',
-                  padding: '2px',
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "var(--text-faint)",
+                  padding: "2px",
                   flexShrink: 0,
-                  transition: 'color 0.15s',
+                  transition: "color 0.15s",
                 }}
-                onMouseEnter={e => e.currentTarget.style.color = '#a78bfa'}
-                onMouseLeave={e => e.currentTarget.style.color = '#404050'}
+                onMouseEnter={(e) => (e.currentTarget.style.color = t.accent)}
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.color = t.textFaint)
+                }
                 title="Attach image"
               >
                 <Paperclip size={14} />
@@ -471,23 +543,23 @@ export default function ChatPane({
           <textarea
             ref={textareaRef}
             value={input}
-            onChange={e => setInput(e.target.value)}
+            onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             placeholder={placeholder}
             rows={1}
             style={{
               flex: 1,
-              background: 'transparent',
-              border: 'none',
-              outline: 'none',
-              color: '#d4d4dc',
-              fontSize: compact ? '13px' : '14px',
+              background: "transparent",
+              border: "none",
+              outline: "none",
+              color: "var(--text)",
+              fontSize: compact ? "13px" : "14px",
               fontFamily: "system-ui, sans-serif",
               lineHeight: 1.5,
-              resize: 'none',
-              overflowY: 'hidden',
-              caretColor: '#a78bfa',
+              resize: "none",
+              overflowY: "hidden",
+              caretColor: "var(--caret)",
             }}
           />
 
@@ -495,42 +567,49 @@ export default function ChatPane({
             <button
               onClick={stopStreaming}
               style={{
-                background: '#1e1e2e',
-                border: '1px solid #3a3a4a',
-                borderRadius: '5px',
-                width: '28px',
-                height: '28px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#f87171',
+                background: "var(--user-bubble)",
+                border: "1px solid var(--border-strong)",
+                borderRadius: "5px",
+                width: "28px",
+                height: "28px",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "var(--send-icon)",
                 flexShrink: 0,
-                transition: 'all 0.15s',
+                transition: "all 0.15s",
               }}
               title="Stop"
             >
-              <Square size={11} fill="#f87171" />
+              <Square size={11} fill="var(--send-icon)" />
             </button>
           ) : (
             <button
               onClick={handleSend}
               disabled={!input.trim() && attachedImages.length === 0}
               style={{
-                background: input.trim() || attachedImages.length > 0
-                  ? 'linear-gradient(135deg, #7c3aed, #3b82f6)'
-                  : '#1a1a22',
-                border: 'none',
-                borderRadius: '5px',
-                width: '28px',
-                height: '28px',
-                cursor: input.trim() || attachedImages.length > 0 ? 'pointer' : 'default',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: input.trim() || attachedImages.length > 0 ? '#fff' : '#404050',
+                background:
+                  input.trim() || attachedImages.length > 0
+                    ? "linear-gradient(135deg, #7c3aed, #3b82f6)"
+                    : "var(--send-disabled)",
+                border: "none",
+                borderRadius: "5px",
+                width: "28px",
+                height: "28px",
+                cursor:
+                  input.trim() || attachedImages.length > 0
+                    ? "pointer"
+                    : "default",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color:
+                  input.trim() || attachedImages.length > 0
+                    ? "#fff"
+                    : "var(--text-faint)",
                 flexShrink: 0,
-                transition: 'all 0.15s',
+                transition: "all 0.15s",
               }}
               title="Send (Enter)"
             >
@@ -539,16 +618,19 @@ export default function ChatPane({
           )}
         </div>
 
-        <div style={{
-          marginTop: '5px',
-          fontSize: '9px',
-          color: '#2a2a38',
-          fontFamily: "'JetBrains Mono', monospace",
-          textAlign: 'right',
-        }}>
+        <div
+          style={{
+            marginTop: "5px",
+            fontSize: "9px",
+            color: "var(--text-faint)",
+            opacity: 0.6,
+            fontFamily: "'JetBrains Mono', monospace",
+            textAlign: "right",
+          }}
+        >
           Enter to send · Shift+Enter for newline
         </div>
       </div>
     </div>
-  )
+  );
 }

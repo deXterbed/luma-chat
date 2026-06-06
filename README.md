@@ -11,6 +11,8 @@ A dual-pane AI chat desktop app built with Electron, React, and [Ollama](https:/
 - **Vision model support** — attach images via file picker or paste from clipboard
 - **Clipboard paste** — paste images directly into the input (Ctrl+V / Cmd+V)
 - **Resizable side panel** — drag the divider to resize
+- **Light & dark themes** — toggle in the title bar; choice persists, with OS `prefers-color-scheme` fallback
+- **Persistent chat history** — sessions, messages, and side chats are saved locally via SQLite (better-sqlite3) and restored on launch
 
 ## Requirements
 
@@ -37,4 +39,6 @@ Outputs an NSIS installer to `dist-electron/`.
 - **Electron** — desktop shell
 - **React + Vite** — UI
 - **Zustand** — state management
+- **better-sqlite3** — local persistence
+- **Tailwind CSS** — utility classes
 - **Ollama API** — local and cloud model inference
