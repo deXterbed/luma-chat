@@ -61,10 +61,31 @@ export default function ChatPane({
   const bottomRef = useRef(null);
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
+  const scrollContainerRef = useRef(null);
+  // True when the user is "following" the latest content (i.e. near the
+  // bottom). Flipped off as soon as they scroll up, and re-enabled for
+  // every new response/turn via setAutoScroll(true).
+  const autoScrollRef = useRef(true);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Only follow the bottom if the user is still following. If they've
+    // scrolled up to read earlier content, don't yank them back down.
+    if (autoScrollRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages]);
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      // 50px threshold — close enough to the bottom counts as "following"
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+      autoScrollRef.current = atBottom;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -86,6 +107,9 @@ export default function ChatPane({
     addMessage("user", text, images);
     setInput("");
     setAttachedImages([]);
+    // A new turn just started — resume following the latest content
+    // for this response, regardless of where the user had scrolled.
+    autoScrollRef.current = true;
 
     let currentSessionId = activeChatId;
     if (!compact && isFirstMessage)
@@ -94,6 +118,9 @@ export default function ChatPane({
     const streamId = addStreamingMessage();
     const ctrl = new AbortController();
     setAbortController(ctrl);
+    // Make sure we stick to the bottom for the new assistant response
+    // even if the user had scrolled up between turns.
+    autoScrollRef.current = true;
 
     try {
       const apiMessages = getApiMessages();
@@ -214,7 +241,7 @@ export default function ChatPane({
       >
         <span
           style={{
-            fontFamily: "'Syne', sans-serif",
+            fontFamily: "'Geist', sans-serif",
             fontSize: compact ? "10px" : "11px",
             fontWeight: "600",
             color: "var(--text-faint)",
@@ -356,6 +383,7 @@ export default function ChatPane({
 
       {/* Messages */}
       <div
+        ref={scrollContainerRef}
         onClick={() => setShowModelPicker(false)}
         style={{
           flex: 1,
@@ -400,7 +428,7 @@ export default function ChatPane({
             </div>
             <span
               style={{
-                fontFamily: "'Syne', sans-serif",
+                fontFamily: "'Geist', sans-serif",
                 fontSize: compact ? "11px" : "12px",
                 color: t.accentDim,
               }}

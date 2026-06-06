@@ -53,7 +53,7 @@ export default function TitleBar() {
         />
         <span
           style={{
-            fontFamily: "'Syne', sans-serif",
+            fontFamily: "'Geist', sans-serif",
             fontSize: "12px",
             fontWeight: "600",
             color: "var(--text-muted)",

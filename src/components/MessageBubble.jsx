@@ -90,14 +90,18 @@ export default function MessageBubble({ message }) {
           color: t.text,
           fontSize: "13px",
           lineHeight: 1.65,
-          fontFamily: isUser
-            ? "'Syne', sans-serif"
-            : "'JetBrains Mono', monospace",
-          fontWeight: isUser ? "400" : "300",
+          fontFamily: "'JetBrains Mono', monospace",
         }}
       >
         {isUser ? (
-          <span style={{ whiteSpace: "pre-wrap" }}>{message.content}</span>
+          <span
+            style={{
+              whiteSpace: "pre-wrap",
+              fontFamily: "'JetBrains Mono', monospace",
+            }}
+          >
+            {message.content}
+          </span>
         ) : (
           <div
             className="markdown-body"

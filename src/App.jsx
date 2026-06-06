@@ -30,7 +30,7 @@ export default function App() {
         width: "100vw",
         background: "var(--bg)",
         overflow: "hidden",
-        fontFamily: "'Syne', sans-serif",
+        fontFamily: "'Geist', sans-serif",
       }}
     >
       <TitleBar />
@@ -70,7 +70,7 @@ export default function App() {
                 padding: "4px 10px",
                 color: sideChatOpen ? t.accent : t.textFaint,
                 fontSize: "11px",
-                fontFamily: "'Syne', sans-serif",
+                fontFamily: "'Geist', sans-serif",
                 fontWeight: "500",
                 cursor: "pointer",
                 display: "flex",
@@ -112,13 +112,17 @@ export default function App() {
               style={{
                 flex: 1,
                 overflow: "hidden",
-                transition: "flex 0.25s ease",
+                borderRight: sideChatOpen
+                  ? "1px solid var(--border)"
+                  : "1px solid transparent",
+                transition: "flex 0.25s ease, border-color 0.2s ease",
               }}
             >
               <ChatPane
                 store={useMainChat}
                 placeholder="Ask anything…"
                 label="Main Chat"
+                compact={sideChatOpen}
               />
             </div>
             {sideChatOpen && <SidePanel />}

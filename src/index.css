@@ -185,7 +185,7 @@ body,
 .markdown-body h2,
 .markdown-body h3 {
     color: var(--md-heading);
-    font-family: "Syne", sans-serif;
+    font-family: "Geist", sans-serif;
     font-weight: 600;
     margin: 12px 0 6px;
 }

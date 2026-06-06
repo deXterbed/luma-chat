@@ -36,7 +36,7 @@ export default function Sidebar() {
         borderRight: "1px solid var(--border)",
         display: "flex",
         flexDirection: "column",
-        fontFamily: "'Syne', sans-serif",
+        fontFamily: "'Geist', sans-serif",
       }}
     >
       {/* New chat button */}
@@ -51,7 +51,7 @@ export default function Sidebar() {
             borderRadius: "6px",
             color: "var(--text-subtle)",
             fontSize: "12px",
-            fontFamily: "'Syne', sans-serif",
+            fontFamily: "'Geist', sans-serif",
             fontWeight: "500",
             cursor: "pointer",
             display: "flex",
@@ -123,7 +123,7 @@ export default function Sidebar() {
               borderRadius: "5px",
               color: activeChatId === session.id ? t.text : t.textMuted,
               fontSize: "12px",
-              fontFamily: "'Syne', sans-serif",
+              fontFamily: "'Geist', sans-serif",
               cursor: "pointer",
               display: "flex",
               alignItems: "center",
