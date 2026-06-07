@@ -55,7 +55,7 @@ export function isVisionModel(modelName) {
 //
 // When the model decides to use a tool, we execute it, append the result
 // as a `role: "tool"` message, and re-call the model. The loop runs up to
-// `maxToolRounds` times (default 8) to prevent runaway iteration.
+// `maxToolRounds` times (default 5) to prevent runaway iteration.
 //
 // Callbacks:
 //   onToken(chunk, full)    — called for every text chunk in every round.
@@ -96,7 +96,7 @@ export async function streamChat({
   onToolCall,
   onToolResult,
   onDone,
-  maxToolRounds = 8,
+  maxToolRounds = 5,
   signal,
 }) {
   const workingMessages = [...messages];
@@ -105,9 +105,13 @@ export async function streamChat({
   while (true) {
     const forcedFinal = round >= maxToolRounds;
 
+    const messages = forcedFinal
+      ? [...workingMessages, { role: "system", content: "Research complete. Write your final answer now based on everything gathered above. Do not call any more tools." }]
+      : workingMessages;
+
     const body = {
       model,
-      messages: workingMessages,
+      messages,
       stream: true,
       options: { temperature: 0.7, num_ctx: 32768 },
     };
@@ -223,6 +227,10 @@ async function consumeStream(res, { onToken, signal }) {
   } finally {
     signal?.removeEventListener("abort", onAbort);
   }
+
+  // Some models (e.g. minimax) leak their internal tool-call XML into the text
+  // content instead of emitting structured tool_calls. Strip it before returning.
+  content = content.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "").trim();
 
   return { content, toolCalls };
 }

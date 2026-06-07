@@ -9,10 +9,22 @@ const TOOL_META = {
 function summarizeArgs(name, args) {
   const meta = TOOL_META[name];
   if (!meta) return JSON.stringify(args);
-  const v = args?.[meta.argKey];
-  if (!v) return "";
-  const max = 60;
-  return v.length > max ? v.slice(0, max) + "…" : v;
+  return args?.[meta.argKey] ?? "";
+}
+
+function extractHttpStatus(tc) {
+  if (tc.name !== "web_fetch") return null;
+  if (tc.resultPreview) {
+    try {
+      const parsed = JSON.parse(tc.resultPreview);
+      if (parsed.httpStatus) return parsed.httpStatus;
+    } catch {}
+  }
+  if (tc.error) {
+    const m = tc.error.match(/HTTP (\d{3})/);
+    if (m) return parseInt(m[1], 10);
+  }
+  return null;
 }
 
 export default function ToolActivity({ toolCalls, t, isStreaming }) {
@@ -77,9 +89,14 @@ export default function ToolActivity({ toolCalls, t, isStreaming }) {
                   <span style={{ color: t.textMuted }}>
                     {meta.icon} {meta.label}:
                   </span>
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <span style={{ wordBreak: "break-all" }}>
                     {summarizeArgs(tc.name, tc.args)}
                   </span>
+                  {extractHttpStatus(tc) && (
+                    <span style={{ flexShrink: 0, opacity: 0.6 }}>
+                      [{extractHttpStatus(tc)}]
+                    </span>
+                  )}
                 </div>
               );
             })}
@@ -119,9 +136,14 @@ export default function ToolActivity({ toolCalls, t, isStreaming }) {
           >
             <span style={{ flexShrink: 0 }}>{statusIcon}</span>
             <span>{meta.icon} {meta.label}:</span>
-            <span style={{ color: t.textFaint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <span style={{ color: t.textFaint, wordBreak: "break-all" }}>
               {summarizeArgs(tc.name, tc.args)}
             </span>
+            {extractHttpStatus(tc) && (
+              <span style={{ flexShrink: 0, color: t.textFaint, opacity: 0.6 }}>
+                [{extractHttpStatus(tc)}]
+              </span>
+            )}
             {tc.status === "pending" && (
               <span style={{ marginLeft: "auto", fontSize: "9px", color: t.textFaint, fontFamily: "'Geist', sans-serif" }}>
                 running…
