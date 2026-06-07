@@ -4,8 +4,8 @@ import MessageBubble from "./MessageBubble";
 import { streamChat, fileToBase64 } from "../lib/ollama";
 import { TOOLS, executeTool } from "../lib/tools";
 import {
-  MAIN_CHAT_SYSTEM_PROMPT,
-  SIDE_CHAT_SYSTEM_PROMPT,
+  buildMainChatSystemPrompt,
+  buildSideChatSystemPrompt,
 } from "../lib/systemPrompt";
 import { useChatSession } from "../hooks/useChatSession";
 import { useAppStore } from "../store/appStore";
@@ -40,6 +40,8 @@ export default function ChatPane({
     addMessage,
     addStreamingMessage,
     updateStreamingMessage,
+    addToolCall,
+    completeToolCall,
     finalizeMessage,
     setError,
     clearError,
@@ -121,6 +123,9 @@ export default function ChatPane({
       currentSessionId = createSession(text, model);
 
     const streamId = addStreamingMessage();
+    // Tracks the most recent in-flight tool call id so onToolResult can
+    // match its result back to the right call record.
+    let currentCallId = null;
     const ctrl = new AbortController();
     setAbortController(ctrl);
     // Make sure we stick to the bottom for the new assistant response
@@ -135,10 +140,11 @@ export default function ChatPane({
 
       // Pick the right system prompt for the chat type. Side chats
       // (compact mode) get a sub-investigation framing; main chats get
-      // the general research-workbench framing.
+      // the general research-workbench framing. The functions inject
+      // the current date and user's timezone at the top.
       const appSystemPrompt = compact
-        ? SIDE_CHAT_SYSTEM_PROMPT
-        : MAIN_CHAT_SYSTEM_PROMPT;
+        ? buildSideChatSystemPrompt()
+        : buildMainChatSystemPrompt();
 
       // Build the system messages in order: app-level first (persistent
       // behavior), then runtime context (main chat transcript for sides).
@@ -169,14 +175,22 @@ export default function ChatPane({
         executeTool,
         onToken: (_, full) => updateStreamingMessage(streamId, full),
         onToolCall: (name, args) => {
-          // Surface tool activity in the console for now (Phase 1c will
-          // wire this to UI indicators like "🔍 Searching for...").
-          console.log(`[tool call] ${name}(${JSON.stringify(args)})`);
+          // Track the in-flight call id so onToolResult can match its
+          // result back to the right call record.
+          currentCallId = addToolCall(streamId, name, args);
         },
         onToolResult: (name, result) => {
-          console.log(
-            `[tool result] ${name}: ${String(result).slice(0, 200)}${String(result).length > 200 ? "..." : ""}`,
-          );
+          // Mark the in-flight call as done. We can't know the callId
+          // from the API, so we close over the most recent one.
+          if (currentCallId) {
+            const isError =
+              typeof result === "string" && result.startsWith("Error:");
+            completeToolCall(streamId, currentCallId, {
+              result: isError ? null : result,
+              error: isError ? result : null,
+            });
+            currentCallId = null;
+          }
         },
         onDone: (full) => {
           finalizeMessage(streamId, full);

@@ -96,27 +96,23 @@ export async function streamChat({
   onToolCall,
   onToolResult,
   onDone,
-  maxToolRounds = 3,
+  maxToolRounds = 8,
   signal,
 }) {
-  // Mutable working copy of messages — we append assistant + tool messages
-  // to this on each round so the model has the full history.
   const workingMessages = [...messages];
+  let round = 0;
 
-  let rounds = 0;
+  while (true) {
+    const forcedFinal = round >= maxToolRounds;
 
-  while (rounds < maxToolRounds + 1) {
     const body = {
       model,
       messages: workingMessages,
       stream: true,
-      options: {
-        temperature: 0.7,
-      },
+      options: { temperature: 0.7 },
     };
-    // Only include `tools` on rounds that could still produce tool calls.
-    // After the final answer is streaming, sending tools wastes tokens.
-    if (tools && tools.length > 0 && rounds < maxToolRounds) {
+
+    if (tools && tools.length > 0 && !forcedFinal) {
       body.tools = tools;
     }
 
@@ -132,25 +128,15 @@ export async function streamChat({
       throw new Error(`Ollama error: ${err}`);
     }
 
-    const { toolCalls, content } = await consumeStream(res, {
-      onToken,
-      signal,
-    });
+    const { toolCalls, content } = await consumeStream(res, { onToken, signal });
 
-    // No tool calls → this is the final answer round. Done.
-    if (toolCalls.length === 0) {
+    // No tool calls (or forced final round) — this is the final answer.
+    if (toolCalls.length === 0 || forcedFinal) {
       onDone?.(content);
       return;
     }
 
-    // Tool calls were made. Append the assistant's tool-call message to
-    // history (so the model remembers what it asked for), execute each
-    // tool, and append tool results. Then loop.
-    workingMessages.push({
-      role: "assistant",
-      content: content,
-      tool_calls: toolCalls,
-    });
+    workingMessages.push({ role: "assistant", content, tool_calls: toolCalls });
 
     for (const call of toolCalls) {
       const name = call.function.name;
@@ -160,11 +146,9 @@ export async function streamChat({
 
       let result;
       try {
-        if (!executeTool) {
-          result = `Error: no tool executor registered`;
-        } else {
-          result = await executeTool(name, args);
-        }
+        result = executeTool
+          ? await executeTool(name, args)
+          : "Error: no tool executor registered";
       } catch (err) {
         result = `Error executing ${name}: ${err.message || err}`;
       }
@@ -177,13 +161,8 @@ export async function streamChat({
       });
     }
 
-    rounds++;
+    round++;
   }
-
-  // Exhausted maxToolRounds. The model never produced a tool-free final
-  // answer. Return whatever we have (likely empty) and let the caller
-  // decide what to do — usually show an error or "ran out of iterations".
-  onDone?.("");
 }
 
 /**

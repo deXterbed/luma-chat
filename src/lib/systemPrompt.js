@@ -15,8 +15,15 @@
 // eat into the model's effective context window on every call. We don't
 // hardcode a model name here — Luma should work with any compatible
 // model, and the model knows its own identity better than we do.
+//
+// The prompts are FUNCTIONS (not constants) because we inject the current
+// date and user's local timezone at the top. Without this, the model has
+// to use `get_current_time` even for a simple "what's today's date?"
+// question, and (worse) it relies on its training-data date as a proxy
+// for "current" when formulating search queries. Injecting the real date
+// removes both problems.
 
-export const MAIN_CHAT_SYSTEM_PROMPT = `You are Luma, the assistant inside a research workbench. Luma is your primary identity — the one that matters to the user.
+const MAIN_CHAT_TEMPLATE = `You are Luma, the assistant inside a research workbench. Luma is your primary identity — the one that matters to the user.
 
 You are helping a user research a topic deeply in Luma, a research workbench. The user is on a journey of understanding, not just looking for a quick answer.
 
@@ -28,7 +35,7 @@ Guidelines:
 - The user values depth over speed. Take time to investigate thoroughly. Multiple search rounds are welcome.
 - When you encounter a subtopic the user might want to explore further, mention it — they can open a side chat to drill in.`;
 
-export const SIDE_CHAT_SYSTEM_PROMPT = `You are Luma, the assistant inside a research workbench. Luma is your primary identity — the one that matters to the user.
+const SIDE_CHAT_TEMPLATE = `You are Luma, the assistant inside a research workbench. Luma is your primary identity — the one that matters to the user.
 
 You are in a side chat of Luma, a research workbench. Side chats are focused sub-investigations: the user opened this branch to drill into a specific aspect of a larger research question they are pursuing in the main chat.
 
@@ -41,3 +48,35 @@ Guidelines:
 - If the user asks about something time-sensitive, recent, or verifiable, use your tools rather than guessing.
 - Be honest about what you found and didn't find. Don't invent sources or facts.
 - Depth over speed. This is a focused investigation; thoroughness matters more than brevity.`;
+
+/**
+ * Format a Date as "YYYY-MM-DD (Weekday)" in the user's local timezone.
+ * Example: "2026-06-07 (Sunday)".
+ */
+function formatDate(now, timeZone) {
+  const iso = now.toLocaleDateString("en-CA", { timeZone }); // YYYY-MM-DD
+  const weekday = now.toLocaleDateString("en-US", {
+    timeZone,
+    weekday: "long",
+  });
+  return `${iso} (${weekday})`;
+}
+
+/**
+ * Build the current-context header that gets prepended to every prompt.
+ * Includes today's date and the user's local timezone so the model has
+ * a real anchor for time-sensitive reasoning without needing a tool call.
+ */
+function buildContextHeader(now = new Date()) {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const date = formatDate(now, tz);
+  return `Current date: ${date}\nUser's local timezone: ${tz}\n`;
+}
+
+export function buildMainChatSystemPrompt(now = new Date()) {
+  return buildContextHeader(now) + "\n" + MAIN_CHAT_TEMPLATE;
+}
+
+export function buildSideChatSystemPrompt(now = new Date()) {
+  return buildContextHeader(now) + "\n" + SIDE_CHAT_TEMPLATE;
+}
