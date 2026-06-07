@@ -2,6 +2,7 @@ import { useRef, useEffect, useState, useCallback } from "react";
 import { Send, Square, Paperclip, X, ChevronDown } from "lucide-react";
 import MessageBubble from "./MessageBubble";
 import { streamChat, fileToBase64 } from "../lib/ollama";
+import { TOOLS, executeTool } from "../lib/tools";
 import { useChatSession } from "../hooks/useChatSession";
 import { useAppStore } from "../store/appStore";
 import { getTheme } from "../theme";
@@ -150,7 +151,19 @@ export default function ChatPane({
       await streamChat({
         model,
         messages: messagesForApi,
+        tools: TOOLS,
+        executeTool,
         onToken: (_, full) => updateStreamingMessage(streamId, full),
+        onToolCall: (name, args) => {
+          // Surface tool activity in the console for now (Phase 1c will
+          // wire this to UI indicators like "🔍 Searching for...").
+          console.log(`[tool call] ${name}(${JSON.stringify(args)})`);
+        },
+        onToolResult: (name, result) => {
+          console.log(
+            `[tool result] ${name}: ${String(result).slice(0, 200)}${String(result).length > 200 ? "..." : ""}`,
+          );
+        },
         onDone: (full) => {
           finalizeMessage(streamId, full);
           saveOnReply(streamId, full, model, currentSessionId);

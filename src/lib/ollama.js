@@ -49,64 +49,209 @@ export function isVisionModel(modelName) {
   return visionModels.some((v) => lower.includes(v));
 }
 
+// =============================================================================
+// Tool-calling support
+// =============================================================================
+//
+// When the model decides to use a tool, we execute it, append the result
+// as a `role: "tool"` message, and re-call the model. The loop runs up to
+// `maxToolRounds` times (default 3) to prevent runaway iteration.
+//
+// Callbacks:
+//   onToken(chunk, full)    — called for every text chunk in every round.
+//                             For a research workbench, the model's
+//                             "let me search for..." narration in tool-
+//                             decision rounds is useful — it shows the
+//                             research process in action.
+//   onToolCall(name, args)  — called when the model invokes a tool
+//                             (use this to show "🔍 Searching for..." UI)
+//   onToolResult(name, res) — called after a tool returns
+//                             (use this to show "✓ Got N results" UI)
+//   onDone(full)            — called when the whole loop completes
+//                             with the final answer text
+//   signal                  — AbortSignal to cancel mid-flight
+// =============================================================================
+
 /**
- * Stream a chat completion from Ollama
+ * Run a chat completion with optional tool-calling support.
+ *
  * @param {object} params
  * @param {string} params.model
- * @param {Array} params.messages  - [{role, content, images?}]
- * @param {function} params.onToken - called with each text chunk
- * @param {function} params.onDone  - called when stream ends
- * @param {AbortSignal} params.signal
+ * @param {Array}  params.messages            - initial messages array
+ * @param {Array}  [params.tools]            - Ollama-format tool definitions
+ * @param {function} [params.executeTool]    - (name, args) => Promise<string>
+ * @param {function} [params.onToken]
+ * @param {function} [params.onToolCall]
+ * @param {function} [params.onToolResult]
+ * @param {function} [params.onDone]
+ * @param {number}  [params.maxToolRounds=3]
+ * @param {AbortSignal} [params.signal]
  */
-export async function streamChat({ model, messages, onToken, onDone, signal }) {
-  const body = {
-    model,
-    messages,
-    stream: true,
-    options: {
-      temperature: 0.7,
-    },
-  };
+export async function streamChat({
+  model,
+  messages,
+  tools,
+  executeTool,
+  onToken,
+  onToolCall,
+  onToolResult,
+  onDone,
+  maxToolRounds = 3,
+  signal,
+}) {
+  // Mutable working copy of messages — we append assistant + tool messages
+  // to this on each round so the model has the full history.
+  const workingMessages = [...messages];
 
-  const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal,
-  });
+  let rounds = 0;
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Ollama error: ${err}`);
+  while (rounds < maxToolRounds + 1) {
+    const body = {
+      model,
+      messages: workingMessages,
+      stream: true,
+      options: {
+        temperature: 0.7,
+      },
+    };
+    // Only include `tools` on rounds that could still produce tool calls.
+    // After the final answer is streaming, sending tools wastes tokens.
+    if (tools && tools.length > 0 && rounds < maxToolRounds) {
+      body.tools = tools;
+    }
+
+    const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal,
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Ollama error: ${err}`);
+    }
+
+    const { toolCalls, content } = await consumeStream(res, {
+      onToken,
+      signal,
+    });
+
+    // No tool calls → this is the final answer round. Done.
+    if (toolCalls.length === 0) {
+      onDone?.(content);
+      return;
+    }
+
+    // Tool calls were made. Append the assistant's tool-call message to
+    // history (so the model remembers what it asked for), execute each
+    // tool, and append tool results. Then loop.
+    workingMessages.push({
+      role: "assistant",
+      content: content,
+      tool_calls: toolCalls,
+    });
+
+    for (const call of toolCalls) {
+      const name = call.function.name;
+      const args = call.function.arguments || {};
+
+      onToolCall?.(name, args);
+
+      let result;
+      try {
+        if (!executeTool) {
+          result = `Error: no tool executor registered`;
+        } else {
+          result = await executeTool(name, args);
+        }
+      } catch (err) {
+        result = `Error executing ${name}: ${err.message || err}`;
+      }
+
+      onToolResult?.(name, result);
+
+      workingMessages.push({
+        role: "tool",
+        content: typeof result === "string" ? result : JSON.stringify(result),
+      });
+    }
+
+    rounds++;
   }
 
+  // Exhausted maxToolRounds. The model never produced a tool-free final
+  // answer. Return whatever we have (likely empty) and let the caller
+  // decide what to do — usually show an error or "ran out of iterations".
+  onDone?.("");
+}
+
+/**
+ * Consume the SSE-style newline-delimited JSON stream from Ollama.
+ *
+ * Text tokens are forwarded to onToken as they arrive (eagerly), giving
+ * the user a live streaming experience even during tool-decision rounds.
+ * For a research workbench, seeing the model's "let me search for..."
+ * narration is useful — it shows the research process in action.
+ *
+ * Returns { content, toolCalls } for the caller to decide what to do
+ * (loop on tool calls, finalize, etc.).
+ */
+async function consumeStream(res, { onToken, signal }) {
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
-  let fullText = "";
+  let content = "";
+  let toolCalls = [];
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  const onAbort = () => reader.cancel();
+  signal?.addEventListener("abort", onAbort);
 
-    const chunk = decoder.decode(value, { stream: true });
-    const lines = chunk.split("\n").filter(Boolean);
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    for (const line of lines) {
-      try {
-        const json = JSON.parse(line);
-        if (json.message?.content) {
-          fullText += json.message.content;
-          onToken(json.message.content, fullText);
+      const chunk = decoder.decode(value, { stream: true });
+      const lines = chunk.split("\n").filter(Boolean);
+
+      for (const line of lines) {
+        try {
+          const json = JSON.parse(line);
+
+          if (json.message?.tool_calls) {
+            // tool_calls is an array of { function: { name, arguments } }
+            // Arguments may be string or object depending on Ollama version.
+            toolCalls = json.message.tool_calls.map((tc) => ({
+              function: {
+                name: tc.function.name,
+                arguments:
+                  typeof tc.function.arguments === "string"
+                    ? safeJsonParse(tc.function.arguments)
+                    : tc.function.arguments,
+              },
+            }));
+          }
+
+          if (json.message?.content) {
+            content += json.message.content;
+            onToken?.(json.message.content, content);
+          }
+        } catch {
+          // skip malformed chunks
         }
-        if (json.done) {
-          onDone(fullText);
-          return;
-        }
-      } catch {
-        // skip malformed chunks
       }
     }
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
   }
 
-  onDone(fullText);
+  return { content, toolCalls };
+}
+
+function safeJsonParse(s) {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return {};
+  }
 }
