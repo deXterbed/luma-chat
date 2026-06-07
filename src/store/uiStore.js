@@ -25,8 +25,11 @@ export const useUiStore = create((set, get) => ({
   ollamaConnected: false,
   availableModels: [],
   theme: initialTheme,
+  sideChatPrefill: null,
   setSideChatOpen: (open) => set({ sideChatOpen: open }),
   toggleSideChat: () => set((s) => ({ sideChatOpen: !s.sideChatOpen })),
+  setSideChatPrefill: (text) => set({ sideChatPrefill: text }),
+  clearSideChatPrefill: () => set({ sideChatPrefill: null }),
   setOllamaConnected: (v) => set({ ollamaConnected: v }),
   setAvailableModels: (models) => set({ availableModels: models, ollamaConnected: true }),
 

@@ -194,6 +194,7 @@ export default function SidePanel() {
             key={activeSideChatId ?? "default"}
             store={getSideChatStore(activeSideChatId)}
             contextStore={useMainChat}
+            isSideChat={true}
             sideChatId={activeSideChatId}
             sessionId={activeChatId}
             placeholder="Side questions…"

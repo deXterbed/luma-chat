@@ -4,7 +4,7 @@ import { fileToBase64 } from "../lib/ollama";
 import { useUiStore } from "../store/uiStore";
 import { getTheme } from "../theme";
 
-export default function InputArea({ onSend, isStreaming, onStop, compact, placeholder }) {
+export default function InputArea({ onSend, isStreaming, onStop, compact, placeholder, prefill, onPrefillApplied }) {
   const theme = useUiStore((s) => s.theme);
   const t = getTheme(theme);
 
@@ -21,6 +21,19 @@ export default function InputArea({ onSend, isStreaming, onStop, compact, placeh
         Math.min(textareaRef.current.scrollHeight, 160) + "px";
     }
   }, [input]);
+
+  useEffect(() => {
+    if (!prefill) return;
+    setInput(prefill);
+    onPrefillApplied?.();
+    requestAnimationFrame(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+        textareaRef.current.selectionStart = prefill.length;
+        textareaRef.current.selectionEnd = prefill.length;
+      }
+    });
+  }, [prefill]);
 
   const doSend = useCallback(() => {
     const text = input.trim();

@@ -13,6 +13,7 @@ export default function ChatPane({
   sessionId,
   placeholder = "Ask anything…",
   compact = false,
+  isSideChat = false,
   label = "Chat",
 }) {
   const { messages, model, setModel } = store();
@@ -26,7 +27,7 @@ export default function ChatPane({
     webSearchEnabled,
   });
 
-  const theme = useUiStore((s) => s.theme);
+  const { theme, sideChatPrefill, clearSideChatPrefill } = useUiStore();
   const t = getTheme(theme);
 
   const bottomRef = useRef(null);
@@ -177,7 +178,7 @@ export default function ChatPane({
         )}
 
         {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} />
+          <MessageBubble key={msg.id} message={msg} showAskInSideChat={!isSideChat} />
         ))}
 
         {error && (
@@ -206,6 +207,8 @@ export default function ChatPane({
         onStop={stopStreaming}
         compact={compact}
         placeholder={placeholder}
+        prefill={isSideChat ? sideChatPrefill : null}
+        onPrefillApplied={isSideChat ? clearSideChatPrefill : null}
       />
     </div>
   );

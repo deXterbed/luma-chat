@@ -1,8 +1,10 @@
+import { useRef, useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
+import { MessageSquarePlus } from "lucide-react";
 import { useUiStore } from "../store/uiStore";
 import { getTheme } from "../theme";
 import ToolActivity from "./ToolActivity";
@@ -23,14 +25,48 @@ function StreamingCursor({ color }) {
   );
 }
 
-export default function MessageBubble({ message }) {
+export default function MessageBubble({ message, showAskInSideChat = false }) {
   const isUser = message.role === "user";
   const isStreaming = message.isStreaming;
-  const theme = useUiStore((s) => s.theme);
+  const { theme, setSideChatOpen, setSideChatPrefill } = useUiStore();
   const t = getTheme(theme);
+
+  const [selectionMenu, setSelectionMenu] = useState(null); // { text, x, y }
+  const menuRef = useRef(null);
+
+  const handleMouseUp = () => {
+    if (isUser || !showAskInSideChat) return;
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
+    const text = sel.toString().trim();
+    const rect = sel.getRangeAt(0).getBoundingClientRect();
+    setSelectionMenu({ text, x: rect.left + rect.width / 2, y: rect.top });
+  };
+
+  useEffect(() => {
+    if (!selectionMenu) return;
+    const onMouseDown = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setSelectionMenu(null);
+      }
+    };
+    document.addEventListener("mousedown", onMouseDown);
+    return () => document.removeEventListener("mousedown", onMouseDown);
+  }, [selectionMenu]);
+
+  const handleAskInSideChat = () => {
+    const quoted = selectionMenu.text
+      .split("\n")
+      .map((l) => `> ${l}`)
+      .join("\n") + "\n\n";
+    setSideChatOpen(true);
+    setSideChatPrefill(quoted);
+    setSelectionMenu(null);
+  };
 
   return (
     <div
+      onMouseUp={handleMouseUp}
       style={{
         display: "flex",
         flexDirection: "column",
@@ -41,6 +77,48 @@ export default function MessageBubble({ message }) {
         maxWidth: "100%",
       }}
     >
+      {selectionMenu && (
+        <div
+          ref={menuRef}
+          style={{
+            position: "fixed",
+            left: selectionMenu.x,
+            top: selectionMenu.y - 8,
+            transform: "translate(-50%, -100%)",
+            background: t.surface,
+            border: "1px solid " + t.borderStrong,
+            borderRadius: "6px",
+            padding: "3px",
+            display: "flex",
+            zIndex: 1000,
+            boxShadow: "0 4px 16px rgba(0,0,0,0.35)",
+          }}
+        >
+          <button
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={handleAskInSideChat}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+              padding: "5px 10px",
+              background: "transparent",
+              border: "none",
+              borderRadius: "4px",
+              color: t.accent,
+              fontSize: "11px",
+              fontFamily: "'JetBrains Mono', monospace",
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = t.surfaceHover)}
+            onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+          >
+            <MessageSquarePlus size={12} />
+            Ask in side chat
+          </button>
+        </div>
+      )}
       {/* Role label */}
       <div
         style={{
@@ -124,8 +202,35 @@ export default function MessageBubble({ message }) {
               remarkPlugins={[remarkGfm, remarkMath]}
               rehypePlugins={[rehypeKatex]}
               components={{
-                code({ inline, className, children, ...props }) {
-                  return inline ? (
+                code({ className, children, ...props }) {
+                  // remark appends \n to fenced block code; inline code never has \n
+                  const isBlock = String(children).includes("\n") || !!className;
+                  return isBlock ? (
+                    <pre
+                      style={{
+                        background: t.preBg,
+                        border: "1px solid " + t.preBorder,
+                        borderRadius: "6px",
+                        padding: "12px",
+                        overflowX: "auto",
+                        margin: "8px 0",
+                        width: "fit-content",
+                        maxWidth: "100%",
+                      }}
+                    >
+                      <code
+                        style={{
+                          fontSize: "12px",
+                          color: t.preText,
+                          fontFamily: "'JetBrains Mono', monospace",
+                        }}
+                        className={className}
+                        {...props}
+                      >
+                        {children}
+                      </code>
+                    </pre>
+                  ) : (
                     <code
                       style={{
                         background: t.codeBg,
@@ -140,28 +245,6 @@ export default function MessageBubble({ message }) {
                     >
                       {children}
                     </code>
-                  ) : (
-                    <pre
-                      style={{
-                        background: t.preBg,
-                        border: "1px solid " + t.preBorder,
-                        borderRadius: "6px",
-                        padding: "12px",
-                        overflowX: "auto",
-                        margin: "8px 0",
-                      }}
-                    >
-                      <code
-                        style={{
-                          fontSize: "12px",
-                          color: t.preText,
-                          fontFamily: "'JetBrains Mono', monospace",
-                        }}
-                        {...props}
-                      >
-                        {children}
-                      </code>
-                    </pre>
                   );
                 },
                 p({ children }) {
