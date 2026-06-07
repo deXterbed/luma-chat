@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld("electron", {
 
 contextBridge.exposeInMainWorld("db", {
   loadSessions: () => ipcRenderer.invoke("db:loadSessions"),
+  loadSessionMessages: (sessionId) => ipcRenderer.invoke("db:loadSessionMessages", sessionId),
   saveSession: (session) => ipcRenderer.invoke("db:saveSession", session),
   saveMessages: (sessionId, messages) =>
     ipcRenderer.invoke("db:saveMessages", sessionId, messages),

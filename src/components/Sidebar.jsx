@@ -9,12 +9,13 @@ import {
   X,
 } from "lucide-react";
 import { useMainChat } from "../store";
+import { db } from "../lib/db";
 import { useUiStore } from "../store/uiStore";
 import { useSessionStore } from "../store/sessionStore";
 import { getTheme } from "../theme";
 
 export default function Sidebar() {
-  const { chatSessions, activeChatId, setActiveChatId, removeChatSession } = useSessionStore();
+  const { chatSessions, activeChatId, setActiveChatId, removeChatSession, hydrateSession } = useSessionStore();
   const { ollamaConnected, theme } = useUiStore();
   const t = getTheme(theme);
   const clearMain = useMainChat((s) => s.clearMessages);
@@ -25,9 +26,16 @@ export default function Sidebar() {
     setActiveChatId(null);
   };
 
-  const handleLoadSession = (session) => {
-    if (session.messages) loadMessages(session.messages, session.model);
+  const handleLoadSession = async (session) => {
     setActiveChatId(session.id);
+    // Messages already hydrated (session was opened before)
+    if (session.messages.length > 0) {
+      loadMessages(session.messages, session.model);
+      return;
+    }
+    // First open — fetch from DB, cache in store, load into chat pane
+    const data = await hydrateSession(session.id);
+    loadMessages(data.messages, session.model);
   };
 
   const handleDeleteSession = (session, e) => {

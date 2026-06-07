@@ -7,6 +7,7 @@ const noop = async () => {}
 
 export const db = {
   loadSessions: api ? () => api.loadSessions() : async () => [],
+  loadSessionMessages: api ? (sid) => api.loadSessionMessages(sid) : async () => ({ messages: [], sideChats: [] }),
   saveSession: api ? (s) => api.saveSession(s) : noop,
   saveMessages: api ? (sid, msgs) => api.saveMessages(sid, msgs) : noop,
   deleteSession: api ? (id) => api.deleteSession(id) : noop,

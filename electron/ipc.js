@@ -16,6 +16,7 @@ function register(win) {
 
   // DB — sessions
   ipcMain.handle("db:loadSessions", () => db.loadSessions());
+  ipcMain.handle("db:loadSessionMessages", (_, sessionId) => db.loadSessionMessages(sessionId));
   ipcMain.handle("db:saveSession", (_, session) => db.saveSession(session));
   ipcMain.handle("db:saveMessages", (_, sessionId, messages) =>
     db.saveMessages(sessionId, messages),

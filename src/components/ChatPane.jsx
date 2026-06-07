@@ -36,7 +36,7 @@ export default function ChatPane({
 
   useEffect(() => {
     if (autoScrollRef.current) {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      bottomRef.current?.scrollIntoView({ behavior: isStreaming ? "smooth" : "instant" });
     }
   }, [messages]);
 

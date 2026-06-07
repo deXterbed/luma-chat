@@ -46,31 +46,42 @@ function init() {
 }
 
 function loadSessions() {
+  // Load only metadata at startup — messages are fetched on demand via loadSessionMessages
   const sessions = db.prepare('SELECT * FROM sessions ORDER BY created_at DESC').all()
   return sessions.map(s => {
-    const messages = db
-      .prepare('SELECT * FROM messages WHERE session_id = ? ORDER BY position')
-      .all(s.id)
-      .map(m => ({ id: m.id, role: m.role, content: m.content, images: JSON.parse(m.images), toolCalls: JSON.parse(m.tool_calls), isStreaming: false }))
-
     const sideChats = db
-      .prepare('SELECT * FROM side_chats WHERE session_id = ? ORDER BY position')
+      .prepare('SELECT id, model FROM side_chats WHERE session_id = ? ORDER BY position')
       .all(s.id)
-      .map(sc => {
-        const scMessages = db
-          .prepare('SELECT * FROM side_chat_messages WHERE side_chat_id = ? ORDER BY position')
-          .all(sc.id)
-          .map(m => ({ id: m.id, role: m.role, content: m.content, images: JSON.parse(m.images), toolCalls: JSON.parse(m.tool_calls), isStreaming: false }))
-        return { id: sc.id, model: sc.model, messages: scMessages }
-      })
+      .map(sc => ({ id: sc.id, model: sc.model, messages: [] }))
 
     const activeRow = db.prepare('SELECT id FROM side_chats WHERE session_id = ? AND is_active = 1').get(s.id)
     return {
       id: s.id, title: s.title, model: s.model,
-      messages, sideChats,
+      messages: [],
+      sideChats,
       activeSideChatId: activeRow ? activeRow.id : null,
     }
   })
+}
+
+function loadSessionMessages(sessionId) {
+  const messages = db
+    .prepare('SELECT * FROM messages WHERE session_id = ? ORDER BY position')
+    .all(sessionId)
+    .map(m => ({ id: m.id, role: m.role, content: m.content, images: JSON.parse(m.images), toolCalls: JSON.parse(m.tool_calls), isStreaming: false }))
+
+  const sideChats = db
+    .prepare('SELECT * FROM side_chats WHERE session_id = ? ORDER BY position')
+    .all(sessionId)
+    .map(sc => {
+      const scMessages = db
+        .prepare('SELECT * FROM side_chat_messages WHERE side_chat_id = ? ORDER BY position')
+        .all(sc.id)
+        .map(m => ({ id: m.id, role: m.role, content: m.content, images: JSON.parse(m.images), toolCalls: JSON.parse(m.tool_calls), isStreaming: false }))
+      return { id: sc.id, model: sc.model, messages: scMessages }
+    })
+
+  return { messages, sideChats }
 }
 
 const upsertSession = db_lazy(() =>
@@ -149,4 +160,4 @@ function close() {
   if (db) db.close()
 }
 
-module.exports = { init, close, loadSessions, saveSession, saveMessages, upsertSideChat, saveSideChatMessages, setActiveSideChat, deleteSession }
+module.exports = { init, close, loadSessions, loadSessionMessages, saveSession, saveMessages, upsertSideChat, saveSideChatMessages, setActiveSideChat, deleteSession }
