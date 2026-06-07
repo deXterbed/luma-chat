@@ -8,18 +8,14 @@ import {
   WifiOff,
   X,
 } from "lucide-react";
-import { useAppStore, useMainChat, useSideChat } from "../store";
+import { useMainChat, useSideChat } from "../store";
+import { useUiStore } from "../store/uiStore";
+import { useSessionStore } from "../store/sessionStore";
 import { getTheme } from "../theme";
 
 export default function Sidebar() {
-  const {
-    chatSessions,
-    activeChatId,
-    ollamaConnected,
-    setActiveChatId,
-    removeChatSession,
-    theme,
-  } = useAppStore();
+  const { chatSessions, activeChatId, setActiveChatId, removeChatSession } = useSessionStore();
+  const { ollamaConnected, theme } = useUiStore();
   const t = getTheme(theme);
   const clearMain = useMainChat((s) => s.clearMessages);
   const clearSide = useSideChat((s) => s.clearMessages);

@@ -4,7 +4,7 @@ import TitleBar from "./components/TitleBar";
 import Sidebar from "./components/Sidebar";
 import ChatPane from "./components/ChatPane";
 import SidePanel from "./components/SidePanel";
-import { useAppStore } from "./store/appStore";
+import { useUiStore } from "./store/uiStore";
 import { useMainChat } from "./store/chatStore";
 import { isOllamaReachable } from "./lib/ollama";
 import { useDbInit } from "./hooks/useDbInit";
@@ -13,7 +13,7 @@ import "./index.css";
 
 export default function App() {
   const { sideChatOpen, toggleSideChat, setOllamaConnected, theme } =
-    useAppStore();
+    useUiStore();
   useDbInit();
   const t = getTheme(theme);
 

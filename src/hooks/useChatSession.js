@@ -1,9 +1,9 @@
 import { useCallback } from 'react'
 import { v4 as uuidv4 } from 'uuid'
-import { useAppStore } from '../store/appStore'
+import { useSessionStore } from '../store/sessionStore'
 
 export function useChatSession({ compact, sideChatId, sessionId, store }) {
-  const { activeChatId, addChatSession, updateChatSession, updateSideChat, setActiveChatId } = useAppStore()
+  const { activeChatId, addChatSession, updateChatSession, updateSideChat, setActiveChatId } = useSessionStore()
 
   const createSession = useCallback((text, model) => {
     const id = uuidv4()

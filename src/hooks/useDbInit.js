@@ -1,9 +1,9 @@
 import { useEffect } from 'react'
 import { db } from '../lib/db'
-import { useAppStore } from '../store/appStore'
+import { useSessionStore } from '../store/sessionStore'
 
 export function useDbInit() {
-  const setSessionsFromDb = useAppStore(s => s.setSessionsFromDb)
+  const setSessionsFromDb = useSessionStore(s => s.setSessionsFromDb)
 
   useEffect(() => {
     db.loadSessions().then(sessions => {

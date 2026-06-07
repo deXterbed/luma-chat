@@ -1,6 +1,6 @@
 const { ipcMain } = require("electron");
 const db = require("./db");
-const webTools = require("./webTools");
+const webTools = require("./tools");
 
 function register(win) {
   // Window controls

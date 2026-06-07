@@ -1,12 +1,12 @@
 import { useState, useEffect } from "react";
 import { Minus, Square, X, Maximize2 } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
-import { useAppStore } from "../store/appStore";
+import { useUiStore } from "../store/uiStore";
 import { getTheme } from "../theme";
 
 export default function TitleBar() {
   const [isMaximized, setIsMaximized] = useState(false);
-  const theme = useAppStore((s) => s.theme);
+  const theme = useUiStore((s) => s.theme);
   const t = getTheme(theme);
 
   useEffect(() => {

@@ -1,17 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import ChatPane from "./ChatPane";
-import { useAppStore } from "../store/appStore";
+import { useUiStore } from "../store/uiStore";
+import { useSessionStore } from "../store/sessionStore";
 import { useMainChat, useSideChat } from "../store/chatStore";
 import { getTheme } from "../theme";
 
 export default function SidePanel() {
-  const {
-    chatSessions,
-    activeChatId,
-    addSideChat,
-    setActiveSideChatId,
-    theme,
-  } = useAppStore();
+  const { chatSessions, activeChatId, addSideChat, setActiveSideChatId } =
+    useSessionStore();
+  const theme = useUiStore((s) => s.theme);
   const t = getTheme(theme);
 
   const currentSession =
@@ -19,7 +16,7 @@ export default function SidePanel() {
   const sessionSideChats = currentSession?.sideChats ?? [];
   const activeSideChatId = currentSession?.activeSideChatId ?? null;
 
-  const [sideWidth, setSideWidth] = useState(380);
+  const [sideWidth, setSideWidth] = useState(500);
   const isDragging = useRef(false);
   const dragStartX = useRef(0);
   const dragStartWidth = useRef(0);
@@ -38,7 +35,7 @@ export default function SidePanel() {
       if (!isDragging.current) return;
       const delta = dragStartX.current - e.clientX;
       setSideWidth(
-        Math.max(280, Math.min(600, dragStartWidth.current + delta)),
+        Math.max(320, Math.min(700, dragStartWidth.current + delta)),
       );
     };
     const onMouseUp = () => {
@@ -116,8 +113,8 @@ export default function SidePanel() {
       <div
         style={{
           width: `${sideWidth}px`,
-          minWidth: "280px",
-          maxWidth: "600px",
+          minWidth: "320px",
+          maxWidth: "700px",
           borderLeft: "1px solid var(--border)",
           overflow: "hidden",
           display: "flex",

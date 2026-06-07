@@ -1,2 +1,3 @@
 export { createChatStore, useMainChat, useSideChat } from './chatStore'
-export { useAppStore } from './appStore'
+export { useUiStore } from './uiStore'
+export { useSessionStore } from './sessionStore'
