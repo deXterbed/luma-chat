@@ -1,10 +1,20 @@
 import { useCallback } from "react";
 import { streamChat } from "../lib/ollama";
 import { TOOLS, executeTool } from "../lib/tools";
-import { buildMainChatSystemPrompt, buildSideChatSystemPrompt } from "../lib/systemPrompt";
+import {
+  buildMainChatSystemPrompt,
+  buildSideChatSystemPrompt,
+} from "../lib/systemPrompt";
 import { useChatSession } from "./useChatSession";
 
-export function useStreamingChat({ store, contextStore, compact, sideChatId, sessionId, webSearchEnabled }) {
+export function useStreamingChat({
+  store,
+  contextStore,
+  compact,
+  sideChatId,
+  sessionId,
+  webSearchEnabled,
+}) {
   // Subscribe only to values that drive re-renders or guard logic
   const model = store((s) => s.model);
   const isStreaming = store((s) => s.isStreaming);
@@ -17,21 +27,25 @@ export function useStreamingChat({ store, contextStore, compact, sideChatId, ses
     store,
   });
 
-  const handleSend = useCallback(
-    async (text, images = []) => {
-      if (!text && images.length === 0) return;
-      if (isStreaming) return;
-
+  // Shared streaming pipeline. `afterMessageId` is set when re-sending after
+  // an inline edit (so the new assistant turn won't re-create the session or
+  // re-add a user message). For normal sends it's undefined.
+  const runStream = useCallback(
+    async ({ text, images = [], afterMessageId }) => {
       // Use store.getState() for all imperative calls inside the callback so
       // async callbacks (onToken, onDone, etc.) always read fresh state rather
       // than stale closures captured at render time.
       store.getState().clearError();
 
       const isFirstMessage = store.getState().messages.length === 0;
-      store.getState().addMessage("user", text, images);
+      if (!afterMessageId) {
+        store.getState().addMessage("user", text, images);
+      }
 
       let currentSessionId = activeChatId;
-      if (!compact && isFirstMessage) currentSessionId = createSession(text, model);
+      if (!compact && isFirstMessage && !afterMessageId) {
+        currentSessionId = createSession(text, model);
+      }
 
       const streamId = store.getState().addStreamingMessage();
       let currentCallId = null;
@@ -39,9 +53,10 @@ export function useStreamingChat({ store, contextStore, compact, sideChatId, ses
       store.getState().setAbortController(ctrl);
 
       try {
-        const apiMessages = store.getState().getApiMessages().filter(
-          (m) => m.content !== "" || (m.images && m.images.length > 0),
-        );
+        const apiMessages = store
+          .getState()
+          .getApiMessages()
+          .filter((m) => m.content !== "" || (m.images && m.images.length > 0));
 
         const appSystemPrompt = compact
           ? buildSideChatSystemPrompt()
@@ -56,7 +71,10 @@ export function useStreamingChat({ store, contextStore, compact, sideChatId, ses
             // local model context windows on long sessions.
             const recent = ctxMessages.slice(-10);
             let transcript = recent
-              .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
+              .map(
+                (m) =>
+                  `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`,
+              )
               .join("\n\n");
             if (transcript.length > 4000) {
               transcript = "…" + transcript.slice(-4000);
@@ -70,20 +88,24 @@ export function useStreamingChat({ store, contextStore, compact, sideChatId, ses
 
         const activeTools = webSearchEnabled
           ? TOOLS
-          : TOOLS.filter((t) => !["web_search", "web_fetch"].includes(t.function.name));
+          : TOOLS.filter(
+              (t) => !["web_search", "web_fetch"].includes(t.function.name),
+            );
 
         await streamChat({
           model,
           messages: [...systemMessages, ...apiMessages],
           tools: activeTools,
           executeTool,
-          onToken: (_, full) => store.getState().updateStreamingMessage(streamId, full),
+          onToken: (_, full) =>
+            store.getState().updateStreamingMessage(streamId, full),
           onToolCall: (name, args) => {
             currentCallId = store.getState().addToolCall(streamId, name, args);
           },
           onToolResult: (_, result) => {
             if (currentCallId) {
-              const isError = typeof result === "string" && result.startsWith("Error:");
+              const isError =
+                typeof result === "string" && result.startsWith("Error:");
               store.getState().completeToolCall(streamId, currentCallId, {
                 result: isError ? null : result,
                 error: isError ? result : null,
@@ -99,21 +121,58 @@ export function useStreamingChat({ store, contextStore, compact, sideChatId, ses
         });
       } catch (err) {
         if (err.name === "AbortError") {
-          store.getState().finalizeMessage(
-            streamId,
-            store.getState().messages.find((m) => m.id === streamId)?.content || "",
-          );
+          store
+            .getState()
+            .finalizeMessage(
+              streamId,
+              store.getState().messages.find((m) => m.id === streamId)
+                ?.content || "",
+            );
         } else {
           store.getState().finalizeMessage(streamId, "");
           store.getState().setError(err.message);
         }
       }
     },
-    [isStreaming, model, activeChatId, compact, webSearchEnabled, store, contextStore, saveOnReply, createSession],
+    [
+      activeChatId,
+      compact,
+      contextStore,
+      createSession,
+      model,
+      saveOnReply,
+      store,
+      webSearchEnabled,
+    ],
+  );
+
+  const handleSend = useCallback(
+    async (text, images = []) => {
+      if (!text && images.length === 0) return;
+      if (isStreaming) return;
+      await runStream({ text, images });
+    },
+    [isStreaming, runStream],
+  );
+
+  // Re-send after inline-editing a user message. `afterMessageId` is the
+  // edited user message — we truncate everything after it and stream a new
+  // assistant reply. Same logic as a fresh send, but the edited message is
+  // already in the store (no new addMessage).
+  const resend = useCallback(
+    async (afterMessageId, text) => {
+      if (isStreaming) return;
+      store.getState().truncateAfter(afterMessageId);
+      store.getState().editMessage(afterMessageId, text);
+      store.getState().clearError();
+      await runStream({ text, images: [], afterMessageId });
+    },
+    [isStreaming, runStream, store],
   );
 
   return {
     handleSend,
+    resend,
     isStreaming,
     error,
     stopStreaming: store.getState().stopStreaming,

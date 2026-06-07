@@ -121,6 +121,21 @@ export const createChatStore = (id) =>
 
     clearMessages: () => set({ messages: [], error: null }),
 
+    // Replace a message's content. Used by inline-edit on user messages.
+    editMessage: (id, content) =>
+      set((s) => ({
+        messages: s.messages.map((m) => (m.id === id ? { ...m, content } : m)),
+      })),
+
+    // Drop the message with `id` and everything after it. Used when re-sending
+    // an edited user message — we want the assistant reply to start fresh.
+    truncateAfter: (id) =>
+      set((s) => {
+        const idx = s.messages.findIndex((m) => m.id === id);
+        if (idx === -1) return s;
+        return { messages: s.messages.slice(0, idx + 1) };
+      }),
+
     loadMessages: (messages, model) =>
       set({
         messages,

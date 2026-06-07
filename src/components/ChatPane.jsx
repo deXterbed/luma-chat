@@ -21,14 +21,15 @@ export default function ChatPane({
 }) {
   const { messages, model, setModel } = store();
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
-  const { handleSend, isStreaming, stopStreaming, error } = useStreamingChat({
-    store,
-    contextStore,
-    compact,
-    sideChatId,
-    sessionId,
-    webSearchEnabled,
-  });
+  const { handleSend, resend, isStreaming, stopStreaming, error } =
+    useStreamingChat({
+      store,
+      contextStore,
+      compact,
+      sideChatId,
+      sessionId,
+      webSearchEnabled,
+    });
 
   const { theme, sideChatPrefill, clearSideChatPrefill } = useUiStore();
   const { removeSideChat } = useSessionStore();
@@ -249,6 +250,7 @@ export default function ChatPane({
             key={msg.id}
             message={msg}
             showAskInSideChat={!isSideChat}
+            onResend={isStreaming ? null : resend}
           />
         ))}
 
