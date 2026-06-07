@@ -39,6 +39,10 @@ function init() {
       position INTEGER NOT NULL
     );
   `)
+  // Migrate existing DBs that predate the tool_calls column
+  for (const table of ['messages', 'side_chat_messages']) {
+    try { db.exec(`ALTER TABLE ${table} ADD COLUMN tool_calls TEXT NOT NULL DEFAULT '[]'`) } catch {}
+  }
 }
 
 function loadSessions() {
@@ -47,7 +51,7 @@ function loadSessions() {
     const messages = db
       .prepare('SELECT * FROM messages WHERE session_id = ? ORDER BY position')
       .all(s.id)
-      .map(m => ({ id: m.id, role: m.role, content: m.content, images: JSON.parse(m.images), isStreaming: false }))
+      .map(m => ({ id: m.id, role: m.role, content: m.content, images: JSON.parse(m.images), toolCalls: JSON.parse(m.tool_calls), isStreaming: false }))
 
     const sideChats = db
       .prepare('SELECT * FROM side_chats WHERE session_id = ? ORDER BY position')
@@ -56,7 +60,7 @@ function loadSessions() {
         const scMessages = db
           .prepare('SELECT * FROM side_chat_messages WHERE side_chat_id = ? ORDER BY position')
           .all(sc.id)
-          .map(m => ({ id: m.id, role: m.role, content: m.content, images: JSON.parse(m.images), isStreaming: false }))
+          .map(m => ({ id: m.id, role: m.role, content: m.content, images: JSON.parse(m.images), toolCalls: JSON.parse(m.tool_calls), isStreaming: false }))
         return { id: sc.id, model: sc.model, messages: scMessages }
       })
 
@@ -79,7 +83,7 @@ function saveSession({ id, title, model }) {
 
 const deleteAllMessages = db_lazy(() => db.prepare('DELETE FROM messages WHERE session_id = ?'))
 const insertMessage = db_lazy(() =>
-  db.prepare('INSERT OR REPLACE INTO messages (id, session_id, role, content, images, position) VALUES (@id, @session_id, @role, @content, @images, @position)')
+  db.prepare('INSERT OR REPLACE INTO messages (id, session_id, role, content, images, tool_calls, position) VALUES (@id, @session_id, @role, @content, @images, @tool_calls, @position)')
 )
 
 function saveMessages(sessionId, messages) {
@@ -88,7 +92,8 @@ function saveMessages(sessionId, messages) {
     messages.forEach((m, i) => {
       insertMessage().run({
         id: m.id, session_id: sessionId, role: m.role,
-        content: m.content, images: JSON.stringify(m.images || []), position: i,
+        content: m.content, images: JSON.stringify(m.images || []),
+        tool_calls: JSON.stringify(m.toolCalls || []), position: i,
       })
     })
   })
@@ -103,7 +108,7 @@ function upsertSideChat(sessionId, { id, model }, position) {
 
 const deleteAllSideChatMessages = db_lazy(() => db.prepare('DELETE FROM side_chat_messages WHERE side_chat_id = ?'))
 const insertSideChatMessage = db_lazy(() =>
-  db.prepare('INSERT OR REPLACE INTO side_chat_messages (id, side_chat_id, role, content, images, position) VALUES (@id, @side_chat_id, @role, @content, @images, @position)')
+  db.prepare('INSERT OR REPLACE INTO side_chat_messages (id, side_chat_id, role, content, images, tool_calls, position) VALUES (@id, @side_chat_id, @role, @content, @images, @tool_calls, @position)')
 )
 
 function saveSideChatMessages(sideChatId, messages) {
@@ -112,7 +117,8 @@ function saveSideChatMessages(sideChatId, messages) {
     messages.forEach((m, i) => {
       insertSideChatMessage().run({
         id: m.id, side_chat_id: sideChatId, role: m.role,
-        content: m.content, images: JSON.stringify(m.images || []), position: i,
+        content: m.content, images: JSON.stringify(m.images || []),
+        tool_calls: JSON.stringify(m.toolCalls || []), position: i,
       })
     })
   })
