@@ -3,6 +3,10 @@ import { Send, Square, Paperclip, X, ChevronDown } from "lucide-react";
 import MessageBubble from "./MessageBubble";
 import { streamChat, fileToBase64 } from "../lib/ollama";
 import { TOOLS, executeTool } from "../lib/tools";
+import {
+  MAIN_CHAT_SYSTEM_PROMPT,
+  SIDE_CHAT_SYSTEM_PROMPT,
+} from "../lib/systemPrompt";
 import { useChatSession } from "../hooks/useChatSession";
 import { useAppStore } from "../store/appStore";
 import { getTheme } from "../theme";
@@ -129,6 +133,17 @@ export default function ChatPane({
         (m) => m.content !== "" || (m.images && m.images.length > 0),
       );
 
+      // Pick the right system prompt for the chat type. Side chats
+      // (compact mode) get a sub-investigation framing; main chats get
+      // the general research-workbench framing.
+      const appSystemPrompt = compact
+        ? SIDE_CHAT_SYSTEM_PROMPT
+        : MAIN_CHAT_SYSTEM_PROMPT;
+
+      // Build the system messages in order: app-level first (persistent
+      // behavior), then runtime context (main chat transcript for sides).
+      const systemMessages = [{ role: "system", content: appSystemPrompt }];
+
       if (contextStore) {
         const ctxMessages = contextStore.getState().getApiMessages();
         if (ctxMessages.length > 0) {
@@ -138,15 +153,14 @@ export default function ChatPane({
                 `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`,
             )
             .join("\n\n");
-          messagesForApi = [
-            {
-              role: "system",
-              content: `The following is the conversation from the main chat. Use it as context when answering the user's questions.\n\n${transcript}`,
-            },
-            ...messagesForApi,
-          ];
+          systemMessages.push({
+            role: "system",
+            content: `The following is the conversation from the main chat. Use it as context when answering the user's questions.\n\n${transcript}`,
+          });
         }
       }
+
+      messagesForApi = [...systemMessages, ...messagesForApi];
 
       await streamChat({
         model,
