@@ -1,7 +1,7 @@
 {
   "name": "luma",
   "version": "1.0.0",
-  "description": "Dual-pane AI chat desktop app powered by Ollama",
+  "description": "Local-first AI research workbench powered by Ollama"
   "main": "electron/main.js",
   "scripts": {
     "dev": "concurrently --kill-others \"vite\" \"wait-on http://localhost:5173 && electron .\"",

@@ -72,6 +72,8 @@ The research process must be **visible and auditable**, not hidden. The user is 
 - **Sources panel** per message (collapsible): list of all sources the model consulted for that response, with title, URL, and a 1–2 sentence excerpt
 - **Search activity log** in side chats: a chronological list of every search and fetch the model performed in that branch, so the user can see the research trail
 
+> **Status:** tool call indicators and the collapsible per-response summary are shipped in `src/components/ToolActivity.jsx`. Inline citations, the per-message sources panel, and the side-chat search log are still open (see Open Question #1 for the citation format).
+
 #### 1d. Settings for search behavior
 
 - Toggle: enable/disable web search per-chat (some sessions don't need it)
@@ -133,7 +135,7 @@ These are decisions we deferred or haven't made yet. Each is tracked here so we 
 2. **Model recommendations for research** — which Ollama models handle tool calling well and produce reliable citations? Need to test and document. Candidates: Qwen3, Llama 3.1+, GPT-OSS.
 3. ~~**Context length per chat**~~ — resolved: side chats inject the last 10 main-chat messages, hard-capped at 4000 chars. Keeps small local models from overflowing while still providing recent context.
 4. **DDG scraping reliability** — DDG can change their HTML and break scrapers. Fallback strategy? (Tavily free tier? SearXNG self-hosted?)
-5. **Search result quality vs. speed** — how many results to fetch per search? How many to read in full? Defaults that balance thoroughness and latency.
+5. ~~**Search result quality vs. speed**~~ — resolved: `searchWeb` defaults to `maxResults = 5` per call, hard-capped at 10 (`electron/tools/search.js`). The model can call `web_search` again if it needs more; no fixed "how many to read in full" rule — the model decides.
 
 ---
 
@@ -143,9 +145,9 @@ These are the "we decided this, don't relitigate" notes.
 
 - **Tool calling > client-side injection.** The user (and model) need to see the research process; the model needs to choose what to search and what to read in full. Client-side auto-injection hides both.
 - **DuckDuckGo > Ollama hosted web search.** Self-hosted ethos, no API key, no rate limits, no vendor dependency. (Reconsidered: this is a research tool, not a general assistant — staying self-contained matters.)
-- **In-process MCP servers > stdio MCP servers, for now.** No node_modules bloat, no extra runtime, faster startup. The MCP client class will be designed so stdio servers can be added later as an opt-in "power user" feature.
+- **In-process MCP servers > stdio MCP servers, for now.** No node_modules bloat, no extra runtime, faster startup. The MCP client class will be designed so stdio servers can be added later as an opt-in "power user" feature. *(Not currently scheduled — see Out of scope; this decision is recorded in case we change our minds.)*
 - **Web tools in main process, not renderer.** Avoids CORS, keeps network code in one auditable place, lets us use Node-only libraries (cheerio, readability).
-- **Side chats stay isolated, with optional context bridge.** Already implemented. The `contextStore` plumbing in `ChatPane.jsx` (system prompt that injects main chat transcript) is the bridge; we'll extend it for promoted findings.
+- **Side chats stay isolated, with optional context bridge.** Implemented in `src/hooks/useStreamingChat.js`: when a side chat starts a stream, it pulls `getApiMessages()` from the supplied `contextStore` (a Zustand hook prop passed by `ChatPane`, typically `useMainChat`), takes the last 10 messages, and injects them as a system-prompt transcript truncated to 4000 chars. We'll extend the same channel for promoted findings and topic-context propagation.
 - **Persistence is local-first.** SQLite via Electron main process, no cloud sync. Sessions are the user's private research, not a collaborative product.
 
 ---
@@ -155,9 +157,9 @@ These are the "we decided this, don't relitigate" notes.
 | Phase | Status | Notes |
 |---|---|---|
 | Phase 0 — Foundation | ✅ Done | Electron + React + Ollama client + side chats + persistence |
-| Phase 1a — Tool calling | ✅ Done | `streamChat` tool-call loop, up to 8 rounds, `get_current_time` tool |
-| Phase 1b — Web tools | ✅ Done | DDG search + HTTP fetch + Readability extraction via Electron main process |
-| Phase 1c — Research UI | ✅ Done | `ToolActivity` component — live tool indicators, collapsible summary after completion |
+| Phase 1a — Tool calling | ✅ Done | `streamChat` tool-call loop in `src/lib/ollama.js`, default `maxToolRounds = 5`, `get_current_time` tool |
+| Phase 1b — Web tools | ✅ Done | DDG search (default 5 results, max 10) + HTTP fetch + Readability extraction via Electron main process |
+| Phase 1c — Research UI | 🟡 Partial | `ToolActivity` component — live tool indicators and collapsible per-response summary shipped. Inline citations, sources panel, and side-chat search log still pending. |
 | Phase 1d — Search settings | ✅ Done | Per-pane web search toggle in `uiStore`, filters tools before passing to `streamChat` |
 | Phase 2 — Side chat branches | ⏸ Waiting | Branch context, promote-to-main, cross-chat sources |
 | Phase 3 — Artifacts | ⏸ Future | Export, citation graph, saved notes |

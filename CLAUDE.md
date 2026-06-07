@@ -41,7 +41,7 @@ Three independent stores; none are persisted to `localStorage` (persistence goes
 
 ### Streaming and tool-calling loop
 
-`src/lib/ollama.js` → `streamChat()` runs the full tool-calling loop. It sends the messages array to Ollama, streams the response, and if the model returns `tool_calls`, it executes them via `executeTool` (from `src/lib/tools.js`), appends `role: "tool"` messages, and re-calls the model — up to `maxToolRounds = 8` times. The final text response triggers `onDone`.
+`src/lib/ollama.js` → `streamChat()` runs the full tool-calling loop. It sends the messages array to Ollama, streams the response, and if the model returns `tool_calls`, it executes them via `executeTool` (from `src/lib/tools.js`), appends `role: "tool"` messages, and re-calls the model — up to `maxToolRounds = 5` times. The final text response triggers `onDone`.
 
 `useStreamingChat` hook (`src/hooks/useStreamingChat.js`) wires the store actions (`addToolCall`, `completeToolCall`, `finalizeMessage`) to the `streamChat` callbacks and handles session creation on first message.
 
