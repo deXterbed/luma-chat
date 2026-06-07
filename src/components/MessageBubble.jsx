@@ -1,5 +1,8 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 import { useUiStore } from "../store/uiStore";
 import { getTheme } from "../theme";
 import ToolActivity from "./ToolActivity";
@@ -118,7 +121,8 @@ export default function MessageBubble({ message }) {
             }}
           >
             <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
+              remarkPlugins={[remarkGfm, remarkMath]}
+              rehypePlugins={[rehypeKatex]}
               components={{
                 code({ inline, className, children, ...props }) {
                   return inline ? (
