@@ -10,7 +10,8 @@ contextBridge.exposeInMainWorld("electron", {
 
 contextBridge.exposeInMainWorld("db", {
   loadSessions: () => ipcRenderer.invoke("db:loadSessions"),
-  loadSessionMessages: (sessionId) => ipcRenderer.invoke("db:loadSessionMessages", sessionId),
+  loadSessionMessages: (sessionId) =>
+    ipcRenderer.invoke("db:loadSessionMessages", sessionId),
   saveSession: (session) => ipcRenderer.invoke("db:saveSession", session),
   saveMessages: (sessionId, messages) =>
     ipcRenderer.invoke("db:saveMessages", sessionId, messages),
@@ -21,6 +22,7 @@ contextBridge.exposeInMainWorld("db", {
     ipcRenderer.invoke("db:saveSideChatMessages", sideChatId, messages),
   setActiveSideChat: (sessionId, sideChatId) =>
     ipcRenderer.invoke("db:setActiveSideChat", sessionId, sideChatId),
+  deleteSideChat: (id) => ipcRenderer.invoke("db:deleteSideChat", id),
 });
 
 // Web tools (Phase 1b) — bridge from renderer to main process.

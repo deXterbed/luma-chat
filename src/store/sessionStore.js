@@ -19,7 +19,10 @@ export const useSessionStore = create((set, get) => ({
         // Merge fetched side chat messages into existing side chat stubs
         const sideChats = sess.sideChats.map((sc) => {
           const fresh = data.sideChats.find((f) => f.id === sc.id);
-          if (fresh) getSideChatStore(sc.id).getState().loadMessages(fresh.messages, sc.model);
+          if (fresh)
+            getSideChatStore(sc.id)
+              .getState()
+              .loadMessages(fresh.messages, sc.model);
           return fresh ? { ...sc, messages: fresh.messages } : sc;
         });
         return { ...sess, messages: data.messages, sideChats };
@@ -32,12 +35,18 @@ export const useSessionStore = create((set, get) => ({
   addChatSession: (session) => {
     const full = { ...session, sideChats: [], activeSideChatId: null };
     set((s) => ({ chatSessions: [full, ...s.chatSessions] }));
-    db.saveSession({ id: session.id, title: session.title, model: session.model });
+    db.saveSession({
+      id: session.id,
+      title: session.title,
+      model: session.model,
+    });
   },
 
   updateChatSession: (id, updates) => {
     set((s) => ({
-      chatSessions: s.chatSessions.map((c) => (c.id === id ? { ...c, ...updates } : c)),
+      chatSessions: s.chatSessions.map((c) =>
+        c.id === id ? { ...c, ...updates } : c,
+      ),
     }));
     if (updates.messages) db.saveMessages(id, updates.messages);
     if (updates.model || updates.title) {
@@ -100,9 +109,29 @@ export const useSessionStore = create((set, get) => ({
   setActiveSideChatId: (sessionId, sideChatId) => {
     set((s) => ({
       chatSessions: s.chatSessions.map((sess) =>
-        sess.id === sessionId ? { ...sess, activeSideChatId: sideChatId } : sess,
+        sess.id === sessionId
+          ? { ...sess, activeSideChatId: sideChatId }
+          : sess,
       ),
     }));
     db.setActiveSideChat(sessionId, sideChatId);
+  },
+
+  removeSideChat: (sessionId, sideChatId) => {
+    db.deleteSideChat(sideChatId);
+    set((s) => ({
+      chatSessions: s.chatSessions.map((sess) => {
+        if (sess.id !== sessionId) return sess;
+        const remaining = sess.sideChats.filter((sc) => sc.id !== sideChatId);
+        if (remaining.length === 0)
+          return { ...sess, sideChats: [], activeSideChatId: null };
+        const wasActive = sess.activeSideChatId === sideChatId;
+        return {
+          ...sess,
+          sideChats: remaining,
+          activeSideChatId: wasActive ? remaining[0].id : sess.activeSideChatId,
+        };
+      }),
+    }));
   },
 }));

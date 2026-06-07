@@ -16,7 +16,9 @@ function register(win) {
 
   // DB — sessions
   ipcMain.handle("db:loadSessions", () => db.loadSessions());
-  ipcMain.handle("db:loadSessionMessages", (_, sessionId) => db.loadSessionMessages(sessionId));
+  ipcMain.handle("db:loadSessionMessages", (_, sessionId) =>
+    db.loadSessionMessages(sessionId),
+  );
   ipcMain.handle("db:saveSession", (_, session) => db.saveSession(session));
   ipcMain.handle("db:saveMessages", (_, sessionId, messages) =>
     db.saveMessages(sessionId, messages),
@@ -33,6 +35,7 @@ function register(win) {
   ipcMain.handle("db:setActiveSideChat", (_, sessionId, sideChatId) =>
     db.setActiveSideChat(sessionId, sideChatId),
   );
+  ipcMain.handle("db:deleteSideChat", (_, id) => db.deleteSideChat(id));
 
   // Web tools (Phase 1b) — search and fetch for the research workbench.
   // Both return string content suitable for `role: "tool"` messages.

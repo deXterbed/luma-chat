@@ -4,7 +4,10 @@ import ModelPicker from "./ModelPicker";
 import InputArea from "./InputArea";
 import { useStreamingChat } from "../hooks/useStreamingChat";
 import { useUiStore } from "../store/uiStore";
+import { useSessionStore } from "../store/sessionStore";
 import { getTheme } from "../theme";
+import { getSideChatStore, deleteSideChatStore } from "../store/chatStore";
+import { Trash2 } from "lucide-react";
 
 export default function ChatPane({
   store,
@@ -28,6 +31,7 @@ export default function ChatPane({
   });
 
   const { theme, sideChatPrefill, clearSideChatPrefill } = useUiStore();
+  const { removeSideChat } = useSessionStore();
   const t = getTheme(theme);
 
   const bottomRef = useRef(null);
@@ -36,7 +40,9 @@ export default function ChatPane({
 
   useEffect(() => {
     if (autoScrollRef.current) {
-      bottomRef.current?.scrollIntoView({ behavior: isStreaming ? "smooth" : "instant" });
+      bottomRef.current?.scrollIntoView({
+        behavior: isStreaming ? "smooth" : "instant",
+      });
     }
   }, [messages]);
 
@@ -93,6 +99,55 @@ export default function ChatPane({
           {label}
         </span>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          {isSideChat && sessionId && sideChatId && (
+            <button
+              onClick={() => {
+                const session = useSessionStore
+                  .getState()
+                  .chatSessions.find((s) => s.id === sessionId);
+                if (!session) return;
+                const sideChats = session.sideChats;
+                const other = sideChats.find((s) => s.id !== sideChatId);
+                if (other) {
+                  getSideChatStore(other.id)
+                    .getState()
+                    .loadMessages(
+                      other.messages ?? [],
+                      other.model ?? "minimax-m3:cloud",
+                    );
+                } else {
+                  getSideChatStore(null).getState().clearMessages();
+                }
+                deleteSideChatStore(sideChatId);
+                removeSideChat(sessionId, sideChatId);
+              }}
+              title="Delete side chat"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                padding: compact ? "3px 7px" : "4px 9px",
+                background: "transparent",
+                border: "1px solid var(--border)",
+                borderRadius: "5px",
+                color: "var(--text-faint)",
+                fontSize: compact ? "10px" : "11px",
+                fontFamily: "'JetBrains Mono', monospace",
+                cursor: "pointer",
+                transition: "all 0.15s",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = t.statusErr;
+                e.currentTarget.style.borderColor = t.statusErr;
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = "var(--text-faint)";
+                e.currentTarget.style.borderColor = "var(--border)";
+              }}
+            >
+              <Trash2 size={11} />
+            </button>
+          )}
           <button
             onClick={() => setWebSearchEnabled((v) => !v)}
             title={webSearchEnabled ? "Web search on" : "Web search off"}
@@ -102,7 +157,8 @@ export default function ChatPane({
               gap: "4px",
               padding: compact ? "3px 7px" : "4px 9px",
               background: webSearchEnabled ? t.accentSubtle : "transparent",
-              border: "1px solid " + (webSearchEnabled ? t.accent : "var(--border)"),
+              border:
+                "1px solid " + (webSearchEnabled ? t.accent : "var(--border)"),
               borderRadius: "5px",
               color: webSearchEnabled ? t.accent : "var(--text-faint)",
               fontSize: compact ? "10px" : "11px",
@@ -111,8 +167,19 @@ export default function ChatPane({
               transition: "all 0.15s",
             }}
           >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <line x1="2" y1="12" x2="22" y2="12" />
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
             </svg>
             web
           </button>
@@ -178,7 +245,11 @@ export default function ChatPane({
         )}
 
         {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} showAskInSideChat={!isSideChat} />
+          <MessageBubble
+            key={msg.id}
+            message={msg}
+            showAskInSideChat={!isSideChat}
+          />
         ))}
 
         {error && (

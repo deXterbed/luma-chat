@@ -55,7 +55,10 @@ export default function SidePanel() {
   useEffect(() => {
     if (!activeChatId || !currentSession) return;
     if (sessionSideChats.length === 0) {
-      addSideChat(activeChatId, getSideChatStore(activeSideChatId).getState().model);
+      addSideChat(
+        activeChatId,
+        getSideChatStore(activeSideChatId).getState().model,
+      );
     } else {
       const sc =
         sessionSideChats.find((sc) => sc.id === activeSideChatId) ??
