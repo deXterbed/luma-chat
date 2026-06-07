@@ -49,6 +49,22 @@ export const useAppStore = create((set, get) => ({
   // Load all sessions from DB on startup (replaces in-memory state)
   setSessionsFromDb: (sessions) => set({ chatSessions: sessions }),
 
+  removeChatSession: (id) => {
+    // Persist the deletion to SQLite. The ON DELETE CASCADE on
+    // messages / side_chats / side_chat_messages cleans up the rest.
+    db.deleteSession(id);
+    set((s) => {
+      const wasActive = s.activeChatId === id;
+      return {
+        chatSessions: s.chatSessions.filter((c) => c.id !== id),
+        // If we just deleted the active session, clear the pointer so
+        // the main pane doesn't try to keep its stale messages around.
+        // The caller is responsible for clearing the chat store too.
+        activeChatId: wasActive ? null : s.activeChatId,
+      };
+    });
+  },
+
   addChatSession: (session) => {
     const full = { ...session, sideChats: [], activeSideChatId: null };
     set((s) => ({ chatSessions: [full, ...s.chatSessions] }));
