@@ -55,7 +55,7 @@ export function isVisionModel(modelName) {
 //
 // When the model decides to use a tool, we execute it, append the result
 // as a `role: "tool"` message, and re-call the model. The loop runs up to
-// `maxToolRounds` times (default 3) to prevent runaway iteration.
+// `maxToolRounds` times (default 8) to prevent runaway iteration.
 //
 // Callbacks:
 //   onToken(chunk, full)    — called for every text chunk in every round.
@@ -109,7 +109,7 @@ export async function streamChat({
       model,
       messages: workingMessages,
       stream: true,
-      options: { temperature: 0.7 },
+      options: { temperature: 0.7, num_ctx: 32768 },
     };
 
     if (tools && tools.length > 0 && !forcedFinal) {

@@ -16,7 +16,7 @@ export default function SidePanel() {
   const sessionSideChats = currentSession?.sideChats ?? [];
   const activeSideChatId = currentSession?.activeSideChatId ?? null;
 
-  const [sideWidth, setSideWidth] = useState(500);
+  const [sideWidth, setSideWidth] = useState(600);
   const isDragging = useRef(false);
   const dragStartX = useRef(0);
   const dragStartWidth = useRef(0);
@@ -35,7 +35,7 @@ export default function SidePanel() {
       if (!isDragging.current) return;
       const delta = dragStartX.current - e.clientX;
       setSideWidth(
-        Math.max(320, Math.min(700, dragStartWidth.current + delta)),
+        Math.max(320, Math.min(800, dragStartWidth.current + delta)),
       );
     };
     const onMouseUp = () => {
@@ -115,7 +115,7 @@ export default function SidePanel() {
         style={{
           width: `${sideWidth}px`,
           minWidth: "320px",
-          maxWidth: "700px",
+          maxWidth: "800px",
           borderLeft: "1px solid var(--border)",
           overflow: "hidden",
           display: "flex",

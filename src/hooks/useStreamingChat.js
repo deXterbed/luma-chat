@@ -5,22 +5,10 @@ import { buildMainChatSystemPrompt, buildSideChatSystemPrompt } from "../lib/sys
 import { useChatSession } from "./useChatSession";
 
 export function useStreamingChat({ store, contextStore, compact, sideChatId, sessionId, webSearchEnabled }) {
-  const {
-    model,
-    isStreaming,
-    error,
-    addMessage,
-    addStreamingMessage,
-    updateStreamingMessage,
-    addToolCall,
-    completeToolCall,
-    finalizeMessage,
-    setError,
-    clearError,
-    setAbortController,
-    stopStreaming,
-    getApiMessages,
-  } = store();
+  // Subscribe only to values that drive re-renders or guard logic
+  const model = store((s) => s.model);
+  const isStreaming = store((s) => s.isStreaming);
+  const error = store((s) => s.error);
 
   const { activeChatId, createSession, saveOnReply } = useChatSession({
     compact,
@@ -34,21 +22,24 @@ export function useStreamingChat({ store, contextStore, compact, sideChatId, ses
       if (!text && images.length === 0) return;
       if (isStreaming) return;
 
-      clearError();
+      // Use store.getState() for all imperative calls inside the callback so
+      // async callbacks (onToken, onDone, etc.) always read fresh state rather
+      // than stale closures captured at render time.
+      store.getState().clearError();
 
       const isFirstMessage = store.getState().messages.length === 0;
-      addMessage("user", text, images);
+      store.getState().addMessage("user", text, images);
 
       let currentSessionId = activeChatId;
       if (!compact && isFirstMessage) currentSessionId = createSession(text, model);
 
-      const streamId = addStreamingMessage();
+      const streamId = store.getState().addStreamingMessage();
       let currentCallId = null;
       const ctrl = new AbortController();
-      setAbortController(ctrl);
+      store.getState().setAbortController(ctrl);
 
       try {
-        const apiMessages = getApiMessages().filter(
+        const apiMessages = store.getState().getApiMessages().filter(
           (m) => m.content !== "" || (m.images && m.images.length > 0),
         );
 
@@ -61,12 +52,18 @@ export function useStreamingChat({ store, contextStore, compact, sideChatId, ses
         if (contextStore) {
           const ctxMessages = contextStore.getState().getApiMessages();
           if (ctxMessages.length > 0) {
-            const transcript = ctxMessages
+            // Limit to the most recent 10 messages to avoid overflowing small
+            // local model context windows on long sessions.
+            const recent = ctxMessages.slice(-10);
+            let transcript = recent
               .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
               .join("\n\n");
+            if (transcript.length > 4000) {
+              transcript = "…" + transcript.slice(-4000);
+            }
             systemMessages.push({
               role: "system",
-              content: `The following is the conversation from the main chat. Use it as context when answering the user's questions.\n\n${transcript}`,
+              content: `The following is the recent conversation from the main chat. Use it as context when answering the user's questions.\n\n${transcript}`,
             });
           }
         }
@@ -80,14 +77,14 @@ export function useStreamingChat({ store, contextStore, compact, sideChatId, ses
           messages: [...systemMessages, ...apiMessages],
           tools: activeTools,
           executeTool,
-          onToken: (_, full) => updateStreamingMessage(streamId, full),
+          onToken: (_, full) => store.getState().updateStreamingMessage(streamId, full),
           onToolCall: (name, args) => {
-            currentCallId = addToolCall(streamId, name, args);
+            currentCallId = store.getState().addToolCall(streamId, name, args);
           },
           onToolResult: (_, result) => {
             if (currentCallId) {
               const isError = typeof result === "string" && result.startsWith("Error:");
-              completeToolCall(streamId, currentCallId, {
+              store.getState().completeToolCall(streamId, currentCallId, {
                 result: isError ? null : result,
                 error: isError ? result : null,
               });
@@ -95,25 +92,31 @@ export function useStreamingChat({ store, contextStore, compact, sideChatId, ses
             }
           },
           onDone: (full) => {
-            finalizeMessage(streamId, full);
+            store.getState().finalizeMessage(streamId, full);
             saveOnReply(streamId, full, model, currentSessionId);
           },
           signal: ctrl.signal,
         });
       } catch (err) {
         if (err.name === "AbortError") {
-          finalizeMessage(
+          store.getState().finalizeMessage(
             streamId,
             store.getState().messages.find((m) => m.id === streamId)?.content || "",
           );
         } else {
-          finalizeMessage(streamId, "");
-          setError(err.message);
+          store.getState().finalizeMessage(streamId, "");
+          store.getState().setError(err.message);
         }
       }
     },
-    [isStreaming, model, activeChatId, compact, webSearchEnabled],
+    [isStreaming, model, activeChatId, compact, webSearchEnabled, store, contextStore, saveOnReply, createSession],
   );
 
-  return { handleSend, isStreaming, stopStreaming, error, clearError };
+  return {
+    handleSend,
+    isStreaming,
+    error,
+    stopStreaming: store.getState().stopStreaming,
+    clearError: store.getState().clearError,
+  };
 }

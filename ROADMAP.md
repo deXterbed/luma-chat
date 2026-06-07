@@ -47,7 +47,7 @@ Not a general-purpose chatbot, not a coding agent, not a multi-tool assistant. C
   - Detect `tool_calls` in the streamed response
   - Pause the stream, execute the tool, append the result as a `role: "tool"` message
   - Re-call the model with the augmented history, stream the final answer
-- Cap tool rounds at 3 per response to prevent runaway loops
+- Cap tool rounds at 8 per response to prevent runaway loops
 - Default `num_ctx` to 32K for tool-using models
 - Support any tool format (Ollama, OpenAI-compatible) — define an internal `Tool` interface and adapt
 
@@ -131,7 +131,7 @@ These are decisions we deferred or haven't made yet. Each is tracked here so we 
 
 1. **Citation format in markdown** — bracketed `[1]`, footnote-style, or inline links? Affects how readable the output is. Try a few and pick.
 2. **Model recommendations for research** — which Ollama models handle tool calling well and produce reliable citations? Need to test and document. Candidates: Qwen3, Llama 3.1+, GPT-OSS.
-3. **Context length per chat** — 32K is a lot for local models. Should side chats inherit the main chat's full context, or get a curated summary? Affects cost, speed, and coherence.
+3. ~~**Context length per chat**~~ — resolved: side chats inject the last 10 main-chat messages, hard-capped at 4000 chars. Keeps small local models from overflowing while still providing recent context.
 4. **DDG scraping reliability** — DDG can change their HTML and break scrapers. Fallback strategy? (Tavily free tier? SearXNG self-hosted?)
 5. **Search result quality vs. speed** — how many results to fetch per search? How many to read in full? Defaults that balance thoroughness and latency.
 
@@ -155,10 +155,10 @@ These are the "we decided this, don't relitigate" notes.
 | Phase | Status | Notes |
 |---|---|---|
 | Phase 0 — Foundation | ✅ Done | Electron + React + Ollama client + side chats + persistence |
-| Phase 1a — Tool calling | ⏳ Next | Refactor `streamChat` to handle tool-call loop |
-| Phase 1b — Web tools | ⏳ Blocked on 1a | DDG search + HTTP fetch + readability |
-| Phase 1c — Research UI | ⏳ Blocked on 1b | Tool indicators, inline citations, sources panel |
-| Phase 1d — Search settings | ⏳ Blocked on 1b | Toggles for search behavior |
+| Phase 1a — Tool calling | ✅ Done | `streamChat` tool-call loop, up to 8 rounds, `get_current_time` tool |
+| Phase 1b — Web tools | ✅ Done | DDG search + HTTP fetch + Readability extraction via Electron main process |
+| Phase 1c — Research UI | ✅ Done | `ToolActivity` component — live tool indicators, collapsible summary after completion |
+| Phase 1d — Search settings | ✅ Done | Per-pane web search toggle in `uiStore`, filters tools before passing to `streamChat` |
 | Phase 2 — Side chat branches | ⏸ Waiting | Branch context, promote-to-main, cross-chat sources |
 | Phase 3 — Artifacts | ⏸ Future | Export, citation graph, saved notes |
 | Phase 4 — Polish | ⏸ Future | Multi-round tools, error recovery, prompt templates |
