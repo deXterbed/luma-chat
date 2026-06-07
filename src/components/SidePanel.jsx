@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import ChatPane from "./ChatPane";
 import { useUiStore } from "../store/uiStore";
 import { useSessionStore } from "../store/sessionStore";
-import { useMainChat, useSideChat } from "../store/chatStore";
+import { useMainChat, getSideChatStore } from "../store/chatStore";
 import { getTheme } from "../theme";
 
 export default function SidePanel() {
@@ -55,34 +55,35 @@ export default function SidePanel() {
   useEffect(() => {
     if (!activeChatId || !currentSession) return;
     if (sessionSideChats.length === 0) {
-      addSideChat(activeChatId, useSideChat.getState().model);
-      useSideChat.getState().clearMessages();
+      addSideChat(activeChatId, getSideChatStore(activeSideChatId).getState().model);
     } else {
       const sc =
         sessionSideChats.find((sc) => sc.id === activeSideChatId) ??
         sessionSideChats[0];
-      useSideChat
+      getSideChatStore(sc.id)
         .getState()
         .loadMessages(sc.messages ?? [], sc.model ?? "minimax-m3:cloud");
       if (!activeSideChatId) setActiveSideChatId(activeChatId, sc.id);
     }
   }, [activeChatId]);
 
-  // Clear side chat when no session is active
+  // Clear the fallback store when no session is active
   useEffect(() => {
-    if (!activeChatId) useSideChat.getState().clearMessages();
+    if (!activeChatId) getSideChatStore(null).getState().clearMessages();
   }, [activeChatId]);
 
   const handleAddSideChat = () => {
     if (!activeChatId) return;
-    addSideChat(activeChatId, useSideChat.getState().model);
-    useSideChat.getState().clearMessages();
+    const currentModel = getSideChatStore(activeSideChatId).getState().model;
+    addSideChat(activeChatId, currentModel);
+    // New side chat's store starts empty — no manual clear needed
   };
 
   const handleSwitchSideChat = (id) => {
     const sc = sessionSideChats.find((sc) => sc.id === id);
     if (!sc) return;
-    useSideChat
+    // Load into the target tab's own store — never touches the active stream
+    getSideChatStore(id)
       .getState()
       .loadMessages(sc.messages ?? [], sc.model ?? "minimax-m3:cloud");
     setActiveSideChatId(activeChatId, id);
@@ -191,7 +192,7 @@ export default function SidePanel() {
         <div style={{ flex: 1, overflow: "hidden" }}>
           <ChatPane
             key={activeSideChatId ?? "default"}
-            store={useSideChat}
+            store={getSideChatStore(activeSideChatId)}
             contextStore={useMainChat}
             sideChatId={activeSideChatId}
             sessionId={activeChatId}
