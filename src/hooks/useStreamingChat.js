@@ -4,7 +4,7 @@ import { TOOLS, executeTool } from "../lib/tools";
 import { buildMainChatSystemPrompt, buildSideChatSystemPrompt } from "../lib/systemPrompt";
 import { useChatSession } from "./useChatSession";
 
-export function useStreamingChat({ store, contextStore, compact, sideChatId, sessionId }) {
+export function useStreamingChat({ store, contextStore, compact, sideChatId, sessionId, webSearchEnabled }) {
   const {
     model,
     isStreaming,
@@ -71,10 +71,14 @@ export function useStreamingChat({ store, contextStore, compact, sideChatId, ses
           }
         }
 
+        const activeTools = webSearchEnabled
+          ? TOOLS
+          : TOOLS.filter((t) => !["web_search", "web_fetch"].includes(t.function.name));
+
         await streamChat({
           model,
           messages: [...systemMessages, ...apiMessages],
-          tools: TOOLS,
+          tools: activeTools,
           executeTool,
           onToken: (_, full) => updateStreamingMessage(streamId, full),
           onToolCall: (name, args) => {
@@ -108,7 +112,7 @@ export function useStreamingChat({ store, contextStore, compact, sideChatId, ses
         }
       }
     },
-    [isStreaming, model, activeChatId, compact],
+    [isStreaming, model, activeChatId, compact, webSearchEnabled],
   );
 
   return { handleSend, isStreaming, stopStreaming, error, clearError };

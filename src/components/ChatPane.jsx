@@ -1,4 +1,4 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import MessageBubble from "./MessageBubble";
 import ModelPicker from "./ModelPicker";
 import InputArea from "./InputArea";
@@ -16,12 +16,14 @@ export default function ChatPane({
   label = "Chat",
 }) {
   const { messages, model, setModel } = store();
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const { handleSend, isStreaming, stopStreaming, error } = useStreamingChat({
     store,
     contextStore,
     compact,
     sideChatId,
     sessionId,
+    webSearchEnabled,
   });
 
   const theme = useUiStore((s) => s.theme);
@@ -89,7 +91,32 @@ export default function ChatPane({
         >
           {label}
         </span>
-        <ModelPicker model={model} setModel={setModel} compact={compact} />
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <button
+            onClick={() => setWebSearchEnabled((v) => !v)}
+            title={webSearchEnabled ? "Web search on" : "Web search off"}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
+              padding: compact ? "3px 7px" : "4px 9px",
+              background: webSearchEnabled ? t.accentSubtle : "transparent",
+              border: "1px solid " + (webSearchEnabled ? t.accent : "var(--border)"),
+              borderRadius: "5px",
+              color: webSearchEnabled ? t.accent : "var(--text-faint)",
+              fontSize: compact ? "10px" : "11px",
+              fontFamily: "'JetBrains Mono', monospace",
+              cursor: "pointer",
+              transition: "all 0.15s",
+            }}
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+            </svg>
+            web
+          </button>
+          <ModelPicker model={model} setModel={setModel} compact={compact} />
+        </div>
       </div>
 
       {/* Messages */}
