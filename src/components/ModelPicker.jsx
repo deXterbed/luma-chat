@@ -1,29 +1,35 @@
 import { useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, RefreshCw } from "lucide-react";
 import { useUiStore } from "../store/uiStore";
 import { getTheme } from "../theme";
-
-const DEFAULT_MODELS = [
-  "minimax-m3:cloud",
-  "kimi-k2.6:cloud",
-  "glm-5.1:cloud",
-  "qwen3.5:cloud",
-  "nemotron-3-super:cloud",
-  "gemma4:31b-cloud",
-  "gemma4",
-  "qwen3.6",
-];
+import { listLocalModels } from "../lib/ollama";
 
 export default function ModelPicker({ model, setModel, compact }) {
   const theme = useUiStore((s) => s.theme);
+  const availableModels = useUiStore((s) => s.availableModels);
+  const ollamaConnected = useUiStore((s) => s.ollamaConnected);
+  const setAvailableModels = useUiStore((s) => s.setAvailableModels);
   const t = getTheme(theme);
   const [open, setOpen] = useState(false);
   const [customInput, setCustomInput] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleToggle = async () => {
+    const willOpen = !open;
+    setOpen(willOpen);
+    // Refresh on open so newly-pulled models show up without a relaunch
+    if (willOpen) {
+      setRefreshing(true);
+      const models = await listLocalModels();
+      setAvailableModels(models);
+      setRefreshing(false);
+    }
+  };
 
   return (
     <div style={{ position: "relative" }}>
       <button
-        onClick={() => setOpen(!open)}
+        onClick={handleToggle}
         style={{
           background: "var(--surface)",
           border: "1px solid var(--border-strong)",
@@ -39,7 +45,9 @@ export default function ModelPicker({ model, setModel, compact }) {
           transition: "all 0.15s",
         }}
         onMouseEnter={(e) => (e.currentTarget.style.borderColor = t.textSubtle)}
-        onMouseLeave={(e) => (e.currentTarget.style.borderColor = t.borderStrong)}
+        onMouseLeave={(e) =>
+          (e.currentTarget.style.borderColor = t.borderStrong)
+        }
       >
         <span
           style={{
@@ -70,29 +78,103 @@ export default function ModelPicker({ model, setModel, compact }) {
             boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
           }}
         >
-          {DEFAULT_MODELS.map((m) => (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "6px 10px",
+              borderBottom: "1px solid var(--border)",
+              fontSize: "9px",
+              fontFamily: "'JetBrains Mono', monospace",
+              color: t.textSubtle,
+              textTransform: "uppercase",
+              letterSpacing: "0.5px",
+            }}
+          >
+            <span>
+              {ollamaConnected
+                ? `${availableModels.length} local model${availableModels.length === 1 ? "" : "s"}`
+                : "Ollama offline"}
+            </span>
             <button
-              key={m}
-              onClick={() => { setModel(m); setOpen(false); }}
-              style={{
-                width: "100%",
-                padding: "8px 12px",
-                background: m === model ? t.surfaceActive : "transparent",
-                border: "none",
-                color: m === model ? t.accent : t.textSubtle,
-                fontSize: "11px",
-                fontFamily: "'JetBrains Mono', monospace",
-                cursor: "pointer",
-                textAlign: "left",
-                transition: "background 0.1s",
+              onClick={async (e) => {
+                e.stopPropagation();
+                setRefreshing(true);
+                const models = await listLocalModels();
+                setAvailableModels(models);
+                setRefreshing(false);
               }}
-              onMouseEnter={(e) => { if (m !== model) e.currentTarget.style.background = t.surface; }}
-              onMouseLeave={(e) => { if (m !== model) e.currentTarget.style.background = "transparent"; }}
+              title="Refresh model list"
+              style={{
+                background: "transparent",
+                border: "none",
+                color: t.textSubtle,
+                cursor: "pointer",
+                padding: 0,
+                display: "flex",
+                alignItems: "center",
+              }}
             >
-              {m}
+              <RefreshCw
+                size={10}
+                style={{
+                  animation: refreshing ? "spin 0.8s linear infinite" : "none",
+                }}
+              />
             </button>
-          ))}
-          <div style={{ borderTop: "1px solid var(--border)", padding: "6px 8px" }}>
+          </div>
+          <div style={{ maxHeight: "240px", overflowY: "auto" }}>
+            {availableModels.length === 0 ? (
+              <div
+                style={{
+                  padding: "10px 12px",
+                  fontSize: "10px",
+                  fontFamily: "'JetBrains Mono', monospace",
+                  color: t.textSubtle,
+                }}
+              >
+                {ollamaConnected
+                  ? "No models pulled. Run `ollama pull <model>` to add one."
+                  : "Start Ollama to see local models."}
+              </div>
+            ) : (
+              availableModels.map((m) => (
+                <button
+                  key={m}
+                  onClick={() => {
+                    setModel(m);
+                    setOpen(false);
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    background: m === model ? t.surfaceActive : "transparent",
+                    border: "none",
+                    color: m === model ? t.accent : t.textSubtle,
+                    fontSize: "11px",
+                    fontFamily: "'JetBrains Mono', monospace",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    transition: "background 0.1s",
+                  }}
+                  onMouseEnter={(e) => {
+                    if (m !== model)
+                      e.currentTarget.style.background = t.surface;
+                  }}
+                  onMouseLeave={(e) => {
+                    if (m !== model)
+                      e.currentTarget.style.background = "transparent";
+                  }}
+                >
+                  {m}
+                </button>
+              ))
+            )}
+          </div>
+          <div
+            style={{ borderTop: "1px solid var(--border)", padding: "6px 8px" }}
+          >
             <input
               autoFocus
               value={customInput}

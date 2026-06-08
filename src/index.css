@@ -176,6 +176,15 @@ body,
     }
 }
 
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 /* Markdown body */
 .markdown-body p:last-child {
     margin-bottom: 0;

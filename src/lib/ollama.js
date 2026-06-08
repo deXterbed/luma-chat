@@ -18,6 +18,28 @@ export async function isOllamaReachable() {
   }
 }
 
+/**
+ * List model names currently pulled into the local Ollama instance.
+ * Hits GET /api/tags and returns an array of bare model name strings
+ * (e.g. ["llama3.2:3b", "qwen2.5-coder:7b"]), sorted alphabetically.
+ * Returns an empty array on any error — callers should not treat that
+ * as a hard failure (Ollama may be offline or simply have no models).
+ */
+export async function listLocalModels() {
+  try {
+    const res = await fetch(`${OLLAMA_BASE}/api/tags`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const names = (data.models ?? [])
+      .map((m) => m?.name)
+      .filter((n) => typeof n === "string" && n.length > 0);
+    names.sort((a, b) => a.localeCompare(b));
+    return names;
+  } catch {
+    return [];
+  }
+}
+
 // Convert File to base64 for vision models
 export async function fileToBase64(file) {
   return new Promise((resolve, reject) => {
@@ -106,14 +128,21 @@ export async function streamChat({
     const forcedFinal = round >= maxToolRounds;
 
     const messages = forcedFinal
-      ? [...workingMessages, { role: "system", content: "Research complete. Write your final answer now based on everything gathered above. Do not call any more tools." }]
+      ? [
+          ...workingMessages,
+          {
+            role: "system",
+            content:
+              "Research complete. Write your final answer now based on everything gathered above. Do not call any more tools.",
+          },
+        ]
       : workingMessages;
 
     const body = {
       model,
       messages,
       stream: true,
-      options: { temperature: 0.7, num_ctx: 32768 },
+      options: { temperature: 0.7 },
     };
 
     if (tools && tools.length > 0 && !forcedFinal) {
@@ -132,7 +161,10 @@ export async function streamChat({
       throw new Error(`Ollama error: ${err}`);
     }
 
-    const { toolCalls, content } = await consumeStream(res, { onToken, signal });
+    const { toolCalls, content } = await consumeStream(res, {
+      onToken,
+      signal,
+    });
 
     // No tool calls (or forced final round) — this is the final answer.
     if (toolCalls.length === 0 || forcedFinal) {
