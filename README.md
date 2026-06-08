@@ -92,8 +92,8 @@ State lives in three independent Zustand stores. None of them persist to `localS
 - **React 18 + Vite 5** — UI and dev server
 - **Zustand 4** — state management
 - **better-sqlite3 12** — synchronous local persistence (main process only)
-- **Tailwind CSS 3** — utility classes
-- **Ollama JS 0.5** — local and cloud model inference
+- **Tailwind CSS** — utility classes
+- **Ollama API** — local and cloud model inference
 - **react-markdown + remark-gfm + remark-math + rehype-katex** — message rendering
 - **@mozilla/readability + cheerio + jsdom** — clean article extraction in the main process
 - **lucide-react** — icons
@@ -114,3 +114,7 @@ ollama-chat/
 ```
 
 See `ROADMAP.md` for what's planned next and what's deliberately out of scope.
+
+## License
+
+MIT
