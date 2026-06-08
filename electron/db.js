@@ -38,6 +38,10 @@ function init() {
       images TEXT NOT NULL DEFAULT '[]',
       position INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS custom_models (
+      name TEXT PRIMARY KEY,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
   `);
   // Migrate existing DBs that predate the tool_calls column
   for (const table of ["messages", "side_chat_messages"]) {
@@ -203,6 +207,27 @@ function deleteSideChat(id) {
   db.prepare("DELETE FROM side_chats WHERE id = ?").run(id);
 }
 
+const upsertCustomModel = db_lazy(() =>
+  db.prepare(
+    "INSERT INTO custom_models (name, created_at) VALUES (@name, @created_at) ON CONFLICT(name) DO NOTHING",
+  ),
+);
+
+function addCustomModel(name) {
+  upsertCustomModel().run({ name, created_at: Date.now() });
+}
+
+function removeCustomModel(name) {
+  db.prepare("DELETE FROM custom_models WHERE name = ?").run(name);
+}
+
+function loadCustomModels() {
+  const rows = db
+    .prepare("SELECT name FROM custom_models ORDER BY created_at ASC")
+    .all();
+  return rows.map((r) => r.name);
+}
+
 // Helper: lazily prepare a statement (db may not be init'd at module load time)
 function db_lazy(factory) {
   let stmt = null;
@@ -228,4 +253,7 @@ module.exports = {
   setActiveSideChat,
   deleteSession,
   deleteSideChat,
+  addCustomModel,
+  removeCustomModel,
+  loadCustomModels,
 };

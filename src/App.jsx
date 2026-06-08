@@ -7,6 +7,7 @@ import SidePanel from "./components/SidePanel";
 import { useUiStore } from "./store/uiStore";
 import { useMainChat } from "./store/chatStore";
 import { isOllamaReachable, listLocalModels } from "./lib/ollama";
+import { db } from "./lib/db";
 import { useDbInit } from "./hooks/useDbInit";
 import { getTheme } from "./theme";
 import "./index.css";
@@ -17,6 +18,7 @@ export default function App() {
     toggleSideChat,
     setOllamaConnected,
     setAvailableModels,
+    setCustomModels,
     theme,
   } = useUiStore();
   useDbInit();
@@ -32,6 +34,12 @@ export default function App() {
       }
     })();
   }, [setOllamaConnected, setAvailableModels]);
+
+  useEffect(() => {
+    db.loadCustomModels()
+      .then(setCustomModels)
+      .catch(() => {});
+  }, [setCustomModels]);
 
   return (
     <div

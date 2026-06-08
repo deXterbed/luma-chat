@@ -23,6 +23,9 @@ contextBridge.exposeInMainWorld("db", {
   setActiveSideChat: (sessionId, sideChatId) =>
     ipcRenderer.invoke("db:setActiveSideChat", sessionId, sideChatId),
   deleteSideChat: (id) => ipcRenderer.invoke("db:deleteSideChat", id),
+  loadCustomModels: () => ipcRenderer.invoke("db:loadCustomModels"),
+  addCustomModel: (name) => ipcRenderer.invoke("db:addCustomModel", name),
+  removeCustomModel: (name) => ipcRenderer.invoke("db:removeCustomModel", name),
 });
 
 // Web tools (Phase 1b) — bridge from renderer to main process.

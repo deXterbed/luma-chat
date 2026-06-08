@@ -37,6 +37,14 @@ function register(win) {
   );
   ipcMain.handle("db:deleteSideChat", (_, id) => db.deleteSideChat(id));
 
+  // DB — custom models (user-added entries that show in the model dropdown
+  // alongside locally-pulled Ollama models; persist across sessions).
+  ipcMain.handle("db:loadCustomModels", () => db.loadCustomModels());
+  ipcMain.handle("db:addCustomModel", (_, name) => db.addCustomModel(name));
+  ipcMain.handle("db:removeCustomModel", (_, name) =>
+    db.removeCustomModel(name),
+  );
+
   // Web tools (Phase 1b) — search and fetch for the research workbench.
   // Both return string content suitable for `role: "tool"` messages.
   ipcMain.handle("web:search", (_, query, maxResults) =>

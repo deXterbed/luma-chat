@@ -23,4 +23,7 @@ export const db = {
     ? (sid, scid) => api.setActiveSideChat(sid, scid)
     : noop,
   deleteSideChat: api ? (id) => api.deleteSideChat(id) : noop,
+  loadCustomModels: api ? () => api.loadCustomModels() : async () => [],
+  addCustomModel: api ? (name) => api.addCustomModel(name) : noop,
+  removeCustomModel: api ? (name) => api.removeCustomModel(name) : noop,
 };

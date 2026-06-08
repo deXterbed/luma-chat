@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { ChevronDown, RefreshCw } from "lucide-react";
+import { useState, useMemo, useRef, useEffect } from "react";
+import { ChevronDown, RefreshCw, X } from "lucide-react";
 import { useUiStore } from "../store/uiStore";
 import { getTheme } from "../theme";
 import { listLocalModels } from "../lib/ollama";
@@ -7,12 +7,49 @@ import { listLocalModels } from "../lib/ollama";
 export default function ModelPicker({ model, setModel, compact }) {
   const theme = useUiStore((s) => s.theme);
   const availableModels = useUiStore((s) => s.availableModels);
+  const customModels = useUiStore((s) => s.customModels);
   const ollamaConnected = useUiStore((s) => s.ollamaConnected);
   const setAvailableModels = useUiStore((s) => s.setAvailableModels);
+  const addCustomModel = useUiStore((s) => s.addCustomModel);
+  const removeCustomModel = useUiStore((s) => s.removeCustomModel);
   const t = getTheme(theme);
   const [open, setOpen] = useState(false);
   const [customInput, setCustomInput] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const rootRef = useRef(null);
+
+  // Close on outside click while the dropdown is open. Using mousedown (not
+  // click) so the close happens before any focus shift on the target.
+  useEffect(() => {
+    if (!open) return;
+    const handleMouseDown = (e) => {
+      if (rootRef.current && !rootRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => document.removeEventListener("mousedown", handleMouseDown);
+  }, [open]);
+
+  // Merge local + custom, deduped, sorted. Each entry carries `isCustom` so
+  // the UI can mark and offer removal for entries that aren't locally pulled.
+  const mergedModels = useMemo(() => {
+    const localSet = new Set(availableModels);
+    const seen = new Set();
+    const out = [];
+    for (const m of availableModels) {
+      if (seen.has(m)) continue;
+      seen.add(m);
+      out.push({ name: m, isCustom: false });
+    }
+    for (const m of customModels) {
+      if (seen.has(m)) continue;
+      seen.add(m);
+      out.push({ name: m, isCustom: !localSet.has(m) });
+    }
+    out.sort((a, b) => a.name.localeCompare(b.name));
+    return out;
+  }, [availableModels, customModels]);
 
   const handleToggle = async () => {
     const willOpen = !open;
@@ -26,8 +63,17 @@ export default function ModelPicker({ model, setModel, compact }) {
     }
   };
 
+  const handleCustomSubmit = () => {
+    const name = customInput.trim();
+    if (!name) return;
+    addCustomModel(name);
+    setModel(name);
+    setCustomInput("");
+    setOpen(false);
+  };
+
   return (
-    <div style={{ position: "relative" }}>
+    <div ref={rootRef} style={{ position: "relative" }}>
       <button
         onClick={handleToggle}
         style={{
@@ -74,7 +120,8 @@ export default function ModelPicker({ model, setModel, compact }) {
             borderRadius: "7px",
             overflow: "hidden",
             zIndex: 100,
-            minWidth: "200px",
+            minWidth: "260px",
+            maxWidth: "320px",
             boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
           }}
         >
@@ -94,7 +141,7 @@ export default function ModelPicker({ model, setModel, compact }) {
           >
             <span>
               {ollamaConnected
-                ? `${availableModels.length} local model${availableModels.length === 1 ? "" : "s"}`
+                ? `${mergedModels.length} model${mergedModels.length === 1 ? "" : "s"}`
                 : "Ollama offline"}
             </span>
             <button
@@ -125,7 +172,7 @@ export default function ModelPicker({ model, setModel, compact }) {
             </button>
           </div>
           <div style={{ maxHeight: "240px", overflowY: "auto" }}>
-            {availableModels.length === 0 ? (
+            {mergedModels.length === 0 ? (
               <div
                 style={{
                   padding: "10px 12px",
@@ -135,27 +182,17 @@ export default function ModelPicker({ model, setModel, compact }) {
                 }}
               >
                 {ollamaConnected
-                  ? "No models pulled. Run `ollama pull <model>` to add one."
+                  ? "No models pulled. Run `ollama pull <model>` or add a custom one below."
                   : "Start Ollama to see local models."}
               </div>
             ) : (
-              availableModels.map((m) => (
-                <button
+              mergedModels.map(({ name: m, isCustom }) => (
+                <div
                   key={m}
-                  onClick={() => {
-                    setModel(m);
-                    setOpen(false);
-                  }}
                   style={{
-                    width: "100%",
-                    padding: "8px 12px",
+                    display: "flex",
+                    alignItems: "center",
                     background: m === model ? t.surfaceActive : "transparent",
-                    border: "none",
-                    color: m === model ? t.accent : t.textSubtle,
-                    fontSize: "11px",
-                    fontFamily: "'JetBrains Mono', monospace",
-                    cursor: "pointer",
-                    textAlign: "left",
                     transition: "background 0.1s",
                   }}
                   onMouseEnter={(e) => {
@@ -167,8 +204,76 @@ export default function ModelPicker({ model, setModel, compact }) {
                       e.currentTarget.style.background = "transparent";
                   }}
                 >
-                  {m}
-                </button>
+                  <button
+                    onClick={() => {
+                      setModel(m);
+                      setOpen(false);
+                    }}
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      padding: "8px 12px",
+                      background: "transparent",
+                      border: "none",
+                      color: m === model ? t.accent : t.textSubtle,
+                      fontSize: "11px",
+                      fontFamily: "'JetBrains Mono', monospace",
+                      cursor: "pointer",
+                      textAlign: "left",
+                    }}
+                  >
+                    <span
+                      style={{
+                        display: "inline-block",
+                        maxWidth: "100%",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        verticalAlign: "middle",
+                      }}
+                    >
+                      {m}
+                    </span>
+                    {isCustom && (
+                      <span
+                        title="Custom entry (not pulled locally)"
+                        style={{
+                          marginLeft: "6px",
+                          fontSize: "8px",
+                          padding: "1px 4px",
+                          borderRadius: "3px",
+                          background: "var(--border)",
+                          color: t.textSubtle,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.3px",
+                          verticalAlign: "middle",
+                        }}
+                      >
+                        custom
+                      </span>
+                    )}
+                  </button>
+                  {isCustom && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeCustomModel(m);
+                      }}
+                      title="Remove from custom list"
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        color: t.textSubtle,
+                        cursor: "pointer",
+                        padding: "0 10px",
+                        display: "flex",
+                        alignItems: "center",
+                      }}
+                    >
+                      <X size={10} />
+                    </button>
+                  )}
+                </div>
               ))
             )}
           </div>
@@ -180,10 +285,8 @@ export default function ModelPicker({ model, setModel, compact }) {
               value={customInput}
               onChange={(e) => setCustomInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && customInput.trim()) {
-                  setModel(customInput.trim());
-                  setCustomInput("");
-                  setOpen(false);
+                if (e.key === "Enter") {
+                  handleCustomSubmit();
                 }
                 e.stopPropagation();
               }}
