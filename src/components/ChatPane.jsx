@@ -14,6 +14,7 @@ export default function ChatPane({
   placeholder = "Ask anything…",
   compact = false,
   isSideChat = false,
+  isActive = true,
   label = "Chat",
 }) {
   const { messages, model, setModel } = store();
@@ -131,8 +132,8 @@ export default function ChatPane({
         onStop={stopStreaming}
         compact={compact}
         placeholder={placeholder}
-        prefill={isSideChat ? sideChatPrefill : null}
-        onPrefillApplied={isSideChat ? clearSideChatPrefill : null}
+        prefill={isSideChat && isActive ? sideChatPrefill : null}
+        onPrefillApplied={isSideChat && isActive ? clearSideChatPrefill : null}
       />
     </div>
   );
