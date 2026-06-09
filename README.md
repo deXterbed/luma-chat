@@ -1,5 +1,7 @@
 # Luma
 
+![Luma light mode](screenshots/light.png)
+
 A research workbench for deep-dive topic exploration, built as a dual-pane desktop app on top of local LLMs. The main chat is the spine of a research session, and side chats are branches for drilling into subtopics and sources — with live web search and fetch so the model can ground its answers.
 
 - **Stack:** Electron + React/Vite + SQLite + [Ollama](https://ollama.com)
