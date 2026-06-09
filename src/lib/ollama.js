@@ -106,7 +106,7 @@ export function isVisionModel(modelName) {
  * @param {function} [params.onToolCall]
  * @param {function} [params.onToolResult]
  * @param {function} [params.onDone]
- * @param {number}  [params.maxToolRounds=3]
+ * @param {number}  [params.maxToolRounds=10]
  * @param {AbortSignal} [params.signal]
  */
 export async function streamChat({
@@ -118,34 +118,39 @@ export async function streamChat({
   onToolCall,
   onToolResult,
   onDone,
-  maxToolRounds = 5,
+  maxToolRounds = 10,
   signal,
 }) {
   const workingMessages = [...messages];
   let round = 0;
+  const HARD_CAP = 15;
 
   while (true) {
-    const forcedFinal = round >= maxToolRounds;
+    if (round >= HARD_CAP) {
+      throw new Error(
+        `Model called tools ${HARD_CAP} times without producing a final answer.`,
+      );
+    }
 
-    const messages = forcedFinal
-      ? [
-          ...workingMessages,
-          {
-            role: "system",
-            content:
-              "Research complete. Write your final answer now based on everything gathered above. Do not call any more tools.",
-          },
-        ]
-      : workingMessages;
+    // After maxToolRounds, inject a one-time nudge into the conversation
+    // urging the model to wrap up — tools stay available so the model
+    // isn't confused into generating nothing.
+    if (round === maxToolRounds) {
+      workingMessages.push({
+        role: "system",
+        content:
+          "You have done extensive research. Write your final answer now based on everything gathered above. You may make one more tool call if truly necessary, but aim to conclude.",
+      });
+    }
 
     const body = {
       model,
-      messages,
+      messages: workingMessages,
       stream: true,
       options: { temperature: 0.7 },
     };
 
-    if (tools && tools.length > 0 && !forcedFinal) {
+    if (tools && tools.length > 0) {
       body.tools = tools;
     }
 
@@ -166,14 +171,14 @@ export async function streamChat({
       signal,
     });
 
-    // No tool calls (or forced final round) — this is the final answer.
-    if (toolCalls.length === 0 || forcedFinal) {
+    if (toolCalls.length === 0) {
       onDone?.(content);
       return;
     }
 
     workingMessages.push({ role: "assistant", content, tool_calls: toolCalls });
 
+    let allFailed = true;
     for (const call of toolCalls) {
       const name = call.function.name;
       const args = call.function.arguments || {};
@@ -189,12 +194,27 @@ export async function streamChat({
         result = `Error executing ${name}: ${err.message || err}`;
       }
 
+      if (typeof result !== "string" || !result.startsWith("Error")) {
+        allFailed = false;
+      }
+
       onToolResult?.(name, result);
 
       workingMessages.push({
         role: "tool",
         content: typeof result === "string" ? result : JSON.stringify(result),
       });
+    }
+
+    // If every tool in this round failed (e.g. rate limited), nudge the model
+    // to write its final answer with what it has rather than retrying endlessly.
+    if (allFailed && round < maxToolRounds) {
+      workingMessages.push({
+        role: "system",
+        content:
+          "All tool calls in the last round failed. Write your final answer now based on everything gathered so far.",
+      });
+      round = maxToolRounds;
     }
 
     round++;
