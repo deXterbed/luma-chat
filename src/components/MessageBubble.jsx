@@ -8,21 +8,10 @@ import { MessageSquarePlus, X, CornerDownLeft } from "lucide-react";
 import { useUiStore } from "../store/uiStore";
 import { getTheme } from "../theme";
 import ToolActivity from "./ToolActivity";
+import styles from "./MessageBubble.module.css";
 
-function StreamingCursor({ color }) {
-  return (
-    <span
-      style={{
-        display: "inline-block",
-        width: "2px",
-        height: "14px",
-        background: color,
-        marginLeft: "2px",
-        verticalAlign: "middle",
-        animation: "blink 0.8s ease-in-out infinite",
-      }}
-    />
-  );
+function StreamingCursor() {
+  return <span className={styles.cursor} />;
 }
 
 export default function MessageBubble({
@@ -41,7 +30,6 @@ export default function MessageBubble({
   const editRef = useRef(null);
   const selectedTextRef = useRef("");
 
-  // Auto-resize the edit textarea like the main InputArea does.
   useEffect(() => {
     if (!editing || !editRef.current) return;
     const el = editRef.current;
@@ -52,7 +40,6 @@ export default function MessageBubble({
     el.selectionEnd = el.value.length;
   }, [editing]);
 
-  // Reset the draft if the message content changes externally (e.g. truncation).
   useEffect(() => {
     if (!editing) setDraft(message.content);
   }, [message.content, editing]);
@@ -72,9 +59,6 @@ export default function MessageBubble({
     if (!text) return;
     if (onResend) {
       onResend(message.id, text);
-      // The store will truncate & re-stream; the parent re-renders this bubble
-      // as a non-editing bubble for the new content, so the editing state
-      // naturally clears once the messages array updates.
       setEditing(false);
     }
   };
@@ -96,8 +80,6 @@ export default function MessageBubble({
     const text = sel.toString().trim();
     const rect = sel.getRangeAt(0).getBoundingClientRect();
     selectedTextRef.current = text;
-    // Manipulate the popup DOM directly — no React re-render, so the
-    // browser's text selection highlight stays intact.
     if (menuRef.current) {
       menuRef.current.style.left = rect.left + rect.width / 2 + "px";
       menuRef.current.style.top = rect.top - 8 + "px";
@@ -109,7 +91,6 @@ export default function MessageBubble({
     if (menuRef.current) menuRef.current.style.display = "none";
   };
 
-  // Dismiss the popup on any mousedown outside of it
   useEffect(() => {
     const onMouseDown = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) {
@@ -134,199 +115,58 @@ export default function MessageBubble({
   return (
     <div
       onMouseUp={handleMouseUp}
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: isUser ? "flex-end" : "flex-start",
-        marginBottom: "16px",
-        animation: "fadeSlideIn 0.2s ease-out",
-        minWidth: 0,
-        maxWidth: "100%",
-        position: "relative",
-      }}
+      className={`${styles.wrapper} ${isUser ? styles.wrapperUser : styles.wrapperAssistant}`}
     >
-      <div
-        ref={menuRef}
-        style={{
-          position: "fixed",
-          left: 0,
-          top: 0,
-          transform: "translate(-50%, -100%)",
-          background: t.surface,
-          border: "1px solid " + t.borderStrong,
-          borderRadius: "6px",
-          padding: "3px",
-          display: "none",
-          zIndex: 1000,
-          boxShadow: "0 4px 16px rgba(0,0,0,0.35)",
-        }}
-      >
+      <div ref={menuRef} className={styles.selectionPopup}>
         <button
           onMouseDown={(e) => e.preventDefault()}
           onClick={handleAskInSideChat}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "5px",
-            padding: "5px 10px",
-            background: "transparent",
-            border: "none",
-            borderRadius: "4px",
-            color: t.accent,
-            fontSize: "11px",
-            fontFamily: "'JetBrains Mono', monospace",
-            cursor: "pointer",
-            whiteSpace: "nowrap",
-          }}
-          onMouseEnter={(e) =>
-            (e.currentTarget.style.background = t.surfaceHover)
-          }
-          onMouseLeave={(e) =>
-            (e.currentTarget.style.background = "transparent")
-          }
+          className={styles.popupBtn}
         >
           <MessageSquarePlus size={12} />
           Ask in side chat
         </button>
       </div>
-      {/* Role label */}
-      <div
-        style={{
-          fontSize: "10px",
-          color: t.textFaint,
-          fontFamily: "'JetBrains Mono', monospace",
-          marginBottom: "4px",
-          letterSpacing: "0.06em",
-          textTransform: "uppercase",
-        }}
-      >
+
+      <div className={styles.roleLabel}>
         {isUser ? "you" : "assistant"}
       </div>
 
-      {/* Image previews */}
       {message.images && message.images.length > 0 && (
-        <div
-          style={{
-            display: "flex",
-            gap: "6px",
-            marginBottom: "6px",
-            flexWrap: "wrap",
-            justifyContent: isUser ? "flex-end" : "flex-start",
-          }}
-        >
+        <div className={`${styles.imageRow} ${isUser ? styles.imageRowUser : styles.imageRowAssistant}`}>
           {message.images.map((img, i) => (
             <img
               key={i}
               src={`data:image/jpeg;base64,${img}`}
               alt="attached"
-              style={{
-                maxWidth: "160px",
-                maxHeight: "120px",
-                borderRadius: "6px",
-                objectFit: "cover",
-                border: "1px solid var(--border-strong)",
-              }}
+              className={styles.attachedImg}
             />
           ))}
         </div>
       )}
 
-      {/* Bubble */}
       <div
         onClick={
           isUser && !editing && onResend && !isStreaming ? startEdit : undefined
         }
-        style={{
-          padding: isUser && !editing ? "10px 14px" : "12px 16px",
-          borderRadius: isUser ? "12px 12px 2px 12px" : "2px 12px 12px 12px",
-          background: isUser && !editing ? t.userBubble : t.assistantBubble,
-          border:
-            isUser && !editing
-              ? "1px solid " + t.userBubbleBorder
-              : "1px solid " + t.assistantBubbleBorder,
-          color: t.text,
-          fontSize: "13px",
-          lineHeight: 1.65,
-          fontFamily: "'JetBrains Mono', monospace",
-          minWidth: 0,
-          maxWidth: isUser ? "85%" : "100%",
-          overflowWrap: "break-word",
-          wordBreak: "break-word",
-          cursor:
-            isUser && !editing && onResend && !isStreaming ? "text" : "default",
-        }}
+        className={`${styles.bubble} ${isUser && !editing ? styles.bubbleUser : ""}`}
       >
         {isUser && editing ? (
-          // Inline edit mode — textarea + X / ↩ buttons, no bubble chrome
-          <div
-            style={{
-              padding: "10px 14px",
-              background: t.userBubble,
-              border: "1px solid " + t.userBubbleBorder,
-              borderRadius: "12px 12px 2px 12px",
-              color: t.text,
-              fontSize: "13px",
-              lineHeight: 1.65,
-              fontFamily: "'JetBrains Mono', monospace",
-              minWidth: "260px",
-              maxWidth: "85%",
-            }}
-          >
+          <div className={styles.editWrapper}>
             <textarea
               ref={editRef}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={handleEditKeyDown}
               rows={1}
-              style={{
-                width: "100%",
-                background: "transparent",
-                border: "none",
-                outline: "none",
-                resize: "none",
-                color: t.text,
-                fontSize: "13px",
-                fontFamily: "'JetBrains Mono', monospace",
-                lineHeight: 1.65,
-                overflowY: "hidden",
-                padding: 0,
-                margin: 0,
-                caretColor: t.caretColor ?? t.accent,
-              }}
+              className={styles.editTextarea}
             />
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "flex-end",
-                gap: "4px",
-                marginTop: "8px",
-                paddingTop: "6px",
-                borderTop: "1px solid " + t.border,
-              }}
-            >
+            <div className={styles.editActions}>
               <button
                 onClick={cancelEdit}
                 aria-label="Cancel edit"
                 title="Cancel"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  width: "26px",
-                  height: "26px",
-                  background: "transparent",
-                  border: "1px solid " + t.borderStrong,
-                  borderRadius: "5px",
-                  color: t.statusErr,
-                  cursor: "pointer",
-                  transition: "all 0.15s",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = t.surfaceHover;
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "transparent";
-                }}
+                className={`${styles.editBtn} ${styles.editBtnCancel}`}
               >
                 <X size={13} />
               </button>
@@ -335,51 +175,23 @@ export default function MessageBubble({
                 disabled={!draft.trim()}
                 aria-label="Send edited message"
                 title="Send"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  width: "26px",
-                  height: "26px",
-                  background: draft.trim()
-                    ? (t.sendGradient ??
-                      "linear-gradient(135deg, #7c3aed, #3b82f6)")
-                    : (t.sendDisabled ?? "#1a1a22"),
-                  border: "none",
-                  borderRadius: "5px",
-                  color: draft.trim() ? "#fff" : t.textFaint,
-                  cursor: draft.trim() ? "pointer" : "default",
-                  transition: "all 0.15s",
-                }}
+                className={`${styles.editBtn} ${styles.editBtnSend} ${draft.trim() ? styles.editBtnSendActive : styles.editBtnSendDisabled}`}
               >
                 <CornerDownLeft size={13} />
               </button>
             </div>
           </div>
         ) : isUser ? (
-          <span
-            style={{
-              whiteSpace: "pre-wrap",
-              fontFamily: "'JetBrains Mono', monospace",
-              display: "inline-block",
-              maxWidth: "100%",
-            }}
-          >
+          <span className={styles.userText}>
             {message.content}
           </span>
         ) : (
-          <div
-            className="markdown-body"
-            style={{
-              fontFamily: "'JetBrains Mono', monospace",
-            }}
-          >
+          <div className={styles.markdownBody}>
             <ReactMarkdown
               remarkPlugins={[remarkGfm, remarkMath]}
               rehypePlugins={[rehypeKatex]}
               components={{
                 code({ className, children, ...props }) {
-                  // remark appends \n to fenced block code; inline code never has \n
                   const isBlock =
                     String(children).includes("\n") || !!className;
                   return isBlock ? (
@@ -445,13 +257,12 @@ export default function MessageBubble({
             >
               {message.content}
             </ReactMarkdown>
-            {isStreaming && <StreamingCursor color={t.accent} />}
+            {isStreaming && <StreamingCursor />}
           </div>
         )}
         {!isUser && message.toolCalls && message.toolCalls.length > 0 && (
           <ToolActivity
             toolCalls={message.toolCalls}
-            t={t}
             isStreaming={isStreaming}
           />
         )}

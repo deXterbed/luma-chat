@@ -1,0 +1,207 @@
+.wrapper {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 16px;
+    animation: fadeSlideIn 0.2s ease-out;
+    min-width: 0;
+    max-width: 100%;
+    position: relative;
+}
+
+.wrapperUser {
+    align-items: flex-end;
+}
+
+.wrapperAssistant {
+    align-items: flex-start;
+}
+
+.roleLabel {
+    font-size: 10px;
+    color: var(--text-faint);
+    font-family: 'JetBrains Mono', monospace;
+    margin-bottom: 4px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.imageRow {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+}
+
+.imageRowUser {
+    justify-content: flex-end;
+}
+
+.imageRowAssistant {
+    justify-content: flex-start;
+}
+
+.attachedImg {
+    max-width: 160px;
+    max-height: 120px;
+    border-radius: 6px;
+    object-fit: cover;
+    border: 1px solid var(--border-strong);
+}
+
+.bubble {
+    padding: 12px 16px;
+    border-radius: 2px 12px 12px 12px;
+    background: var(--assistant-bubble);
+    border: 1px solid var(--assistant-bubble-border);
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.65;
+    font-family: 'JetBrains Mono', monospace;
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: break-word;
+    word-break: break-word;
+    cursor: default;
+}
+
+.bubbleUser {
+    padding: 10px 14px;
+    border-radius: 12px 12px 2px 12px;
+    background: var(--user-bubble);
+    border: 1px solid var(--user-bubble-border);
+    max-width: 85%;
+    cursor: text;
+}
+
+.userText {
+    white-space: pre-wrap;
+    font-family: 'JetBrains Mono', monospace;
+    display: inline-block;
+    max-width: 100%;
+}
+
+/* Edit mode */
+.editWrapper {
+    padding: 10px 14px;
+    background: var(--user-bubble);
+    border: 1px solid var(--user-bubble-border);
+    border-radius: 12px 12px 2px 12px;
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.65;
+    font-family: 'JetBrains Mono', monospace;
+    min-width: 260px;
+    max-width: 85%;
+}
+
+.editTextarea {
+    width: 100%;
+    background: transparent;
+    border: none;
+    outline: none;
+    resize: none;
+    color: var(--text);
+    font-size: 13px;
+    font-family: 'JetBrains Mono', monospace;
+    line-height: 1.65;
+    overflow-y: hidden;
+    padding: 0;
+    margin: 0;
+    caret-color: var(--accent);
+}
+
+.editActions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 4px;
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px solid var(--border);
+}
+
+.editBtn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.editBtnCancel {
+    background: transparent;
+    border: 1px solid var(--border-strong);
+    color: var(--status-err);
+}
+
+.editBtnCancel:hover {
+    background: var(--surface-hover);
+}
+
+.editBtnSend {
+    border: none;
+    color: #fff;
+}
+
+.editBtnSendActive {
+    background: linear-gradient(135deg, #7c3aed, #3b82f6);
+    cursor: pointer;
+}
+
+.editBtnSendDisabled {
+    background: var(--send-disabled);
+    color: var(--text-faint);
+    cursor: default;
+}
+
+/* Selection popup */
+.selectionPopup {
+    position: fixed;
+    left: 0;
+    top: 0;
+    transform: translate(-50%, -100%);
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    padding: 3px;
+    display: none;
+    z-index: 1000;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+}
+
+.popupBtn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: var(--accent);
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.popupBtn:hover {
+    background: var(--surface-hover);
+}
+
+/* Streaming cursor */
+.cursor {
+    display: inline-block;
+    width: 2px;
+    height: 14px;
+    background: var(--accent);
+    margin-left: 2px;
+    vertical-align: middle;
+    animation: blink 0.8s ease-in-out infinite;
+}
+
+/* Markdown body — kept as global class since react-markdown renders raw HTML */
+.markdownBody {
+    font-family: 'JetBrains Mono', monospace;
+}

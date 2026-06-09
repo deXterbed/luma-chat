@@ -2,11 +2,10 @@ import { useRef, useEffect, useState, useCallback } from "react";
 import { Send, Square, Paperclip, X } from "lucide-react";
 import { fileToBase64 } from "../lib/ollama";
 import { useUiStore } from "../store/uiStore";
-import { getTheme } from "../theme";
+import styles from "./InputArea.module.css";
 
 export default function InputArea({ onSend, isStreaming, onStop, compact, placeholder, prefill, onPrefillApplied }) {
   const theme = useUiStore((s) => s.theme);
-  const t = getTheme(theme);
 
   const [input, setInput] = useState("");
   const [attachedImages, setAttachedImages] = useState([]);
@@ -90,55 +89,18 @@ export default function InputArea({ onSend, isStreaming, onStop, compact, placeh
   const hasContent = input.trim() || attachedImages.length > 0;
 
   return (
-    <div
-      style={{
-        padding: compact ? "10px 12px" : "14px 16px",
-        borderTop: "1px solid var(--border)",
-        background: "var(--bg-alt)",
-        flexShrink: 0,
-      }}
-    >
+    <div className={`${styles.wrapper} ${compact ? styles.wrapperCompact : ""}`}>
       {/* Image previews */}
       {attachedImages.length > 0 && (
-        <div
-          style={{
-            marginBottom: "8px",
-            display: "flex",
-            gap: "6px",
-            flexWrap: "wrap",
-          }}
-        >
+        <div className={styles.imagePreviews}>
           {attachedImages.map((img, i) => (
-            <div key={i} style={{ position: "relative", display: "inline-flex" }}>
+            <div key={i} className={styles.imagePreviewItem}>
               <img
                 src={img.preview}
                 alt={img.name}
-                style={{
-                  width: "52px",
-                  height: "52px",
-                  objectFit: "cover",
-                  borderRadius: "5px",
-                  border: "1px solid var(--border-strong)",
-                }}
+                className={styles.imagePreviewImg}
               />
-              <button
-                onClick={() => removeImage(i)}
-                style={{
-                  position: "absolute",
-                  top: "-4px",
-                  right: "-4px",
-                  width: "16px",
-                  height: "16px",
-                  borderRadius: "50%",
-                  background: t.surface,
-                  border: "1px solid var(--border-strong)",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "var(--text-subtle)",
-                }}
-              >
+              <button onClick={() => removeImage(i)} className={styles.imageRemoveBtn}>
                 <X size={8} />
               </button>
             </div>
@@ -146,18 +108,7 @@ export default function InputArea({ onSend, isStreaming, onStop, compact, placeh
         </div>
       )}
 
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "8px",
-          background: "var(--surface)",
-          border: "1px solid var(--border-strong)",
-          borderRadius: "8px",
-          padding: "8px 10px",
-          transition: "border-color 0.15s",
-        }}
-      >
+      <div className={styles.inputRow}>
         <input
           ref={fileInputRef}
           type="file"
@@ -168,17 +119,7 @@ export default function InputArea({ onSend, isStreaming, onStop, compact, placeh
         />
         <button
           onClick={() => fileInputRef.current?.click()}
-          style={{
-            background: "transparent",
-            border: "none",
-            cursor: "pointer",
-            color: "var(--text-faint)",
-            padding: "2px",
-            flexShrink: 0,
-            transition: "color 0.15s",
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = t.accent)}
-          onMouseLeave={(e) => (e.currentTarget.style.color = t.textFaint)}
+          className={styles.attachBtn}
           title="Attach image"
         >
           <Paperclip size={14} />
@@ -192,62 +133,18 @@ export default function InputArea({ onSend, isStreaming, onStop, compact, placeh
           onPaste={handlePaste}
           placeholder={placeholder}
           rows={1}
-          style={{
-            flex: 1,
-            background: "transparent",
-            border: "none",
-            outline: "none",
-            color: "var(--text)",
-            fontSize: compact ? "13px" : "14px",
-            fontFamily: "system-ui, sans-serif",
-            lineHeight: 1.5,
-            resize: "none",
-            overflowY: "hidden",
-            caretColor: "var(--caret)",
-          }}
+          className={`${styles.textarea} ${compact ? styles.textareaCompact : ""}`}
         />
 
         {isStreaming ? (
-          <button
-            onClick={onStop}
-            style={{
-              background: "var(--user-bubble)",
-              border: "1px solid var(--border-strong)",
-              borderRadius: "5px",
-              width: "28px",
-              height: "28px",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "var(--send-icon)",
-              flexShrink: 0,
-              transition: "all 0.15s",
-            }}
-            title="Stop"
-          >
+          <button onClick={onStop} className={styles.actionBtn} title="Stop">
             <Square size={11} fill="var(--send-icon)" />
           </button>
         ) : (
           <button
             onClick={doSend}
             disabled={!hasContent}
-            style={{
-              background: hasContent
-                ? "linear-gradient(135deg, #7c3aed, #3b82f6)"
-                : "var(--send-disabled)",
-              border: "none",
-              borderRadius: "5px",
-              width: "28px",
-              height: "28px",
-              cursor: hasContent ? "pointer" : "default",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: hasContent ? "#fff" : "var(--text-faint)",
-              flexShrink: 0,
-              transition: "all 0.15s",
-            }}
+            className={`${styles.sendBtn} ${hasContent ? styles.sendBtnActive : styles.sendBtnDisabled}`}
             title="Send (Enter)"
           >
             <Send size={11} />
@@ -255,16 +152,7 @@ export default function InputArea({ onSend, isStreaming, onStop, compact, placeh
         )}
       </div>
 
-      <div
-        style={{
-          marginTop: "5px",
-          fontSize: "9px",
-          color: "var(--text-faint)",
-          opacity: 0.6,
-          fontFamily: "'JetBrains Mono', monospace",
-          textAlign: "right",
-        }}
-      >
+      <div className={styles.hint}>
         Enter to send · Shift+Enter for newline
       </div>
     </div>

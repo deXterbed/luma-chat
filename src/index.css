@@ -106,6 +106,7 @@
     --win-btn-close-hover: #c0392b;
 }
 
+/* ---- Global reset ---- */
 *,
 *::before,
 *::after {
@@ -127,7 +128,7 @@ body,
         color 0.2s ease;
 }
 
-/* Custom scrollbar */
+/* ---- Custom scrollbar ---- */
 ::-webkit-scrollbar {
     width: 4px;
     height: 4px;
@@ -143,7 +144,7 @@ body,
     background: var(--scrollbar-hover);
 }
 
-/* Animations */
+/* ---- Animations ---- */
 @keyframes fadeSlideIn {
     from {
         opacity: 0;
@@ -185,7 +186,7 @@ body,
     }
 }
 
-/* Markdown body */
+/* ---- Markdown body (global — used by react-markdown rendered HTML) ---- */
 .markdown-body p:last-child {
     margin-bottom: 0;
 }
@@ -253,7 +254,7 @@ body,
     background: var(--md-tr-hover);
 }
 
-/* Input focus ring */
+/* ---- Input focus ring ---- */
 textarea:focus {
     outline: none;
 }

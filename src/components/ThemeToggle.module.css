@@ -1,0 +1,19 @@
+.toggle {
+    -webkit-app-region: no-drag;
+    width: 34px;
+    height: 34px;
+    background: transparent;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--win-btn-color);
+    transition: background 0.15s, color 0.15s;
+}
+
+.toggle:hover {
+    background: var(--win-btn-hover);
+    color: var(--win-btn-color-hover);
+}

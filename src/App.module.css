@@ -1,0 +1,79 @@
+.app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    width: 100vw;
+    background: var(--bg);
+    overflow: hidden;
+    font-family: 'Geist', sans-serif;
+}
+
+.body {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+.mainArea {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.topBar {
+    padding: 0 16px;
+    height: 38px;
+    background: var(--bg-alt);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-shrink: 0;
+}
+
+.sideChatToggle {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 4px 10px;
+    color: var(--text-faint);
+    font-size: 11px;
+    font-family: 'Geist', sans-serif;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.15s;
+    letter-spacing: 0.04em;
+}
+
+.sideChatToggle:hover {
+    background: var(--surface-hover);
+    color: var(--accent-dim);
+    border-color: var(--border-strong);
+}
+
+.sideChatToggleActive {
+    background: var(--surface-active);
+    border-color: var(--border-strong);
+    color: var(--accent);
+}
+
+.chatArea {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+}
+
+.mainPane {
+    flex: 1;
+    overflow: hidden;
+    border-right: 1px solid transparent;
+    transition: flex 0.25s ease, border-color 0.2s ease;
+}
+
+.mainPaneSplit {
+    border-right-color: var(--border);
+}

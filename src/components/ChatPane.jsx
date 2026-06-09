@@ -5,9 +5,9 @@ import InputArea from "./InputArea";
 import { useStreamingChat } from "../hooks/useStreamingChat";
 import { useUiStore } from "../store/uiStore";
 import { useSessionStore } from "../store/sessionStore";
-import { getTheme } from "../theme";
 import { getSideChatStore, deleteSideChatStore } from "../store/chatStore";
 import { Trash2 } from "lucide-react";
+import styles from "./ChatPane.module.css";
 
 export default function ChatPane({
   store,
@@ -33,7 +33,6 @@ export default function ChatPane({
 
   const { theme, sideChatPrefill, clearSideChatPrefill } = useUiStore();
   const { removeSideChat } = useSessionStore();
-  const t = getTheme(theme);
 
   const bottomRef = useRef(null);
   const scrollContainerRef = useRef(null);
@@ -63,43 +62,14 @@ export default function ChatPane({
     handleSend(text, images);
   };
 
-  const px = compact ? "12px" : "20px";
-
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        background: "var(--bg)",
-        position: "relative",
-      }}
-    >
+    <div className={styles.pane}>
       {/* Pane header */}
-      <div
-        style={{
-          padding: `10px ${px}`,
-          borderBottom: "1px solid var(--border)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          flexShrink: 0,
-          background: "var(--bg-alt)",
-        }}
-      >
-        <span
-          style={{
-            fontFamily: "'Geist', sans-serif",
-            fontSize: compact ? "10px" : "11px",
-            fontWeight: "600",
-            color: "var(--text-faint)",
-            textTransform: "uppercase",
-            letterSpacing: "0.1em",
-          }}
-        >
+      <div className={`${styles.header} ${compact ? styles.headerCompact : ""}`}>
+        <span className={`${styles.headerLabel} ${compact ? styles.headerLabelCompact : ""}`}>
           {label}
         </span>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+        <div className={styles.headerActions}>
           {isSideChat && sessionId && sideChatId && (
             <button
               onClick={() => {
@@ -123,28 +93,7 @@ export default function ChatPane({
                 removeSideChat(sessionId, sideChatId);
               }}
               title="Delete side chat"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "4px",
-                padding: compact ? "3px 7px" : "4px 9px",
-                background: "transparent",
-                border: "1px solid var(--border)",
-                borderRadius: "5px",
-                color: "var(--text-faint)",
-                fontSize: compact ? "10px" : "11px",
-                fontFamily: "'JetBrains Mono', monospace",
-                cursor: "pointer",
-                transition: "all 0.15s",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = t.statusErr;
-                e.currentTarget.style.borderColor = t.statusErr;
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = "var(--text-faint)";
-                e.currentTarget.style.borderColor = "var(--border)";
-              }}
+              className={`${styles.headerBtn} ${compact ? styles.headerBtnCompact : ""}`}
             >
               <Trash2 size={11} />
             </button>
@@ -152,21 +101,7 @@ export default function ChatPane({
           <button
             onClick={() => setWebSearchEnabled((v) => !v)}
             title={webSearchEnabled ? "Web search on" : "Web search off"}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "4px",
-              padding: compact ? "3px 7px" : "4px 9px",
-              background: webSearchEnabled ? t.accentSubtle : "transparent",
-              border:
-                "1px solid " + (webSearchEnabled ? t.accent : "var(--border)"),
-              borderRadius: "5px",
-              color: webSearchEnabled ? t.accent : "var(--text-faint)",
-              fontSize: compact ? "10px" : "11px",
-              fontFamily: "'JetBrains Mono', monospace",
-              cursor: "pointer",
-              transition: "all 0.15s",
-            }}
+            className={`${styles.headerBtn} ${compact ? styles.headerBtnCompact : ""} ${webSearchEnabled ? styles.webBtnActive : ""}`}
           >
             <svg
               width="11"
@@ -191,55 +126,14 @@ export default function ChatPane({
       {/* Messages */}
       <div
         ref={scrollContainerRef}
-        style={{
-          flex: 1,
-          overflowY: "auto",
-          overflowX: "hidden",
-          padding: compact ? "16px 14px" : "24px 20px",
-          scrollbarWidth: "thin",
-          scrollbarColor: "var(--scrollbar) transparent",
-        }}
+        className={`${styles.messages} ${compact ? styles.messagesCompact : ""}`}
       >
         {messages.length === 0 && (
-          <div
-            style={{
-              height: "100%",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "8px",
-              opacity: 0.25,
-            }}
-          >
-            <div
-              style={{
-                width: compact ? "28px" : "36px",
-                height: compact ? "28px" : "36px",
-                borderRadius: "50%",
-                background: "linear-gradient(135deg, #a78bfa22, #60a5fa22)",
-                border: "1px solid #a78bfa33",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <div
-                style={{
-                  width: compact ? "8px" : "10px",
-                  height: compact ? "8px" : "10px",
-                  borderRadius: "50%",
-                  background: "linear-gradient(135deg, #a78bfa, #60a5fa)",
-                }}
-              />
+          <div className={styles.emptyState}>
+            <div className={`${styles.emptyDotOuter} ${compact ? styles.emptyDotOuterCompact : ""}`}>
+              <div className={`${styles.emptyDotInner} ${compact ? styles.emptyDotInnerCompact : ""}`} />
             </div>
-            <span
-              style={{
-                fontFamily: "'Geist', sans-serif",
-                fontSize: compact ? "11px" : "12px",
-                color: t.accentDim,
-              }}
-            >
+            <span className={`${styles.emptyText} ${compact ? styles.emptyTextCompact : ""}`}>
               {placeholder}
             </span>
           </div>
@@ -255,18 +149,7 @@ export default function ChatPane({
         ))}
 
         {error && (
-          <div
-            style={{
-              padding: "10px 14px",
-              background: "var(--error-bg)",
-              border: "1px solid var(--error-border)",
-              borderRadius: "6px",
-              color: "var(--status-err)",
-              fontSize: "12px",
-              fontFamily: "'JetBrains Mono', monospace",
-              marginBottom: "12px",
-            }}
-          >
+          <div className={styles.errorBox}>
             {error}
           </div>
         )}
