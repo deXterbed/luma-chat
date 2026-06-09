@@ -35,11 +35,11 @@ export default function MessageBubble({
   const { theme, setSideChatOpen, setSideChatPrefill } = useUiStore();
   const t = getTheme(theme);
 
-  const [selectionMenu, setSelectionMenu] = useState(null); // { text, x, y }
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.content);
   const menuRef = useRef(null);
   const editRef = useRef(null);
+  const selectedTextRef = useRef("");
 
   // Auto-resize the edit textarea like the main InputArea does.
   useEffect(() => {
@@ -95,29 +95,40 @@ export default function MessageBubble({
     if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
     const text = sel.toString().trim();
     const rect = sel.getRangeAt(0).getBoundingClientRect();
-    setSelectionMenu({ text, x: rect.left + rect.width / 2, y: rect.top });
+    selectedTextRef.current = text;
+    // Manipulate the popup DOM directly — no React re-render, so the
+    // browser's text selection highlight stays intact.
+    if (menuRef.current) {
+      menuRef.current.style.left = rect.left + rect.width / 2 + "px";
+      menuRef.current.style.top = rect.top - 8 + "px";
+      menuRef.current.style.display = "flex";
+    }
   };
 
+  const hideMenu = () => {
+    if (menuRef.current) menuRef.current.style.display = "none";
+  };
+
+  // Dismiss the popup on any mousedown outside of it
   useEffect(() => {
-    if (!selectionMenu) return;
     const onMouseDown = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) {
-        setSelectionMenu(null);
+        hideMenu();
       }
     };
     document.addEventListener("mousedown", onMouseDown);
     return () => document.removeEventListener("mousedown", onMouseDown);
-  }, [selectionMenu]);
+  }, []);
 
   const handleAskInSideChat = () => {
     const quoted =
-      selectionMenu.text
+      selectedTextRef.current
         .split("\n")
         .map((l) => `> ${l}`)
         .join("\n") + "\n\n";
+    hideMenu();
     setSideChatOpen(true);
     setSideChatPrefill(quoted);
-    setSelectionMenu(null);
   };
 
   return (
@@ -134,52 +145,50 @@ export default function MessageBubble({
         position: "relative",
       }}
     >
-      {selectionMenu && (
-        <div
-          ref={menuRef}
+      <div
+        ref={menuRef}
+        style={{
+          position: "fixed",
+          left: 0,
+          top: 0,
+          transform: "translate(-50%, -100%)",
+          background: t.surface,
+          border: "1px solid " + t.borderStrong,
+          borderRadius: "6px",
+          padding: "3px",
+          display: "none",
+          zIndex: 1000,
+          boxShadow: "0 4px 16px rgba(0,0,0,0.35)",
+        }}
+      >
+        <button
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={handleAskInSideChat}
           style={{
-            position: "fixed",
-            left: selectionMenu.x,
-            top: selectionMenu.y - 8,
-            transform: "translate(-50%, -100%)",
-            background: t.surface,
-            border: "1px solid " + t.borderStrong,
-            borderRadius: "6px",
-            padding: "3px",
             display: "flex",
-            zIndex: 1000,
-            boxShadow: "0 4px 16px rgba(0,0,0,0.35)",
+            alignItems: "center",
+            gap: "5px",
+            padding: "5px 10px",
+            background: "transparent",
+            border: "none",
+            borderRadius: "4px",
+            color: t.accent,
+            fontSize: "11px",
+            fontFamily: "'JetBrains Mono', monospace",
+            cursor: "pointer",
+            whiteSpace: "nowrap",
           }}
+          onMouseEnter={(e) =>
+            (e.currentTarget.style.background = t.surfaceHover)
+          }
+          onMouseLeave={(e) =>
+            (e.currentTarget.style.background = "transparent")
+          }
         >
-          <button
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={handleAskInSideChat}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "5px",
-              padding: "5px 10px",
-              background: "transparent",
-              border: "none",
-              borderRadius: "4px",
-              color: t.accent,
-              fontSize: "11px",
-              fontFamily: "'JetBrains Mono', monospace",
-              cursor: "pointer",
-              whiteSpace: "nowrap",
-            }}
-            onMouseEnter={(e) =>
-              (e.currentTarget.style.background = t.surfaceHover)
-            }
-            onMouseLeave={(e) =>
-              (e.currentTarget.style.background = "transparent")
-            }
-          >
-            <MessageSquarePlus size={12} />
-            Ask in side chat
-          </button>
-        </div>
-      )}
+          <MessageSquarePlus size={12} />
+          Ask in side chat
+        </button>
+      </div>
       {/* Role label */}
       <div
         style={{
