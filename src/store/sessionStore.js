@@ -30,16 +30,20 @@ export const useSessionStore = create((set, get) => ({
     }));
     return data;
   },
-  setActiveChatId: (id) => {
-    if (!id) return set({ activeChatId: id });
+  setActiveChatId: (id) => set({ activeChatId: id }),
 
+  // Bump a session's activity timestamp — call this when the user actually
+  // does something (sends a message, adds a side chat). Just switching the
+  // active chat is NOT activity and shouldn't reorder the recent list.
+  bumpSessionActivity: (id) => {
+    if (!id) return;
+    const ts = Date.now();
     db.updateSessionActivity(id);
     set((s) => {
       const updatedSessions = s.chatSessions.map((sess) =>
-        sess.id === id ? { ...sess, updated_at: Date.now() } : sess,
+        sess.id === id ? { ...sess, updated_at: ts } : sess,
       );
       return {
-        activeChatId: id,
         chatSessions: [...updatedSessions].sort(
           (a, b) => (b.updated_at || 0) - (a.updated_at || 0),
         ),
@@ -48,7 +52,13 @@ export const useSessionStore = create((set, get) => ({
   },
 
   addChatSession: (session) => {
-    const full = { ...session, sideChats: [], activeSideChatId: null };
+    const ts = Date.now();
+    const full = {
+      ...session,
+      sideChats: [],
+      activeSideChatId: null,
+      updated_at: ts,
+    };
     set((s) => ({ chatSessions: [full, ...s.chatSessions] }));
     db.saveSession({
       id: session.id,
@@ -63,7 +73,10 @@ export const useSessionStore = create((set, get) => ({
         c.id === id ? { ...c, ...updates } : c,
       ),
     }));
-    if (updates.messages) db.saveMessages(id, updates.messages);
+    if (updates.messages) {
+      db.saveMessages(id, updates.messages);
+      get().bumpSessionActivity(id);
+    }
     if (updates.model || updates.title) {
       const session = get().chatSessions.find((c) => c.id === id);
       if (session)
@@ -101,6 +114,7 @@ export const useSessionStore = create((set, get) => ({
         };
       }),
     }));
+    get().bumpSessionActivity(sessionId);
   },
 
   updateSideChat: (sessionId, sideChatId, updates) => {
@@ -116,7 +130,10 @@ export const useSessionStore = create((set, get) => ({
           : sess,
       ),
     }));
-    if (updates.messages) db.saveSideChatMessages(sideChatId, updates.messages);
+    if (updates.messages) {
+      db.saveSideChatMessages(sideChatId, updates.messages);
+      get().bumpSessionActivity(sessionId);
+    }
     if (updates.model)
       db.upsertSideChat(sessionId, { id: sideChatId, model: updates.model }, 0);
   },
