@@ -162,18 +162,18 @@ export const createChatStore = (id) =>
 // Singleton store for the main pane
 export const useMainChat = createChatStore("main");
 
-// Per-ID store registry for side chat tabs.
-// Each side chat gets its own isolated Zustand store so in-flight streams
-// keep writing to the store they started in even after the user switches tabs.
+// Per-SESSION store registry for side chats.
+// One store per session; switching tabs calls loadMessages into the same store.
 const _fallbackSideChat = createChatStore("side");
-const _sideChatStores = new Map();
+const _sessionSideChatStores = new Map();
 
-export function getSideChatStore(id) {
-  if (!id) return _fallbackSideChat;
-  if (!_sideChatStores.has(id)) _sideChatStores.set(id, createChatStore(id));
-  return _sideChatStores.get(id);
+export function getSideChatStore(sessionId) {
+  if (!sessionId) return _fallbackSideChat;
+  if (!_sessionSideChatStores.has(sessionId))
+    _sessionSideChatStores.set(sessionId, createChatStore(sessionId));
+  return _sessionSideChatStores.get(sessionId);
 }
 
-export function deleteSideChatStore(id) {
-  _sideChatStores.delete(id);
+export function deleteSideChatStore(sessionId) {
+  _sessionSideChatStores.delete(sessionId);
 }

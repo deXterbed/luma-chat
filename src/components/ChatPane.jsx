@@ -4,9 +4,6 @@ import ModelPicker from "./ModelPicker";
 import InputArea from "./InputArea";
 import { useStreamingChat } from "../hooks/useStreamingChat";
 import { useUiStore } from "../store/uiStore";
-import { useSessionStore } from "../store/sessionStore";
-import { getSideChatStore, deleteSideChatStore } from "../store/chatStore";
-import { Trash2 } from "lucide-react";
 import styles from "./ChatPane.module.css";
 
 export default function ChatPane({
@@ -32,7 +29,6 @@ export default function ChatPane({
     });
 
   const { theme, sideChatPrefill, clearSideChatPrefill } = useUiStore();
-  const { removeSideChat } = useSessionStore();
 
   const bottomRef = useRef(null);
   const scrollContainerRef = useRef(null);
@@ -70,34 +66,6 @@ export default function ChatPane({
           {label}
         </span>
         <div className={styles.headerActions}>
-          {isSideChat && sessionId && sideChatId && (
-            <button
-              onClick={() => {
-                const session = useSessionStore
-                  .getState()
-                  .chatSessions.find((s) => s.id === sessionId);
-                if (!session) return;
-                const sideChats = session.sideChats;
-                const other = sideChats.find((s) => s.id !== sideChatId);
-                if (other) {
-                  getSideChatStore(other.id)
-                    .getState()
-                    .loadMessages(
-                      other.messages ?? [],
-                      other.model ?? "minimax-m3:cloud",
-                    );
-                } else {
-                  getSideChatStore(null).getState().clearMessages();
-                }
-                deleteSideChatStore(sideChatId);
-                removeSideChat(sessionId, sideChatId);
-              }}
-              title="Delete side chat"
-              className={`${styles.headerBtn} ${compact ? styles.headerBtnCompact : ""}`}
-            >
-              <Trash2 size={11} />
-            </button>
-          )}
           <button
             onClick={() => setWebSearchEnabled((v) => !v)}
             title={webSearchEnabled ? "Web search on" : "Web search off"}

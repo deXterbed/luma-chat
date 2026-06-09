@@ -19,13 +19,14 @@ export const useSessionStore = create((set, get) => ({
         // Merge fetched side chat messages into existing side chat stubs
         const sideChats = sess.sideChats.map((sc) => {
           const fresh = data.sideChats.find((f) => f.id === sc.id);
-          if (fresh)
-            getSideChatStore(sc.id)
-              .getState()
-              .loadMessages(fresh.messages, sc.model);
           return fresh ? { ...sc, messages: fresh.messages } : sc;
         });
-        return { ...sess, messages: data.messages, sideChats };
+        // Load the active tab's messages into this session's store
+        const activeId = sess.activeSideChatId;
+        const activeSc = sideChats.find(sc => sc.id === activeId) ?? sideChats[0];
+        if (activeSc)
+          getSideChatStore(sessionId).getState().loadMessages(activeSc.messages ?? [], activeSc.model ?? "minimax-m3:cloud");
+        return { ...sess, messages: data.messages, sideChats, activeSideChatId: activeSc?.id ?? activeId };
       }),
     }));
     return data;
