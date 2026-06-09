@@ -3,7 +3,13 @@ node_modules/
 
 # Build output
 dist/
-dist-electron/
+
+# Tauri
+tauri/target/
+tauri/gen/
+
+# Cargo config (local toolchain paths)
+.cargo/
 
 # Vite
 .vite/
@@ -28,5 +34,9 @@ Thumbs.db
 *.log
 npm-debug.log*
 
-# Electron-builder
-release/
+# Tauri icons (generate proper ones with: cargo tauri icon path/to/source.png)
+tauri/icons/*.png
+tauri/icons/*.icns
+tauri/icons/*.ico
+tauri/icons/android/
+tauri/icons/ios/

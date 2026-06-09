@@ -51,6 +51,22 @@
     color: var(--accent);
 }
 
+.streamingDot {
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+    margin-left: 5px;
+    vertical-align: middle;
+    animation: sidePanelPulse 1s ease-in-out infinite;
+}
+
+@keyframes sidePanelPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.2; }
+}
+
 .addTabBtn {
     padding: 4px 10px;
     background: transparent;

@@ -1,9 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 import ChatPane from "./ChatPane";
-import { useUiStore } from "../store/uiStore";
 import { useSessionStore } from "../store/sessionStore";
 import { useMainChat, getSideChatStore } from "../store/chatStore";
 import styles from "./SidePanel.module.css";
+
+function TabButton({ sc, index, isActive, onClick }) {
+  const isStreaming = getSideChatStore(sc.id)((s) => s.isStreaming);
+  return (
+    <button
+      onClick={onClick}
+      className={`${styles.tab} ${isActive ? styles.tabActive : ""}`}
+    >
+      {index + 1}
+      {isStreaming && <span className={styles.streamingDot} />}
+    </button>
+  );
+}
 
 export default function SidePanel() {
   const { chatSessions, activeChatId, addSideChat, setActiveSideChatId } =
@@ -46,51 +58,38 @@ export default function SidePanel() {
     };
   }, []);
 
-  // When the active session changes (or on first mount), ensure a side chat
-  // record exists and load its messages into the session-scoped store.
+  // On session switch: seed each tab's store from sessionStore (persisted messages).
+  // New tabs get an auto-created empty store on first getSideChatStore(id) call.
   useEffect(() => {
-    if (!activeChatId) {
-      getSideChatStore(null).getState().clearMessages();
-      return;
-    }
-    // Read fresh from the store — the closure values may be one render behind.
+    if (!activeChatId) return;
     const sess = useSessionStore
       .getState()
       .chatSessions.find((s) => s.id === activeChatId);
     if (!sess) return;
-
     const sideChats = sess.sideChats ?? [];
-    const activeId = sess.activeSideChatId ?? null;
-    const store = getSideChatStore(activeChatId);
-
     if (sideChats.length === 0) {
-      // No side chat yet for this session — create the first one.
-      addSideChat(activeChatId, store.getState().model);
+      addSideChat(activeChatId, "minimax-m3:cloud");
     } else {
-      // Load the active tab's messages (fall back to the first tab).
-      const sc = sideChats.find((sc) => sc.id === activeId) ?? sideChats[0];
-      store.getState().loadMessages(sc.messages ?? [], sc.model ?? "minimax-m3:cloud");
-      if (!activeId) setActiveSideChatId(activeChatId, sc.id);
+      sideChats.forEach((sc) => {
+        const tabStore = getSideChatStore(sc.id);
+        if (!tabStore.getState().isStreaming)
+          tabStore.getState().loadMessages(sc.messages ?? [], sc.model ?? "minimax-m3:cloud");
+      });
+      if (!sess.activeSideChatId)
+        setActiveSideChatId(activeChatId, sideChats[0].id);
     }
   }, [activeChatId]);
 
   const handleAddTab = () => {
     if (!activeChatId) return;
-    const store = getSideChatStore(activeChatId);
-    const model = store.getState().model;
+    const model = activeSideChatId
+      ? getSideChatStore(activeSideChatId).getState().model
+      : "minimax-m3:cloud";
     addSideChat(activeChatId, model);
-    // The new tab is empty — clear whatever the previous tab had loaded.
-    store.getState().clearMessages();
   };
 
   const handleSwitchTab = (id) => {
     if (id === activeSideChatId) return;
-    const sess = useSessionStore.getState().chatSessions.find((s) => s.id === activeChatId);
-    const sc = sess?.sideChats.find((sc) => sc.id === id);
-    if (!sc) return;
-    getSideChatStore(activeChatId)
-      .getState()
-      .loadMessages(sc.messages ?? [], sc.model ?? "minimax-m3:cloud");
     setActiveSideChatId(activeChatId, id);
   };
 
@@ -104,13 +103,13 @@ export default function SidePanel() {
       >
         <div className={styles.tabBar}>
           {sessionSideChats.map((sc, i) => (
-            <button
+            <TabButton
               key={sc.id}
+              sc={sc}
+              index={i}
+              isActive={sc.id === activeSideChatId}
               onClick={() => handleSwitchTab(sc.id)}
-              className={`${styles.tab} ${sc.id === activeSideChatId ? styles.tabActive : ""}`}
-            >
-              {i + 1}
-            </button>
+            />
           ))}
           {mainChatHasMessages && (
             <button
@@ -124,17 +123,28 @@ export default function SidePanel() {
         </div>
 
         <div className={styles.paneContent}>
-          <ChatPane
-            key={activeSideChatId ?? activeChatId ?? "default"}
-            store={getSideChatStore(activeChatId)}
-            contextStore={useMainChat}
-            isSideChat={true}
-            sideChatId={activeSideChatId}
-            sessionId={activeChatId}
-            placeholder="Side questions…"
-            label="Side Chat"
-            compact={true}
-          />
+          {sessionSideChats.map((sc) => (
+            <div
+              key={sc.id}
+              style={{
+                display: sc.id === activeSideChatId ? "flex" : "none",
+                flexDirection: "column",
+                height: "100%",
+              }}
+            >
+              <ChatPane
+                store={getSideChatStore(sc.id)}
+                contextStore={useMainChat}
+                isSideChat={true}
+                isActive={sc.id === activeSideChatId}
+                sideChatId={sc.id}
+                sessionId={activeChatId}
+                placeholder="Side questions…"
+                label="Side Chat"
+                compact={true}
+              />
+            </div>
+          ))}
         </div>
       </div>
     </>

@@ -4,6 +4,13 @@ import ModelPicker from "./ModelPicker";
 import InputArea from "./InputArea";
 import { useStreamingChat } from "../hooks/useStreamingChat";
 import { useUiStore } from "../store/uiStore";
+import { useSessionStore } from "../store/sessionStore";
+import {
+  useMainChat,
+  getSideChatStore,
+  deleteSideChatStore,
+} from "../store/chatStore";
+import { Trash2 } from "lucide-react";
 import styles from "./ChatPane.module.css";
 
 export default function ChatPane({
@@ -14,9 +21,12 @@ export default function ChatPane({
   placeholder = "Ask anything…",
   compact = false,
   isSideChat = false,
+  isActive = true,
   label = "Chat",
 }) {
-  const { messages, model, setModel } = store();
+  // For the main pane, use the global store directly to ensure proper subscription
+  const mainState = useMainChat();
+  const { messages, model, setModel } = isSideChat ? store() : mainState;
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const { handleSend, resend, isStreaming, stopStreaming, error } =
     useStreamingChat({
@@ -61,8 +71,12 @@ export default function ChatPane({
   return (
     <div className={styles.pane}>
       {/* Pane header */}
-      <div className={`${styles.header} ${compact ? styles.headerCompact : ""}`}>
-        <span className={`${styles.headerLabel} ${compact ? styles.headerLabelCompact : ""}`}>
+      <div
+        className={`${styles.header} ${compact ? styles.headerCompact : ""}`}
+      >
+        <span
+          className={`${styles.headerLabel} ${compact ? styles.headerLabelCompact : ""}`}
+        >
           {label}
         </span>
         <div className={styles.headerActions}>
@@ -98,10 +112,16 @@ export default function ChatPane({
       >
         {messages.length === 0 && (
           <div className={styles.emptyState}>
-            <div className={`${styles.emptyDotOuter} ${compact ? styles.emptyDotOuterCompact : ""}`}>
-              <div className={`${styles.emptyDotInner} ${compact ? styles.emptyDotInnerCompact : ""}`} />
+            <div
+              className={`${styles.emptyDotOuter} ${compact ? styles.emptyDotOuterCompact : ""}`}
+            >
+              <div
+                className={`${styles.emptyDotInner} ${compact ? styles.emptyDotInnerCompact : ""}`}
+              />
             </div>
-            <span className={`${styles.emptyText} ${compact ? styles.emptyTextCompact : ""}`}>
+            <span
+              className={`${styles.emptyText} ${compact ? styles.emptyTextCompact : ""}`}
+            >
               {placeholder}
             </span>
           </div>
@@ -116,11 +136,7 @@ export default function ChatPane({
           />
         ))}
 
-        {error && (
-          <div className={styles.errorBox}>
-            {error}
-          </div>
-        )}
+        {error && <div className={styles.errorBox}>{error}</div>}
 
         <div ref={bottomRef} />
       </div>
@@ -131,8 +147,8 @@ export default function ChatPane({
         onStop={stopStreaming}
         compact={compact}
         placeholder={placeholder}
-        prefill={isSideChat ? sideChatPrefill : null}
-        onPrefillApplied={isSideChat ? clearSideChatPrefill : null}
+        prefill={isSideChat && isActive ? sideChatPrefill : null}
+        onPrefillApplied={isSideChat && isActive ? clearSideChatPrefill : null}
       />
     </div>
   );

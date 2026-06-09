@@ -15,7 +15,13 @@ import { useSessionStore } from "../store/sessionStore";
 import styles from "./Sidebar.module.css";
 
 export default function Sidebar() {
-  const { chatSessions, activeChatId, setActiveChatId, removeChatSession, hydrateSession } = useSessionStore();
+  const {
+    chatSessions,
+    activeChatId,
+    setActiveChatId,
+    removeChatSession,
+    hydrateSession,
+  } = useSessionStore();
   const { ollamaConnected, theme } = useUiStore();
   const clearMain = useMainChat((s) => s.clearMessages);
   const loadMessages = useMainChat((s) => s.loadMessages);
@@ -79,7 +85,10 @@ export default function Sidebar() {
         ) : (
           <WifiOff size={11} color={ollamaConnected ? "#4ade80" : "#f87171"} />
         )}
-        <span className={styles.statusText} style={{ color: ollamaConnected ? "#4ade80" : "#f87171" }}>
+        <span
+          className={styles.statusText}
+          style={{ color: ollamaConnected ? "#4ade80" : "#f87171" }}
+        >
           {ollamaConnected ? "Ollama connected" : "Ollama offline"}
         </span>
       </div>

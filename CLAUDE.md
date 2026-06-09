@@ -5,25 +5,42 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-npm run dev        # Start Vite dev server + Electron together (hot reload)
-npm run build      # Vite production build → electron-builder package
-npm postinstall    # Rebuilds better-sqlite3 native module against Electron's Node ABI
+npm run dev        # Start Vite dev server + Tauri dev window (hot reload)
+npm run build      # Vite production build → Tauri bundler
+npm run dev:vite   # Vite dev server only (for browser-based dev)
+npm run build:vite # Vite production build only
 ```
 
 There are no tests or linters configured.
 
+### Prerequisites
+
+- **Rust**: Install via [rustup](https://rustup.rs/) (`rustup stable`)
+- **Tauri CLI**: `npm install` pulls `@tauri-apps/cli`
+- **Icons**: Generate with `cargo tauri icon path/to/source.png` (1024x1024 recommended)
+
 ## Architecture
 
-**Luma** is a dual-pane Ollama chat desktop app (Electron + React/Vite + SQLite).
+**Luma** is a dual-pane Ollama chat desktop app (Tauri + React/Vite + SQLite).
 
 ### Process boundary
 
-The app has two separate JS processes with strict context isolation:
+- **Rust backend** (`tauri/`): owns the SQLite DB (via `rusqlite`), window controls, and all network I/O (web search/fetch via `reqwest` + `scraper` + `readability`). Exposed to the frontend through Tauri commands.
+- **Frontend** (`src/`): React UI. Reaches the Rust backend through `@tauri-apps/api/core` → `invoke()` calls, wrapped in thin client modules (`src/lib/db.js`, `src/lib/tools.js`).
 
-- **Main process** (`electron/`): owns the SQLite DB, window controls, and all network I/O (web search/fetch via DuckDuckGo + Readability). Never directly accessible from the renderer.
-- **Renderer process** (`src/`): React UI. Reaches the main process only through the bridge objects that `electron/preload.js` exposes: `window.electron`, `window.db`, `window.webTools`.
+### Rust backend structure
 
-IPC channels are registered in `electron/ipc.js` and mirrored in `electron/preload.js`. When adding a new main-process capability, both files need updating plus a thin client wrapper in `src/lib/db.js` or equivalent.
+| File | Purpose |
+|---|---|
+| `tauri/src/main.rs` | App entry, window config, plugin + command registration |
+| `tauri/src/db.rs` | SQLite schema, migrations, all CRUD operations |
+| `tauri/src/commands.rs` | Tauri `#[tauri::command]` handlers wrapping DB + web tools |
+| `tauri/src/tools/search.rs` | DuckDuckGo web search (HTTP → HTML parsing) |
+| `tauri/src/tools/fetch.rs` | Web page fetch + Readability extraction |
+| `tauri/src/tools/html.rs` | HTML → Markdown text conversion |
+| `tauri/src/tools/mod.rs` | Module re-exports |
+
+Commands are registered in `main.rs` via `tauri::generate_handler![]`. When adding a new command, add the function to `commands.rs` and register it in `main.rs`.
 
 ### State management (Zustand)
 
@@ -37,7 +54,7 @@ Three independent stores; none are persisted to `localStorage` (persistence goes
 
 `chatStore.js` exports a factory `createChatStore(id)` — both panes use identical logic from the same factory. The two singletons are `useMainChat` and `useSideChat`.
 
-`useSessionStore` is the only store that writes to SQLite directly. All DB mutations (save messages, upsert side chats, etc.) happen inside its actions, not in components.
+`useSessionStore` is the only store that writes to SQLite directly (via `db` from `src/lib/db.js`). All DB mutations happen inside its actions, not in components.
 
 ### Streaming and tool-calling loop
 
@@ -47,13 +64,17 @@ Three independent stores; none are persisted to `localStorage` (persistence goes
 
 ### Tool execution
 
-`src/lib/tools.js` exports `TOOLS` (Ollama-format definitions) and `executeTool(name, args)`. Local tools (e.g. `get_current_time`) run in the renderer. Web tools (`web_search`, `web_fetch`) cross the IPC boundary via `window.webTools` to avoid CORS; the implementations live in `electron/tools/`.
+`src/lib/tools.js` exports `TOOLS` (Ollama-format definitions) and `executeTool(name, args)`. Local tools (e.g. `get_current_time`) run in the renderer. Web tools (`web_search`, `web_fetch`) invoke Tauri commands via `@tauri-apps/api/core` to avoid CORS; the implementations live in `tauri/src/tools/`.
 
 Web search is per-pane toggleable (stored in `useUiStore`). `useStreamingChat` filters `TOOLS` to exclude web tools when the toggle is off before passing them to `streamChat`.
 
 ### Database schema
 
-`electron/db.js` owns the schema and all queries (better-sqlite3, synchronous API). Tables: `sessions`, `messages`, `side_chats`, `side_chat_messages`. Message rows store `images` and `tool_calls` as JSON strings. On `init()`, `ALTER TABLE … ADD COLUMN` migrations run inside a try/catch to handle existing DBs gracefully.
+`tauri/src/db.rs` owns the schema and all queries (SQLite via `rusqlite`, synchronous API). Tables: `sessions`, `messages`, `side_chats`, `side_chat_messages`, `custom_models`. Message rows store `images` and `tool_calls` as JSON strings. On init, `ALTER TABLE … ADD COLUMN` migrations run inside `.ok()` to handle existing DBs gracefully.
+
+### Window controls
+
+`src/components/TitleBar.jsx` uses `@tauri-apps/api/window` → `getCurrentWindow()` for minimize/maximize/close. Tauri v2 is configured with `decorations: false` (frameless window) — the app draws its own title bar.
 
 ### Theming
 

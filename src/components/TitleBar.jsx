@@ -9,14 +9,50 @@ export default function TitleBar() {
   const theme = useUiStore((s) => s.theme);
 
   useEffect(() => {
-    if (!window.electron) return;
-    window.electron.isMaximized().then(setIsMaximized);
-    window.electron.onMaximized(setIsMaximized);
+    let unlisten = null;
+
+    async function setup() {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        const win = getCurrentWindow();
+
+        setIsMaximized(await win.isMaximized());
+
+        unlisten = await win.onResized(async () => {
+          setIsMaximized(await win.isMaximized());
+        });
+      } catch {
+        // Running in browser — no Tauri window API
+      }
+    }
+
+    setup();
+
+    return () => {
+      if (unlisten) unlisten();
+    };
   }, []);
 
-  const handleMinimize = () => window.electron?.minimize();
-  const handleMaximize = () => window.electron?.maximize();
-  const handleClose = () => window.electron?.close();
+  const handleMinimize = async () => {
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().minimize();
+    } catch {}
+  };
+
+  const handleMaximize = async () => {
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().toggleMaximize();
+    } catch {}
+  };
+
+  const handleClose = async () => {
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().close();
+    } catch {}
+  };
 
   return (
     <div className={styles.titlebar}>
@@ -36,7 +72,10 @@ export default function TitleBar() {
         <button onClick={handleMaximize} className={styles.winBtn}>
           {isMaximized ? <Square size={11} /> : <Maximize2 size={11} />}
         </button>
-        <button onClick={handleClose} className={`${styles.winBtn} ${styles.winBtnClose}`}>
+        <button
+          onClick={handleClose}
+          className={`${styles.winBtn} ${styles.winBtnClose}`}
+        >
           <X size={12} />
         </button>
       </div>

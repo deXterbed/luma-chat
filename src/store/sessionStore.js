@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { v4 as uuidv4 } from "uuid";
 import { db } from "../lib/db";
-import { getSideChatStore } from "./chatStore";
+import { getSideChatStore, deleteSideChatStore } from "./chatStore";
 
 export const useSessionStore = create((set, get) => ({
   chatSessions: [],
@@ -21,12 +21,12 @@ export const useSessionStore = create((set, get) => ({
           const fresh = data.sideChats.find((f) => f.id === sc.id);
           return fresh ? { ...sc, messages: fresh.messages } : sc;
         });
-        // Load the active tab's messages into this session's store
-        const activeId = sess.activeSideChatId;
-        const activeSc = sideChats.find(sc => sc.id === activeId) ?? sideChats[0];
-        if (activeSc)
-          getSideChatStore(sessionId).getState().loadMessages(activeSc.messages ?? [], activeSc.model ?? "minimax-m3:cloud");
-        return { ...sess, messages: data.messages, sideChats, activeSideChatId: activeSc?.id ?? activeId };
+        // Load each tab's messages into its own independent store
+        sideChats.forEach((sc) => {
+          getSideChatStore(sc.id).getState().loadMessages(sc.messages ?? [], sc.model ?? "minimax-m3:cloud");
+        });
+        const activeId = sess.activeSideChatId ?? sideChats[0]?.id ?? null;
+        return { ...sess, messages: data.messages, sideChats, activeSideChatId: activeId };
       }),
     }));
     return data;
@@ -91,6 +91,8 @@ export const useSessionStore = create((set, get) => ({
 
   removeChatSession: (id) => {
     db.deleteSession(id);
+    const sess = get().chatSessions.find((s) => s.id === id);
+    if (sess) sess.sideChats.forEach((sc) => deleteSideChatStore(sc.id));
     set((s) => {
       const wasActive = s.activeChatId === id;
       return {

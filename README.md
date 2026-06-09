@@ -4,7 +4,7 @@
 
 A research workbench for deep-dive topic exploration, built as a dual-pane desktop app on top of local LLMs. The main chat is the spine of a research session, and side chats are branches for drilling into subtopics and sources — with live web search and fetch so the model can ground its answers.
 
-- **Stack:** Electron + React/Vite + SQLite + [Ollama](https://ollama.com)
+- **Stack:** Tauri + React/Vite + SQLite + [Ollama](https://ollama.com)
 - **Not a general chatbot:** every capability exists to help a user research and deeply understand a topic. See `ROADMAP.md` for the long-term plan.
 
 ## Features
@@ -37,15 +37,15 @@ The model can call tools as it responds, with full visibility into the process:
 - **`web_fetch(url)`** — fetch a URL and extract clean readable content via Mozilla Readability
 - **`get_current_time()`** — local time + timezone
 
-Web tools run in the Electron main process (no CORS, network code stays in one auditable place) and are exposed to the renderer over IPC. The tool-call loop is capped at 5 rounds per response to prevent runaway iteration. The `ToolActivity` component shows a live indicator (`🔍 Searching for "..."`, `📖 Reading article...`) plus a collapsible summary of every tool used for that response.
+Web tools run in the Tauri Rust backend (no CORS, network code stays in one auditable place) and are exposed to the frontend via `@tauri-apps/api/core`. The tool-call loop is capped at 5 rounds per response to prevent runaway iteration. The `ToolActivity` component shows a live indicator (`🔍 Searching for "..."`, `📖 Reading article...`) plus a collapsible summary of every tool used for that response.
 
 ### Search controls
 - **Per-pane web search toggle** — disable web tools in either pane for sessions that don't need them. The renderer filters the tool list before passing it to the model.
 
 ### Persistence
-- **SQLite via Electron main** — sessions, messages, and side chats are stored locally (better-sqlite3) and restored on launch
+- **SQLite via Tauri Rust backend** — sessions, messages, and side chats are stored locally (rusqlite) and restored on launch
 - **No cloud sync** — research is the user's private work, not a collaborative product
-- **Migrations** — `ALTER TABLE` upgrades run on init inside a try/catch so existing DBs upgrade gracefully
+- **Migrations** — `ALTER TABLE` upgrades run on init to handle existing DBs gracefully
 
 ### Theming
 - **Light & dark themes** — toggle in the title bar; choice persists in `localStorage`, with `prefers-color-scheme` fallback
@@ -54,6 +54,7 @@ Web tools run in the Electron main process (no CORS, network code stays in one a
 ## Requirements
 
 - [Ollama](https://ollama.com) running locally on `http://localhost:11434`
+- [Rust](https://rustup.rs) (stable toolchain)
 - Node.js 18+
 
 ## Getting Started
@@ -63,22 +64,20 @@ npm install
 npm run dev
 ```
 
-`npm install` runs `postinstall`, which rebuilds `better-sqlite3` against Electron's Node ABI — leave it alone unless you know why you're skipping it.
-
 ## Build
 
 ```bash
 npm run build
 ```
 
-Runs `vite build` then `electron-builder`, outputting an NSIS installer to `dist-electron/`.
+Runs `vite build` then `tauri build`.
 
 ## Architecture
 
-The app runs as two strict processes:
+The app runs with a Rust backend and a React frontend:
 
-- **Main process** (`electron/`) — owns the SQLite DB, the BrowserWindow, and all outbound HTTP (web search/fetch). The renderer cannot reach it directly.
-- **Renderer** (`src/`) — React UI. Talks to the main process only through bridges exposed by `electron/preload.js`: `window.electron`, `window.db`, `window.webTools`. New main-side capabilities need a channel in `electron/ipc.js`, a mirror in `preload.js`, and a thin client wrapper in `src/lib/db.js` or equivalent.
+- **Rust backend** (`tauri/`) — owns the SQLite DB, window controls, and all outbound HTTP (web search/fetch via `reqwest` + `scraper` + `readability`). Exposed through Tauri commands.
+- **Frontend** (`src/`) — React UI. Reaches the Rust backend through `@tauri-apps/api/core` → `invoke()` calls, wrapped in thin client modules (`src/lib/db.js`, `src/lib/tools.js`).
 
 State lives in three independent Zustand stores. None of them persist to `localStorage`; durability is the DB's job.
 
@@ -90,27 +89,28 @@ State lives in three independent Zustand stores. None of them persist to `localS
 
 ## Stack
 
-- **Electron 31** — desktop shell with `contextIsolation: true`, `nodeIntegration: false`
+- **Tauri 2** — desktop shell, Rust-powered with OS-native webviews
 - **React 18 + Vite 5** — UI and dev server
 - **Zustand 4** — state management
-- **better-sqlite3 12** — synchronous local persistence (main process only)
+- **rusqlite** — synchronous local persistence in the Rust backend
 - **Tailwind CSS** — utility classes
 - **Ollama API** — local and cloud model inference
 - **react-markdown + remark-gfm + remark-math + rehype-katex** — message rendering
-- **@mozilla/readability + cheerio + jsdom** — clean article extraction in the main process
+- **reqwest + scraper + readability** — web search and article extraction in the Rust backend
 - **lucide-react** — icons
 
 ## Project layout
 
 ```
-ollama-chat/
-├── electron/             Main process: DB, window, IPC, web tools
-│   └── tools/            search.js, fetch.js, html.js (web tools)
-├── src/                  Renderer: React UI
-│   ├── components/       ChatPane, SidePanel, Sidebar, InputArea, MessageBubble, ToolActivity…
-│   ├── hooks/            useStreamingChat, useDbInit, useChatSession
-│   ├── lib/              ollama.js, tools.js, db.js, systemPrompt.js
-│   └── store/            chatStore, sessionStore, uiStore, appStore
+luma-chat/
+├── tauri/                 Rust backend: DB, commands, web tools
+│   └── src/
+│       └── tools/         search.rs, fetch.rs, html.rs (web tools)
+├── src/                   React UI
+│   ├── components/        ChatPane, SidePanel, Sidebar, InputArea, MessageBubble, ToolActivity…
+│   ├── hooks/             useStreamingChat, useDbInit, useChatSession
+│   ├── lib/               ollama.js, tools.js, db.js, systemPrompt.js
+│   └── store/             chatStore, sessionStore, uiStore
 ├── index.html, vite.config.mjs, tailwind.config.js, postcss.config.js
 └── package.json
 ```

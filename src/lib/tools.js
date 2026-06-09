@@ -4,9 +4,9 @@
 // to provide.
 //
 // Local tools (get_current_time) run in the renderer. Web tools
-// (web_search, web_fetch) run in the Electron main process via the
-// `window.webTools` bridge exposed by preload.js — this avoids CORS
-// in the renderer and keeps network/parsing code in one auditable place.
+// (web_search, web_fetch) run in the Tauri Rust backend via
+// `@tauri-apps/api/core` invoke — this avoids CORS in the renderer
+// and keeps network/parsing code in one auditable place.
 
 export const TOOLS = [
   {
@@ -97,19 +97,25 @@ export async function executeTool(name, args) {
       });
     }
     case "web_search": {
-      if (!window.webTools) {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        return await invoke("web_search", {
+          query: args?.query || "",
+          maxResults: args?.max_results ?? 5,
+        });
+      } catch {
         return "Error: web tools are not available in this environment";
       }
-      return await window.webTools.search(
-        args?.query || "",
-        args?.max_results || 5,
-      );
     }
     case "web_fetch": {
-      if (!window.webTools) {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        return await invoke("web_fetch", {
+          url: args?.url || "",
+        });
+      } catch {
         return "Error: web tools are not available in this environment";
       }
-      return await window.webTools.fetch(args?.url || "");
     }
     default:
       return `Error: unknown tool "${name}"`;
