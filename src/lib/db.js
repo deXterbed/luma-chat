@@ -11,6 +11,7 @@ export const db = {
     ? (sid) => api.loadSessionMessages(sid)
     : async () => ({ messages: [], sideChats: [] }),
   saveSession: api ? (s) => api.saveSession(s) : noop,
+  updateSessionActivity: api ? (id) => api.updateSessionActivity(id) : noop,
   saveMessages: api ? (sid, msgs) => api.saveMessages(sid, msgs) : noop,
   deleteSession: api ? (id) => api.deleteSession(id) : noop,
   upsertSideChat: api

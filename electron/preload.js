@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld("db", {
   loadSessionMessages: (sessionId) =>
     ipcRenderer.invoke("db:loadSessionMessages", sessionId),
   saveSession: (session) => ipcRenderer.invoke("db:saveSession", session),
+  updateSessionActivity: (id) =>
+    ipcRenderer.invoke("db:updateSessionActivity", id),
   saveMessages: (sessionId, messages) =>
     ipcRenderer.invoke("db:saveMessages", sessionId, messages),
   deleteSession: (id) => ipcRenderer.invoke("db:deleteSession", id),

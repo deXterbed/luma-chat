@@ -20,6 +20,9 @@ function register(win) {
     db.loadSessionMessages(sessionId),
   );
   ipcMain.handle("db:saveSession", (_, session) => db.saveSession(session));
+  ipcMain.handle("db:updateSessionActivity", (_, id) =>
+    db.updateSessionActivity(id),
+  );
   ipcMain.handle("db:saveMessages", (_, sessionId, messages) =>
     db.saveMessages(sessionId, messages),
   );

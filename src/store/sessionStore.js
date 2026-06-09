@@ -30,7 +30,22 @@ export const useSessionStore = create((set, get) => ({
     }));
     return data;
   },
-  setActiveChatId: (id) => set({ activeChatId: id }),
+  setActiveChatId: (id) => {
+    if (!id) return set({ activeChatId: id });
+
+    db.updateSessionActivity(id);
+    set((s) => {
+      const updatedSessions = s.chatSessions.map((sess) =>
+        sess.id === id ? { ...sess, updated_at: Date.now() } : sess,
+      );
+      return {
+        activeChatId: id,
+        chatSessions: [...updatedSessions].sort(
+          (a, b) => (b.updated_at || 0) - (a.updated_at || 0),
+        ),
+      };
+    });
+  },
 
   addChatSession: (session) => {
     const full = { ...session, sideChats: [], activeSideChatId: null };

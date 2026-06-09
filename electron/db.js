@@ -13,7 +13,8 @@ function init() {
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
       model TEXT NOT NULL,
-      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
     );
     CREATE TABLE IF NOT EXISTS messages (
       id TEXT PRIMARY KEY,
@@ -51,12 +52,19 @@ function init() {
       );
     } catch {}
   }
+  try {
+    db.exec(
+      `ALTER TABLE sessions ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0`,
+    );
+    // Backfill: any rows added before the column existed get their created_at
+    db.exec(`UPDATE sessions SET updated_at = created_at WHERE updated_at = 0`);
+  } catch {}
 }
 
 function loadSessions() {
   // Load only metadata at startup — messages are fetched on demand via loadSessionMessages
   const sessions = db
-    .prepare("SELECT * FROM sessions ORDER BY created_at DESC")
+    .prepare("SELECT * FROM sessions ORDER BY updated_at DESC")
     .all();
   return sessions.map((s) => {
     const sideChats = db
@@ -120,12 +128,25 @@ function loadSessionMessages(sessionId) {
 
 const upsertSession = db_lazy(() =>
   db.prepare(
-    "INSERT INTO sessions (id, title, model, created_at) VALUES (@id, @title, @model, @created_at) ON CONFLICT(id) DO UPDATE SET title = excluded.title, model = excluded.model",
+    "INSERT INTO sessions (id, title, model, created_at, updated_at) VALUES (@id, @title, @model, @created_at, @updated_at) ON CONFLICT(id) DO UPDATE SET title = excluded.title, model = excluded.model, updated_at = excluded.updated_at",
   ),
 );
 
 function saveSession({ id, title, model }) {
-  upsertSession().run({ id, title, model, created_at: Date.now() });
+  upsertSession().run({
+    id,
+    title,
+    model,
+    created_at: Date.now(),
+    updated_at: Date.now(),
+  });
+}
+
+function updateSessionActivity(id) {
+  db.prepare("UPDATE sessions SET updated_at = ? WHERE id = ?").run(
+    Date.now(),
+    id,
+  );
 }
 
 const deleteAllMessages = db_lazy(() =>
@@ -247,6 +268,7 @@ module.exports = {
   loadSessions,
   loadSessionMessages,
   saveSession,
+  updateSessionActivity,
   saveMessages,
   upsertSideChat,
   saveSideChatMessages,
