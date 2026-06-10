@@ -5,7 +5,6 @@ import { listLocalModels } from "../lib/ollama";
 import styles from "./ModelPicker.module.css";
 
 export default function ModelPicker({ model, setModel, compact }) {
-  const theme = useUiStore((s) => s.theme);
   const availableModels = useUiStore((s) => s.availableModels);
   const customModels = useUiStore((s) => s.customModels);
   const ollamaConnected = useUiStore((s) => s.ollamaConnected);

@@ -136,6 +136,10 @@ impl Database {
                 name TEXT PRIMARY KEY,
                 created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
             );
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
             ",
         )
         .expect("Failed to create tables");
@@ -423,6 +427,36 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM custom_models WHERE name = ?1", params![name])
             .ok();
+    }
+
+    // ── Settings (key/value) ──
+    //
+    // Used by the frontend's settings page. Returns a flat map of
+    // key → value strings — the renderer is responsible for parsing
+    // and validating each well-known key.
+
+    pub fn load_settings(&self) -> std::collections::HashMap<String, String> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = match conn.prepare("SELECT key, value FROM settings") {
+            Ok(s) => s,
+            Err(_) => return std::collections::HashMap::new(),
+        };
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .unwrap();
+        rows.filter_map(|r| r.ok()).collect()
+    }
+
+    pub fn save_setting(&self, key: &str, value: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![key, value],
+        )
+        .ok();
     }
 }
 

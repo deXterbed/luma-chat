@@ -22,7 +22,7 @@ export default function Sidebar() {
     removeChatSession,
     hydrateSession,
   } = useSessionStore();
-  const { ollamaConnected, theme } = useUiStore();
+  const { ollamaConnected } = useUiStore();
   const clearMain = useMainChat((s) => s.clearMessages);
   const loadMessages = useMainChat((s) => s.loadMessages);
 

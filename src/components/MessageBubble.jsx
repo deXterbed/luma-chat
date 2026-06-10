@@ -6,6 +6,7 @@ import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
 import { MessageSquarePlus, X, CornerDownLeft } from "lucide-react";
 import { useUiStore } from "../store/uiStore";
+import { useSettingsStore } from "../store/settingsStore";
 import { getTheme } from "../theme";
 import ToolActivity from "./ToolActivity";
 import styles from "./MessageBubble.module.css";
@@ -21,7 +22,8 @@ export default function MessageBubble({
 }) {
   const isUser = message.role === "user";
   const isStreaming = message.isStreaming;
-  const { theme, setSideChatOpen, setSideChatPrefill } = useUiStore();
+  const { setSideChatOpen, setSideChatPrefill } = useUiStore();
+  const theme = useSettingsStore((s) => s.theme);
   const t = getTheme(theme);
 
   const [editing, setEditing] = useState(false);

@@ -1,12 +1,9 @@
 import { useRef, useEffect, useState, useCallback } from "react";
 import { Send, Square, Paperclip, X } from "lucide-react";
 import { fileToBase64 } from "../lib/ollama";
-import { useUiStore } from "../store/uiStore";
 import styles from "./InputArea.module.css";
 
 export default function InputArea({ onSend, isStreaming, onStop, compact, placeholder, prefill, onPrefillApplied }) {
-  const theme = useUiStore((s) => s.theme);
-
   const [input, setInput] = useState("");
   const [attachedImages, setAttachedImages] = useState([]);
 

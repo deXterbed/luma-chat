@@ -4,6 +4,7 @@ import TitleBar from "./components/TitleBar";
 import Sidebar from "./components/Sidebar";
 import ChatPane from "./components/ChatPane";
 import SidePanel from "./components/SidePanel";
+import SettingsPage from "./components/SettingsPage";
 import { useUiStore } from "./store/uiStore";
 import { useMainChat } from "./store/chatStore";
 import { isOllamaReachable, listLocalModels } from "./lib/ollama";
@@ -19,7 +20,7 @@ export default function App() {
     setOllamaConnected,
     setAvailableModels,
     setCustomModels,
-    theme,
+    settingsOpen,
   } = useUiStore();
   useDbInit();
 
@@ -39,6 +40,15 @@ export default function App() {
       .then(setCustomModels)
       .catch(() => {});
   }, [setCustomModels]);
+
+  if (settingsOpen) {
+    return (
+      <div className={styles.app}>
+        <TitleBar />
+        <SettingsPage />
+      </div>
+    );
+  }
 
   return (
     <div className={styles.app}>

@@ -4,6 +4,7 @@ import ModelPicker from "./ModelPicker";
 import InputArea from "./InputArea";
 import { useStreamingChat } from "../hooks/useStreamingChat";
 import { useUiStore } from "../store/uiStore";
+import { useSettingsStore } from "../store/settingsStore";
 import { useSessionStore } from "../store/sessionStore";
 import {
   useMainChat,
@@ -27,7 +28,20 @@ export default function ChatPane({
   // For the main pane, use the global store directly to ensure proper subscription
   const mainState = useMainChat();
   const { messages, model, setModel } = isSideChat ? store() : mainState;
-  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  // Seed the per-pane web search toggle from the user's default. The
+  // setting might not be hydrated yet on first render, so we also watch
+  // `hydrated` and apply the default once — but only if the user hasn't
+  // already toggled the button (we don't clobber their override).
+  const webSearchDefault = useSettingsStore((s) => s.webSearchDefault);
+  const settingsHydrated = useSettingsStore((s) => s.hydrated);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(webSearchDefault);
+  const webSearchAppliedRef = useRef(webSearchDefault);
+  useEffect(() => {
+    if (webSearchAppliedRef.current) return;
+    if (!settingsHydrated) return;
+    webSearchAppliedRef.current = true;
+    setWebSearchEnabled(useSettingsStore.getState().webSearchDefault);
+  }, [settingsHydrated]);
   const { handleSend, resend, isStreaming, stopStreaming, error } =
     useStreamingChat({
       store,
@@ -38,7 +52,7 @@ export default function ChatPane({
       webSearchEnabled,
     });
 
-  const { theme, sideChatPrefill, clearSideChatPrefill } = useUiStore();
+  const { sideChatPrefill, clearSideChatPrefill } = useUiStore();
 
   const bottomRef = useRef(null);
   const scrollContainerRef = useRef(null);

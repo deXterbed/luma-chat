@@ -44,4 +44,7 @@ export const db = {
   addCustomModel: (name) => invoke("add_custom_model", { name }).catch(noop),
   removeCustomModel: (name) =>
     invoke("remove_custom_model", { name }).catch(noop),
+  loadSettings: () => invoke("load_settings").then((r) => r ?? {}),
+  saveSetting: (key, value) =>
+    invoke("save_setting", { key, value }).catch(noop),
 };

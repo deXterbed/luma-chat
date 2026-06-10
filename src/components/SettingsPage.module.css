@@ -1,0 +1,325 @@
+.page {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    background: var(--bg);
+    overflow: hidden;
+    font-family: 'Geist', sans-serif;
+}
+
+.header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 0 24px;
+    height: 50px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    background: var(--bg-alt);
+}
+
+.backBtn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid var(--border-strong);
+    border-radius: 5px;
+    padding: 4px 10px;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-family: 'Geist', sans-serif;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.04em;
+}
+
+.backBtn:hover {
+    background: var(--surface-hover);
+    color: var(--text);
+    border-color: var(--text-subtle);
+}
+
+.title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.spacer {
+    flex: 1;
+}
+
+.body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 28px 32px 64px;
+    max-width: 640px;
+    width: 100%;
+    margin: 0 auto;
+}
+
+/* ── Section ── */
+.section {
+    padding: 18px 0 22px;
+    border-bottom: 1px solid var(--border);
+}
+
+.section:last-of-type {
+    border-bottom: none;
+}
+
+.sectionHeader {
+    margin-bottom: 12px;
+}
+
+.sectionTitle {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+}
+
+.sectionHint {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.55;
+    max-width: 520px;
+}
+
+/* ── Segmented control (theme) ── */
+.segmented {
+    display: inline-flex;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    padding: 2px;
+    gap: 2px;
+}
+
+.segBtn {
+    background: transparent;
+    border: none;
+    padding: 5px 14px;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-family: 'Geist', sans-serif;
+    font-weight: 500;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.15s;
+    letter-spacing: 0.02em;
+}
+
+.segBtn:hover {
+    color: var(--text);
+}
+
+.segBtnActive {
+    background: var(--surface-active);
+    color: var(--accent);
+}
+
+/* ── Model picker (trigger + dropdown) ── */
+.modelRow {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.modelTrigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 260px;
+    max-width: 360px;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 5px;
+    padding: 7px 10px;
+    color: var(--input-text);
+    font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    cursor: pointer;
+    transition: border-color 0.15s, opacity 0.15s;
+    text-align: left;
+}
+
+.modelTrigger:hover:not(:disabled) {
+    border-color: var(--text-subtle);
+}
+
+.modelTrigger:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.modelTriggerText {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.modelDropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 7px;
+    overflow: hidden;
+    z-index: 100;
+    min-width: 320px;
+    max-width: 360px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.modelDropdownHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: 9px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.modelList {
+    max-height: 240px;
+    overflow-y: auto;
+}
+
+.modelOption {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    background: transparent;
+    border: none;
+    padding: 8px 12px;
+    color: var(--text-subtle);
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.1s;
+    gap: 8px;
+}
+
+.modelOption:hover {
+    background: var(--surface-hover);
+    color: var(--text);
+}
+
+.modelOptionActive {
+    background: var(--surface-active);
+    color: var(--accent);
+}
+
+.modelOptionText {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.modelOptionCheck {
+    color: var(--accent);
+    flex-shrink: 0;
+}
+
+.savedTick {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    color: var(--status-ok);
+}
+
+/* ── Toggle switch (web search default) ── */
+.toggleRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 4px 0;
+    cursor: pointer;
+}
+
+.toggleLabel {
+    font-size: 12px;
+    color: var(--text);
+}
+
+.switch {
+    position: relative;
+    width: 36px;
+    height: 20px;
+    background: var(--border-strong);
+    border: none;
+    border-radius: 999px;
+    cursor: pointer;
+    padding: 0;
+    transition: background 0.2s;
+    flex-shrink: 0;
+}
+
+.switchKnob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    background: var(--bg);
+    border-radius: 50%;
+    transition: transform 0.2s;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.switchOn {
+    background: var(--accent);
+}
+
+.switchOn .switchKnob {
+    transform: translateX(16px);
+}
+
+/* ── Reset ── */
+.resetRow {
+    margin-top: 32px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+}
+
+.resetBtn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid var(--border-strong);
+    border-radius: 5px;
+    padding: 6px 12px;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-family: 'Geist', sans-serif;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.04em;
+}
+
+.resetBtn:hover {
+    color: var(--status-err);
+    border-color: var(--status-err);
+}

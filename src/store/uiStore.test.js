@@ -21,30 +21,10 @@ describe("uiStore", () => {
       ollamaConnected: false,
       availableModels: [],
       customModels: [],
-      theme: "dark",
       sideChatPrefill: null,
+      settingsOpen: false,
     });
     vi.clearAllMocks();
-  });
-
-  describe("theme", () => {
-    it("has default theme dark", () => {
-      expect(store.getState().theme).toBe("dark");
-    });
-
-    it("sets theme", () => {
-      store.getState().setTheme("light");
-      expect(store.getState().theme).toBe("light");
-    });
-
-    it("toggles theme", () => {
-      store.getState().setTheme("dark");
-      store.getState().toggleTheme();
-      expect(store.getState().theme).toBe("light");
-
-      store.getState().toggleTheme();
-      expect(store.getState().theme).toBe("dark");
-    });
   });
 
   describe("sideChatOpen", () => {
@@ -148,6 +128,23 @@ describe("uiStore", () => {
       store.getState().setSideChatPrefill("text");
       store.getState().clearSideChatPrefill();
       expect(store.getState().sideChatPrefill).toBeNull();
+    });
+  });
+
+  describe("settingsOpen", () => {
+    it("has default settingsOpen false", () => {
+      expect(store.getState().settingsOpen).toBe(false);
+    });
+
+    it("opens the settings page", () => {
+      store.getState().openSettings();
+      expect(store.getState().settingsOpen).toBe(true);
+    });
+
+    it("closes the settings page", () => {
+      store.getState().openSettings();
+      store.getState().closeSettings();
+      expect(store.getState().settingsOpen).toBe(false);
     });
   });
 });

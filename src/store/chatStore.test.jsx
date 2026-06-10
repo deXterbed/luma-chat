@@ -5,6 +5,7 @@ import {
   getSideChatStore,
   deleteSideChatStore,
 } from "./chatStore";
+import { useSettingsStore } from "./settingsStore";
 
 describe("chatStore", () => {
   let store;
@@ -356,5 +357,92 @@ describe("Side chat stores", () => {
     const store2 = getSideChatStore("side-to-delete");
     expect(store2.getState().messages).toHaveLength(0);
     expect(store2).not.toBe(store1);
+  });
+});
+
+describe("default model lazy-seed from settings", () => {
+  // Each test needs a fresh chat store so the subscription it registers
+  // at creation time is independent. We also reset the settings store
+  // back to pre-hydration to mimic a real app boot.
+  beforeEach(() => {
+    useSettingsStore.setState({
+      hydrated: false,
+      theme: "dark",
+      defaultModel: "minimax-m3:cloud",
+      webSearchDefault: false,
+    });
+  });
+
+  it("starts with model = '' (no eager read of defaultModel)", () => {
+    const s = createChatStore(`seed-${Math.random()}`);
+    expect(s.getState().model).toBe("");
+  });
+
+  it("applies defaultModel once settings hydrate", () => {
+    const s = createChatStore(`seed-${Math.random()}`);
+    expect(s.getState().model).toBe("");
+
+    act(() => {
+      useSettingsStore.setState({
+        hydrated: true,
+        defaultModel: "qwen2.5:7b",
+      });
+    });
+
+    expect(s.getState().model).toBe("qwen2.5:7b");
+  });
+
+  it("does not clobber a model the user already picked", () => {
+    const s = createChatStore(`seed-${Math.random()}`);
+
+    // Simulate the user picking a model BEFORE hydration finishes.
+    act(() => {
+      s.getState().setModel("user-picked-model");
+    });
+
+    act(() => {
+      useSettingsStore.setState({
+        hydrated: true,
+        defaultModel: "settings-default",
+      });
+    });
+
+    // The user's pick survives; we don't overwrite it with the default.
+    expect(s.getState().model).toBe("user-picked-model");
+  });
+
+  it("does not apply a default of '' (guards against empty/missing default)", () => {
+    const s = createChatStore(`seed-${Math.random()}`);
+    act(() => {
+      useSettingsStore.setState({ hydrated: true, defaultModel: "" });
+    });
+    expect(s.getState().model).toBe("");
+  });
+
+  it("re-applying the default after clearMessages works for new chats", () => {
+    // `clearMessages` is called by the sidebar's "New Chat" button. It
+    // also resets `model` to the current settings default, so the next
+    // message goes out on the default model.
+    const s = createChatStore(`seed-${Math.random()}`);
+
+    act(() => {
+      useSettingsStore.setState({
+        hydrated: true,
+        defaultModel: "settings-default",
+      });
+    });
+    expect(s.getState().model).toBe("settings-default");
+
+    // User picks a different model for this chat.
+    act(() => {
+      s.getState().setModel("chat-specific-model");
+    });
+    expect(s.getState().model).toBe("chat-specific-model");
+
+    // Click "New Chat" — model should snap back to the settings default.
+    act(() => {
+      s.getState().clearMessages();
+    });
+    expect(s.getState().model).toBe("settings-default");
   });
 });

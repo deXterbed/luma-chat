@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { v4 as uuidv4 } from "uuid";
 import { db } from "../lib/db";
 import { getSideChatStore, deleteSideChatStore } from "./chatStore";
+import { useSettingsStore } from "./settingsStore";
 
 export const useSessionStore = create((set, get) => ({
   chatSessions: [],
@@ -23,10 +24,17 @@ export const useSessionStore = create((set, get) => ({
         });
         // Load each tab's messages into its own independent store
         sideChats.forEach((sc) => {
-          getSideChatStore(sc.id).getState().loadMessages(sc.messages ?? [], sc.model ?? "minimax-m3:cloud");
+          getSideChatStore(sc.id)
+            .getState()
+            .loadMessages(sc.messages ?? [], sc.model ?? "minimax-m3:cloud");
         });
         const activeId = sess.activeSideChatId ?? sideChats[0]?.id ?? null;
-        return { ...sess, messages: data.messages, sideChats, activeSideChatId: activeId };
+        return {
+          ...sess,
+          messages: data.messages,
+          sideChats,
+          activeSideChatId: activeId,
+        };
       }),
     }));
     return data;
@@ -102,17 +110,24 @@ export const useSessionStore = create((set, get) => ({
     });
   },
 
-  addSideChat: (sessionId, model = "minimax-m3:cloud") => {
+  addSideChat: (sessionId, model) => {
+    // New side chats inherit the user's default model unless the caller
+    // explicitly passes one (e.g. "add tab" copies the current tab's model).
+    const finalModel =
+      model ?? useSettingsStore.getState().defaultModel ?? "minimax-m3:cloud";
     const id = uuidv4();
     set((s) => ({
       chatSessions: s.chatSessions.map((sess) => {
         if (sess.id !== sessionId) return sess;
         const position = (sess.sideChats || []).length;
-        db.upsertSideChat(sessionId, { id, model }, position);
+        db.upsertSideChat(sessionId, { id, model: finalModel }, position);
         db.setActiveSideChat(sessionId, id);
         return {
           ...sess,
-          sideChats: [...(sess.sideChats || []), { id, model, messages: [] }],
+          sideChats: [
+            ...(sess.sideChats || []),
+            { id, model: finalModel, messages: [] },
+          ],
           activeSideChatId: id,
         };
       }),

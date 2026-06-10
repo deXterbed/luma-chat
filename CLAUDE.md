@@ -44,17 +44,18 @@ Commands are registered in `main.rs` via `tauri::generate_handler![]`. When addi
 
 ### State management (Zustand)
 
-Three independent stores; none are persisted to `localStorage` (persistence goes to SQLite):
+Four independent stores; none are persisted to `localStorage` (persistence goes to SQLite):
 
 | Store | File | Owns |
 |---|---|---|
 | `useMainChat` / `useSideChat` | `src/store/chatStore.js` | Per-pane messages, streaming state, tool call records |
-| `useSessionStore` | `src/store/sessionStore.js` | Session list, side-chat metadata, DB write-through |
-| `useUiStore` | `src/store/uiStore.js` | Theme, sidebar open state, Ollama connectivity |
+| `useSessionStore` | `src/store/sessionStore.js` | Session list, side-chat metadata, chat data write-through |
+| `useUiStore` | `src/store/uiStore.js` | Transient view state: side-chat open/closed, Ollama connectivity, settings page open |
+| `useSettingsStore` | `src/store/settingsStore.js` | Persisted settings (theme, default model, web search default) write-through to SQLite |
 
-`chatStore.js` exports a factory `createChatStore(id)` — both panes use identical logic from the same factory. The two singletons are `useMainChat` and `useSideChat`.
+`chatStore.js` exports a factory `createChatStore(id)` — both panes use identical logic from the same factory. The two singletons are `useMainChat` and `useSideChat`. New chats start with an empty `model`; each store subscribes to `useSettingsStore` and lazily applies `defaultModel` once settings have hydrated, so module-init doesn't depend on the DB being open.
 
-`useSessionStore` is the only store that writes to SQLite directly (via `db` from `src/lib/db.js`). All DB mutations happen inside its actions, not in components.
+`useSessionStore` writes chat data to SQLite (via `db` from `src/lib/db.js`); `useSettingsStore` writes the `settings` key/value table. All DB mutations happen inside store actions, not in components.
 
 ### Streaming and tool-calling loop
 
@@ -66,11 +67,11 @@ Three independent stores; none are persisted to `localStorage` (persistence goes
 
 `src/lib/tools.js` exports `TOOLS` (Ollama-format definitions) and `executeTool(name, args)`. Local tools (e.g. `get_current_time`) run in the renderer. Web tools (`web_search`, `web_fetch`) invoke Tauri commands via `@tauri-apps/api/core` to avoid CORS; the implementations live in `tauri/src/tools/`.
 
-Web search is per-pane toggleable (stored in `useUiStore`). `useStreamingChat` filters `TOOLS` to exclude web tools when the toggle is off before passing them to `streamChat`.
+Web search has a global default in `useSettingsStore`; the per-pane web toggle in `ChatPane` seeds from it (and remains a session override). `useStreamingChat` filters `TOOLS` to exclude web tools when the toggle is off before passing them to `streamChat`.
 
 ### Database schema
 
-`tauri/src/db.rs` owns the schema and all queries (SQLite via `rusqlite`, synchronous API). Tables: `sessions`, `messages`, `side_chats`, `side_chat_messages`, `custom_models`. Message rows store `images` and `tool_calls` as JSON strings. On init, `ALTER TABLE … ADD COLUMN` migrations run inside `.ok()` to handle existing DBs gracefully.
+`tauri/src/db.rs` owns the schema and all queries (SQLite via `rusqlite`, synchronous API). Tables: `sessions`, `messages`, `side_chats`, `side_chat_messages`, `custom_models`, `settings`. Message rows store `images` and `tool_calls` as JSON strings. The `settings` table is a key/value store (`key TEXT PRIMARY KEY, value TEXT`); well-known keys are defined in `src/store/settingsStore.js` (`SETTING_KEYS`). On init, `ALTER TABLE … ADD COLUMN` migrations run inside `.ok()` to handle existing DBs gracefully.
 
 ### Window controls
 
@@ -79,3 +80,5 @@ Web search is per-pane toggleable (stored in `useUiStore`). `useStreamingChat` f
 ### Theming
 
 `src/theme.js` has the full color palette for `dark` and `light` as a JS object (`getTheme(name)`) and sets a `data-theme` attribute on `<html>`. `src/index.css` mirrors the same tokens as CSS custom properties (`var(--bg)`, etc.) for use in stylesheets. Components use whichever is convenient — the values are kept in sync manually.
+
+Theme persistence lives in the `settings` SQLite table via `useSettingsStore` (no `localStorage`). To prevent a flash of the wrong theme on launch, an inline `<script>` at the top of `<head>` in `index.html` reads a legacy `localStorage['luma:theme']` value (if any), falls back to `prefers-color-scheme`, and sets `data-theme` on `<html>` synchronously before React mounts. `useSettingsStore.hydrate()` then re-applies the authoritative SQLite value (and migrates a legacy `localStorage` entry into SQLite on first run).

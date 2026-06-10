@@ -106,6 +106,16 @@ The research process must be **visible and auditable**, not hidden. The user is 
 - Tool usage analytics (optional, local-only)
 - Custom system prompt templates (e.g. "Socratic tutor", "Primary source skeptic")
 
+#### 4a. Settings page
+
+A dedicated settings page, opened from a gear icon in the title bar. Persistence goes to a new `settings` SQLite table (key/value) exposed via Tauri commands — no `localStorage` (see Architecture decisions).
+
+Scope tiers, smallest to largest:
+
+- **(A) Minimal — 🟡 In progress** — theme, default model for new chats, default web-search toggle. Replaces the theme's `localStorage` block in `useUiStore` and the hardcoded `minimax-m3:cloud` default in `createChatStore` / `addSideChat`. The per-pane web-search button in `ChatPane` stays as a session override; the new setting just seeds its initial value.
+- **(B) Research-focused** — (A) plus generation parameters exposed to the user: `temperature` (currently hardcoded to `0.7` in `src/lib/ollama.js`), `maxToolRounds` (currently `10`, with a `HARD_CAP = 15` safety ceiling), and the side-chat context bridge constants in `useStreamingChat.js` (last 10 main-chat messages, truncated to 4000 chars). Includes a small note explaining the hard caps so users don't try to disable them.
+- **(C) Full** — (B) plus data management (clear all sessions with confirmation, export the full research tree as Markdown/JSON, view DB path) and an About section (app version, Ollama connection status, links to README/ROADMAP).
+
 ---
 
 ## Out of scope (deliberate cuts)
@@ -163,4 +173,4 @@ These are the "we decided this, don't relitigate" notes.
 | Phase 1d — Search settings | ✅ Done | Per-pane web search toggle in `uiStore`, filters tools before passing to `streamChat` |
 | Phase 2 — Side chat branches | ⏸ Waiting | Branch context, promote-to-main, cross-chat sources |
 | Phase 3 — Artifacts | ⏸ Future | Export, citation graph, saved notes |
-| Phase 4 — Polish | ⏸ Future | Multi-round tools, error recovery, prompt templates |
+| Phase 4 — Polish | ⏸ Future | Multi-round tools, error recovery, prompt templates. **4a Settings page (A) 🟡 In progress.** |

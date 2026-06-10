@@ -1,10 +1,10 @@
 import { Sun, Moon } from 'lucide-react'
-import { useUiStore } from '../store/uiStore'
+import { useSettingsStore } from '../store/settingsStore'
 import styles from './ThemeToggle.module.css'
 
 export default function ThemeToggle() {
-  const theme = useUiStore(s => s.theme)
-  const toggleTheme = useUiStore(s => s.toggleTheme)
+  const theme = useSettingsStore(s => s.theme)
+  const toggleTheme = useSettingsStore(s => s.toggleTheme)
   const isDark = theme === 'dark'
 
   return (

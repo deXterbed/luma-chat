@@ -170,3 +170,50 @@ describe("db (frontend wrapper)", () => {
     });
   });
 });
+
+describe("settings", () => {
+  describe("loadSettings", () => {
+    it("invokes load_settings and returns the result", async () => {
+      const stored = { theme: "light", defaultModel: "llama3.1:8b" };
+      invoke.mockResolvedValue(stored);
+
+      const result = await db.loadSettings();
+
+      expect(invoke).toHaveBeenCalledWith("load_settings", {});
+      expect(result).toEqual(stored);
+    });
+
+    it("returns an empty object when the invoke returns null", async () => {
+      // db.loadSettings is called in environments where Tauri isn't
+      // available (e.g. browser-only dev mode). The wrapper normalizes
+      // the null to {} so callers don't have to.
+      invoke.mockResolvedValue(null);
+
+      const result = await db.loadSettings();
+
+      expect(result).toEqual({});
+    });
+  });
+
+  describe("saveSetting", () => {
+    it("invokes save_setting with key and value", async () => {
+      invoke.mockResolvedValue(undefined);
+
+      await db.saveSetting("theme", "dark");
+
+      expect(invoke).toHaveBeenCalledWith("save_setting", {
+        key: "theme",
+        value: "dark",
+      });
+    });
+
+    it("swallows errors so callers don't have to", async () => {
+      // The settings store calls saveSetting on every change and would
+      // rather skip persistence than break the UI on a transient Tauri
+      // error. The .catch(noop) in the wrapper is the contract.
+      invoke.mockRejectedValue(new Error("ipc gone"));
+
+      await expect(db.saveSetting("theme", "dark")).resolves.toBeUndefined();
+    });
+  });
+});

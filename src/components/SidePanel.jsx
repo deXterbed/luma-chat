@@ -68,7 +68,7 @@ export default function SidePanel() {
     if (!sess) return;
     const sideChats = sess.sideChats ?? [];
     if (sideChats.length === 0) {
-      addSideChat(activeChatId, "minimax-m3:cloud");
+      addSideChat(activeChatId);
     } else {
       sideChats.forEach((sc) => {
         const tabStore = getSideChatStore(sc.id);
@@ -82,9 +82,11 @@ export default function SidePanel() {
 
   const handleAddTab = () => {
     if (!activeChatId) return;
+    // If a tab is active, match its model; otherwise let addSideChat
+    // fall back to the user's default model from settings.
     const model = activeSideChatId
       ? getSideChatStore(activeSideChatId).getState().model
-      : "minimax-m3:cloud";
+      : undefined;
     addSideChat(activeChatId, model);
   };
 

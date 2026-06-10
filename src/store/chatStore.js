@@ -1,12 +1,17 @@
 import { create } from "zustand";
 import { v4 as uuidv4 } from "uuid"; // used by addMessage / addStreamingMessage
+import { useSettingsStore } from "./settingsStore";
 
 // Factory to create an independent chat store
 // Both main chat and side chat use this same factory — fully isolated state
-export const createChatStore = (id) =>
-  create((set, get) => ({
+export const createChatStore = (id) => {
+  const store = create((set, get) => ({
     id,
-    model: "minimax-m3:cloud",
+    // New chats start with no model — the user's default is applied once
+    // `useSettingsStore` has finished hydrating from SQLite (see subscribe
+    // block below). This avoids reading the setting at module-init time,
+    // which would always return the in-memory default before the DB is open.
+    model: "",
     messages: [], // { id, role, content, images?, isStreaming? }
     isStreaming: false,
     abortController: null,
@@ -119,7 +124,17 @@ export const createChatStore = (id) =>
       }));
     },
 
-    clearMessages: () => set({ messages: [], error: null }),
+    // Reset a chat back to a fresh slate: clear messages, abort any in-flight
+    // stream, and drop the user-picked model so the new chat starts on the
+    // user's default. The settings store's `defaultModel` is the source of
+    // truth here, so we read it directly rather than relying on the
+    // hydration subscription (which only fires once per store).
+    clearMessages: () =>
+      set({
+        messages: [],
+        error: null,
+        model: useSettingsStore.getState().defaultModel || "",
+      }),
 
     // Replace a message's content. Used by inline-edit on user messages.
     editMessage: (id, content) =>
@@ -158,6 +173,29 @@ export const createChatStore = (id) =>
         });
     },
   }));
+
+  // Once settings have loaded from SQLite, seed the chat's `model` with the
+  // user's preferred default — but only if the user hasn't already picked
+  // one (either explicitly via the ModelPicker, or via `loadMessages`
+  // restoring a persisted model). We track that with a sentinel: if `model`
+  // is still empty at hydration time, we apply the default.
+  let appliedDefault = store.getState().model !== "";
+  useSettingsStore.subscribe((s, prev) => {
+    if (appliedDefault) return;
+    if (!s.hydrated) return;
+    if (prev && prev.hydrated) return;
+    if (store.getState().model !== "") {
+      appliedDefault = true;
+      return;
+    }
+    if (s.defaultModel) {
+      store.getState().setModel(s.defaultModel);
+      appliedDefault = true;
+    }
+  });
+
+  return store;
+};
 
 // Singleton store for the main pane
 export const useMainChat = createChatStore("main");

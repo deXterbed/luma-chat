@@ -79,6 +79,23 @@ pub fn remove_custom_model(db: State<Database>, name: String) {
     db.remove_custom_model(&name);
 }
 
+// ── Settings commands ──
+//
+// The settings table is a key/value store. The renderer is responsible
+// for knowing which keys exist and how to parse/validate their values.
+// All values are stored as strings; booleans and numbers are encoded
+// by the caller.
+
+#[tauri::command]
+pub fn load_settings(db: State<Database>) -> std::collections::HashMap<String, String> {
+    db.load_settings()
+}
+
+#[tauri::command]
+pub fn save_setting(db: State<Database>, key: String, value: String) {
+    db.save_setting(&key, &value);
+}
+
 // ── Web tool commands ──
 
 #[tauri::command]

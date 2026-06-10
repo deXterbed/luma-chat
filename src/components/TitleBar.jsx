@@ -1,12 +1,12 @@
 import { useState, useEffect } from "react";
-import { Minus, Square, X, Maximize2 } from "lucide-react";
+import { Minus, Square, X, Maximize2, Settings } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
 import { useUiStore } from "../store/uiStore";
 import styles from "./TitleBar.module.css";
 
 export default function TitleBar() {
   const [isMaximized, setIsMaximized] = useState(false);
-  const theme = useUiStore((s) => s.theme);
+  const openSettings = useUiStore((s) => s.openSettings);
 
   useEffect(() => {
     let unlisten = null;
@@ -62,9 +62,18 @@ export default function TitleBar() {
         <span className={styles.brandText}>Luma</span>
       </div>
 
-      {/* Right side: theme toggle + window controls */}
+      {/* Right side: theme toggle + settings + window controls */}
       <div className={styles.controls}>
         <ThemeToggle />
+
+        <button
+          onClick={openSettings}
+          title="Settings"
+          aria-label="Open settings"
+          className={styles.iconBtn}
+        >
+          <Settings size={13} />
+        </button>
 
         <button onClick={handleMinimize} className={styles.winBtn}>
           <Minus size={12} />

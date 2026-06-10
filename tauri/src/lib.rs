@@ -28,6 +28,8 @@ pub fn run() {
             commands::load_custom_models,
             commands::add_custom_model,
             commands::remove_custom_model,
+            commands::load_settings,
+            commands::save_setting,
             commands::web_search,
             commands::web_fetch,
             commands::ollama_reachable,
