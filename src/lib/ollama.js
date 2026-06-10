@@ -1,18 +1,21 @@
-// Ollama API wrapper with streaming + cloud model support
-// Cloud models (e.g. minimax-m3:cloud) route via Ollama Pro subscription
+// Ollama API wrapper. In production builds the WebView2 origin is
+// `http://tauri.localhost`, which the browser treats as a separate origin
+// from `http://localhost:11434` and enforces CORS on. Ollama does not return
+// CORS headers, so all calls are proxied through Rust Tauri commands instead.
+//
+// Cloud models (e.g. `minimax-m3:cloud`) route via Ollama Pro subscription;
+// they're just model tags as far as the proxy is concerned.
 
-const OLLAMA_BASE = "http://localhost:11434";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 /**
  * Check if the Ollama server is reachable.
- * Uses /api/version which returns 200 regardless of whether any
- * models are pulled locally — /api/tags returns an empty list in
- * that case, which used to cause a false "offline" status.
+ * Returns true if /api/version responds 2xx, false on any error.
  */
 export async function isOllamaReachable() {
   try {
-    const res = await fetch(`${OLLAMA_BASE}/api/version`);
-    return res.ok;
+    return await invoke("ollama_reachable");
   } catch {
     return false;
   }
@@ -20,21 +23,13 @@ export async function isOllamaReachable() {
 
 /**
  * List model names currently pulled into the local Ollama instance.
- * Hits GET /api/tags and returns an array of bare model name strings
- * (e.g. ["llama3.2:3b", "qwen2.5-coder:7b"]), sorted alphabetically.
- * Returns an empty array on any error — callers should not treat that
- * as a hard failure (Ollama may be offline or simply have no models).
+ * Returns an empty array on any error (Ollama may be offline or simply
+ * have no models pulled).
  */
 export async function listLocalModels() {
   try {
-    const res = await fetch(`${OLLAMA_BASE}/api/tags`);
-    if (!res.ok) return [];
-    const data = await res.json();
-    const names = (data.models ?? [])
-      .map((m) => m?.name)
-      .filter((n) => typeof n === "string" && n.length > 0);
-    names.sort((a, b) => a.localeCompare(b));
-    return names;
+    const names = await invoke("ollama_list_models");
+    return Array.isArray(names) ? names : [];
   } catch {
     return [];
   }
@@ -94,6 +89,12 @@ export function isVisionModel(modelName) {
 //   signal                  — AbortSignal to cancel mid-flight
 // =============================================================================
 
+let _requestCounter = 0;
+function nextRequestId() {
+  _requestCounter += 1;
+  return `ollama-${Date.now()}-${_requestCounter}`;
+}
+
 /**
  * Run a chat completion with optional tool-calling support.
  *
@@ -125,166 +126,168 @@ export async function streamChat({
   let round = 0;
   const HARD_CAP = 15;
 
-  while (true) {
-    if (round >= HARD_CAP) {
-      throw new Error(
-        `Model called tools ${HARD_CAP} times without producing a final answer.`,
-      );
-    }
+  // Per-stream state. Mutated by the event listeners and read on completion.
+  const state = {
+    requestId: null,
+    content: "",
+    toolCalls: [],
+    finalContent: "",
+    error: null,
+    resolve: null,
+  };
 
-    // After maxToolRounds, inject a one-time nudge into the conversation
-    // urging the model to wrap up — tools stay available so the model
-    // isn't confused into generating nothing.
-    if (round === maxToolRounds) {
-      workingMessages.push({
-        role: "system",
-        content:
-          "You have done extensive research. Write your final answer now based on everything gathered above. You may make one more tool call if truly necessary, but aim to conclude.",
-      });
-    }
+  const unlisteners = [];
 
-    const body = {
-      model,
-      messages: workingMessages,
-      stream: true,
-      options: { temperature: 0.7 },
-    };
+  unlisteners.push(
+    await listen("ollama://chunk", (event) => {
+      const { request_id, line } = event.payload || {};
+      if (request_id !== state.requestId) return;
+      if (!line) return;
 
-    if (tools && tools.length > 0) {
-      body.tools = tools;
-    }
-
-    const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal,
-    });
-
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Ollama error: ${err}`);
-    }
-
-    const { toolCalls, content } = await consumeStream(res, {
-      onToken,
-      signal,
-    });
-
-    if (toolCalls.length === 0) {
-      onDone?.(content);
-      return;
-    }
-
-    workingMessages.push({ role: "assistant", content, tool_calls: toolCalls });
-
-    let allFailed = true;
-    for (const call of toolCalls) {
-      const name = call.function.name;
-      const args = call.function.arguments || {};
-
-      onToolCall?.(name, args);
-
-      let result;
-      try {
-        result = executeTool
-          ? await executeTool(name, args)
-          : "Error: no tool executor registered";
-      } catch (err) {
-        result = `Error executing ${name}: ${err.message || err}`;
+      const text = line?.message?.content;
+      if (typeof text === "string" && text.length > 0) {
+        state.content += text;
+        onToken?.(text, state.content);
       }
 
-      if (typeof result !== "string" || !result.startsWith("Error")) {
-        allFailed = false;
+      if (Array.isArray(line?.message?.tool_calls)) {
+        state.toolCalls = line.message.tool_calls.map((tc) => ({
+          function: {
+            name: tc.function?.name,
+            arguments:
+              typeof tc.function?.arguments === "string"
+                ? safeJsonParse(tc.function.arguments)
+                : tc.function?.arguments || {},
+          },
+        }));
       }
+    }),
+  );
 
-      onToolResult?.(name, result);
+  unlisteners.push(
+    await listen("ollama://done", (event) => {
+      const { request_id, content } = event.payload || {};
+      if (request_id !== state.requestId) return;
+      state.finalContent = content ?? state.content;
+      state.resolve?.({ ok: true });
+    }),
+  );
 
-      workingMessages.push({
-        role: "tool",
-        content: typeof result === "string" ? result : JSON.stringify(result),
-      });
-    }
-
-    // If every tool in this round failed (e.g. rate limited), nudge the model
-    // to write its final answer with what it has rather than retrying endlessly.
-    if (allFailed && round < maxToolRounds) {
-      workingMessages.push({
-        role: "system",
-        content:
-          "All tool calls in the last round failed. Write your final answer now based on everything gathered so far.",
-      });
-      round = maxToolRounds;
-    }
-
-    round++;
-  }
-}
-
-/**
- * Consume the SSE-style newline-delimited JSON stream from Ollama.
- *
- * Text tokens are forwarded to onToken as they arrive (eagerly), giving
- * the user a live streaming experience even during tool-decision rounds.
- * For a research workbench, seeing the model's "let me search for..."
- * narration is useful — it shows the research process in action.
- *
- * Returns { content, toolCalls } for the caller to decide what to do
- * (loop on tool calls, finalize, etc.).
- */
-async function consumeStream(res, { onToken, signal }) {
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let content = "";
-  let toolCalls = [];
-
-  const onAbort = () => reader.cancel();
-  signal?.addEventListener("abort", onAbort);
+  unlisteners.push(
+    await listen("ollama://error", (event) => {
+      const { request_id, error } = event.payload || {};
+      if (request_id !== state.requestId) return;
+      state.error = error || "Ollama stream error";
+      state.resolve?.({ ok: false, error: state.error });
+    }),
+  );
 
   try {
     while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split("\n").filter(Boolean);
-
-      for (const line of lines) {
-        try {
-          const json = JSON.parse(line);
-
-          if (json.message?.tool_calls) {
-            // tool_calls is an array of { function: { name, arguments } }
-            // Arguments may be string or object depending on Ollama version.
-            toolCalls = json.message.tool_calls.map((tc) => ({
-              function: {
-                name: tc.function.name,
-                arguments:
-                  typeof tc.function.arguments === "string"
-                    ? safeJsonParse(tc.function.arguments)
-                    : tc.function.arguments,
-              },
-            }));
-          }
-
-          if (json.message?.content) {
-            content += json.message.content;
-            onToken?.(json.message.content, content);
-          }
-        } catch {
-          // skip malformed chunks
-        }
+      if (signal?.aborted) throw new Error("aborted");
+      if (round >= HARD_CAP) {
+        throw new Error(
+          `Model called tools ${HARD_CAP} times without producing a final answer.`,
+        );
       }
+
+      if (round === maxToolRounds) {
+        workingMessages.push({
+          role: "system",
+          content:
+            "You have done extensive research. Write your final answer now based on everything gathered above. You may make one more tool call if truly necessary, but aim to conclude.",
+        });
+      }
+
+      const body = {
+        model,
+        messages: workingMessages,
+        stream: true,
+        options: { temperature: 0.7 },
+      };
+      if (tools && tools.length > 0) body.tools = tools;
+
+      // Reset per-round state
+      state.requestId = nextRequestId();
+      state.content = "";
+      state.toolCalls = [];
+      state.finalContent = "";
+      state.error = null;
+
+      const completionPromise = new Promise((resolve) => {
+        state.resolve = resolve;
+      });
+
+      try {
+        await invoke("ollama_chat_stream", {
+          requestId: state.requestId,
+          body,
+        });
+      } catch (err) {
+        throw new Error(`Ollama error: ${err?.message || err}`);
+      }
+
+      const result = await completionPromise;
+      if (!result.ok) throw new Error(`Ollama error: ${result.error}`);
+
+      // Strip leaked tool_call XML some models emit in the text content
+      const content = state.finalContent
+        .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "")
+        .trim();
+
+      const toolCalls = state.toolCalls;
+      if (toolCalls.length === 0) {
+        onDone?.(content);
+        return;
+      }
+
+      workingMessages.push({
+        role: "assistant",
+        content,
+        tool_calls: toolCalls,
+      });
+
+      let allFailed = true;
+      for (const call of toolCalls) {
+        const name = call.function.name;
+        const args = call.function.arguments || {};
+        onToolCall?.(name, args);
+
+        let result;
+        try {
+          result = executeTool
+            ? await executeTool(name, args)
+            : "Error: no tool executor registered";
+        } catch (err) {
+          result = `Error executing ${name}: ${err.message || err}`;
+        }
+        if (typeof result !== "string" || !result.startsWith("Error")) {
+          allFailed = false;
+        }
+        onToolResult?.(name, result);
+        workingMessages.push({
+          role: "tool",
+          content: typeof result === "string" ? result : JSON.stringify(result),
+        });
+      }
+
+      if (allFailed && round < maxToolRounds) {
+        workingMessages.push({
+          role: "system",
+          content:
+            "All tool calls in the last round failed. Write your final answer now based on everything gathered so far.",
+        });
+        round = maxToolRounds;
+      }
+      round++;
     }
   } finally {
-    signal?.removeEventListener("abort", onAbort);
+    for (const un of unlisteners) {
+      try {
+        un();
+      } catch {}
+    }
   }
-
-  // Some models (e.g. minimax) leak their internal tool-call XML into the text
-  // content instead of emitting structured tool_calls. Strip it before returning.
-  content = content.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "").trim();
-
-  return { content, toolCalls };
 }
 
 function safeJsonParse(s) {

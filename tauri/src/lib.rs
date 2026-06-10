@@ -30,6 +30,9 @@ pub fn run() {
             commands::remove_custom_model,
             commands::web_search,
             commands::web_fetch,
+            commands::ollama_reachable,
+            commands::ollama_list_models,
+            commands::ollama_chat_stream,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
