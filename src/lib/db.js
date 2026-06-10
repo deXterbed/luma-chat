@@ -17,7 +17,7 @@ export const db = {
     invoke("load_session_messages", { sessionId: sid }).then(
       (r) => r ?? { messages: [], sideChats: [] },
     ),
-  saveSession: (s) => invoke("save_session", { session: s }).catch(noop),
+  saveSession: (s) => invoke("save_session", { id: s.id, title: s.title, model: s.model }).catch(noop),
   updateSessionActivity: (id) =>
     invoke("update_session_activity", { id }).catch(noop),
   saveMessages: (sid, msgs) =>

@@ -23,11 +23,13 @@ pub struct Message {
     pub id: String,
     pub role: String,
     pub content: String,
+    #[serde(default)]
     pub images: Vec<String>,
-    #[serde(rename = "toolCalls")]
+    #[serde(rename = "toolCalls", default)]
     pub tool_calls: Vec<serde_json::Value>,
+    #[serde(default)]
     pub position: i64,
-    #[serde(rename = "isStreaming")]
+    #[serde(rename = "isStreaming", default)]
     pub is_streaming: bool,
 }
 

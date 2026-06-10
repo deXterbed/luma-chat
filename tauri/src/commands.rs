@@ -16,8 +16,8 @@ pub fn load_session_messages(db: State<Database>, session_id: String) -> Session
 }
 
 #[tauri::command]
-pub fn save_session(db: State<Database>, session: Session) {
-    db.save_session(&session.id, &session.title, &session.model);
+pub fn save_session(db: State<Database>, id: String, title: String, model: String) {
+    db.save_session(&id, &title, &model);
 }
 
 #[tauri::command]
