@@ -64,6 +64,12 @@ npm install
 npm run dev
 ```
 
+## Troubleshooting
+
+### Windows: `linking with link.exe failed`
+
+If you see an error mentioning `link: extra operand` during `npm run build` (or `npm run dev`, which compiles internally), the GNU `link.exe` shipped with Git for Windows is shadowing the MSVC linker. See [`docs/windows-link-exe-conflict.md`](docs/windows-link-exe-conflict.md) for the diagnosis and three ways to fix it.
+
 ## Build
 
 ```bash
