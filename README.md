@@ -72,6 +72,24 @@ npm run build
 
 Runs `vite build` then `tauri build`.
 
+## Tests
+
+```bash
+# Run all tests (frontend + Rust backend)
+npm run test:all
+
+# Frontend only (Vitest, watch mode)
+npm test
+
+# Frontend once (CI)
+npm run test:run
+
+# Rust backend only (cargo test)
+npm run test:rust
+```
+
+The frontend test suite covers Zustand store logic, tool definitions, Ollama utilities, and the DB command wrapper. The Rust test suite covers HTML-to-markdown conversion and DB serialization. No integration tests against a live Ollama instance are included.
+
 ## Architecture
 
 The app runs with a Rust backend and a React frontend:
@@ -110,7 +128,11 @@ luma-chat/
 │   ├── components/        ChatPane, SidePanel, Sidebar, InputArea, MessageBubble, ToolActivity…
 │   ├── hooks/             useStreamingChat, useDbInit, useChatSession
 │   ├── lib/               ollama.js, tools.js, db.js, systemPrompt.js
-│   └── store/             chatStore, sessionStore, uiStore
+│   │   └── *.test.js      Unit tests for lib modules
+│   ├── store/             chatStore, sessionStore, uiStore
+│   │   └── *.test.js      Unit tests for store logic
+│   └── test/              test setup and shared mocks (setup.ts)
+├── vitest.config.ts       Vitest configuration
 ├── index.html, vite.config.mjs, tailwind.config.js, postcss.config.js
 └── package.json
 ```
