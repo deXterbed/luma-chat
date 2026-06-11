@@ -68,7 +68,7 @@ export default function SidePanel() {
     if (!sess) return;
     const sideChats = sess.sideChats ?? [];
     if (sideChats.length === 0) {
-      addSideChat(activeChatId);
+      addSideChat(activeChatId, useMainChat.getState().model || undefined);
     } else {
       sideChats.forEach((sc) => {
         const tabStore = getSideChatStore(sc.id);
@@ -86,7 +86,7 @@ export default function SidePanel() {
     // fall back to the user's default model from settings.
     const model = activeSideChatId
       ? getSideChatStore(activeSideChatId).getState().model
-      : undefined;
+      : useMainChat.getState().model || undefined;
     addSideChat(activeChatId, model);
   };
 

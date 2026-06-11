@@ -1,6 +1,7 @@
 import { useSessionStore } from "./sessionStore";
 import { db } from "../lib/db";
 import { getSideChatStore, deleteSideChatStore } from "./chatStore";
+import { useSettingsStore } from "./settingsStore";
 
 // Mock the db module
 vi.mock("../lib/db", () => ({
@@ -200,6 +201,15 @@ describe("sessionStore", () => {
   });
 
   describe("addSideChat", () => {
+    let mockSetModel;
+
+    beforeEach(() => {
+      mockSetModel = vi.fn();
+      getSideChatStore.mockReturnValue({
+        getState: () => ({ setModel: mockSetModel }),
+      });
+    });
+
     it("adds side chat to session", () => {
       store.setState({
         chatSessions: [
@@ -221,6 +231,32 @@ describe("sessionStore", () => {
       expect(session.activeSideChatId).toBe(session.sideChats[0].id);
       expect(db.upsertSideChat).toHaveBeenCalled();
       expect(db.setActiveSideChat).toHaveBeenCalled();
+    });
+
+    it("seeds the chat store model immediately", () => {
+      store.setState({
+        chatSessions: [
+          { id: "sess-1", title: "Test", model: "m", sideChats: [], updated_at: 1000 },
+        ],
+      });
+
+      store.getState().addSideChat("sess-1", "llama3");
+
+      expect(mockSetModel).toHaveBeenCalledWith("llama3");
+    });
+
+    it("falls back to settingsStore defaultModel when no model passed", () => {
+      useSettingsStore.setState({ defaultModel: "default-model", hydrated: true });
+
+      store.setState({
+        chatSessions: [
+          { id: "sess-1", title: "Test", model: "m", sideChats: [], updated_at: 1000 },
+        ],
+      });
+
+      store.getState().addSideChat("sess-1");
+
+      expect(mockSetModel).toHaveBeenCalledWith("default-model");
     });
   });
 

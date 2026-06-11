@@ -116,6 +116,7 @@ export const useSessionStore = create((set, get) => ({
     const finalModel =
       model ?? useSettingsStore.getState().defaultModel ?? "minimax-m3:cloud";
     const id = uuidv4();
+    getSideChatStore(id).getState().setModel(finalModel);
     set((s) => ({
       chatSessions: s.chatSessions.map((sess) => {
         if (sess.id !== sessionId) return sess;
