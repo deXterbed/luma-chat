@@ -54,15 +54,13 @@ export default function ChatPane({
 
   const { sideChatPrefill, clearSideChatPrefill } = useUiStore();
 
-  const bottomRef = useRef(null);
   const scrollContainerRef = useRef(null);
   const autoScrollRef = useRef(true);
 
   useEffect(() => {
-    if (autoScrollRef.current) {
-      bottomRef.current?.scrollIntoView({
-        behavior: isStreaming ? "smooth" : "instant",
-      });
+    if (autoScrollRef.current && scrollContainerRef.current) {
+      const el = scrollContainerRef.current;
+      el.scrollTop = el.scrollHeight;
     }
   }, [messages]);
 
@@ -152,7 +150,6 @@ export default function ChatPane({
 
         {error && <div className={styles.errorBox}>{error}</div>}
 
-        <div ref={bottomRef} />
       </div>
 
       <InputArea
