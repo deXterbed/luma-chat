@@ -59,8 +59,8 @@ export function useStreamingChat({
           .filter((m) => m.content !== "" || (m.images && m.images.length > 0));
 
         const appSystemPrompt = compact
-          ? buildSideChatSystemPrompt()
-          : buildMainChatSystemPrompt();
+          ? buildSideChatSystemPrompt(webSearchEnabled)
+          : buildMainChatSystemPrompt(webSearchEnabled);
 
         const systemMessages = [{ role: "system", content: appSystemPrompt }];
 
