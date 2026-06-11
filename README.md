@@ -56,6 +56,62 @@ Web tools run in the Electron main process (no CORS, network code stays in one a
 - [Ollama](https://ollama.com) running locally on `http://localhost:11434`
 - Node.js 18+
 
+## Ollama Setup
+
+### Install Ollama
+
+Download and install from [ollama.com](https://ollama.com), or on macOS:
+
+```bash
+brew install ollama
+```
+
+### Start the Ollama server
+
+```bash
+ollama serve
+```
+
+This starts the local API on `http://localhost:11434`. On macOS, Ollama also runs as a menu bar app that starts the server automatically.
+
+### Pull a model
+
+```bash
+ollama pull llama3.2          # 3B — fast, good for most tasks
+ollama pull llama3.3          # 70B — higher quality, needs ~40 GB RAM
+ollama pull qwen2.5:14b       # 14B — strong reasoning
+ollama pull gemma3:12b        # 12B — Google's Gemma 3
+ollama pull mistral           # 7B — fast and capable
+```
+
+For vision (image attachments):
+
+```bash
+ollama pull llava             # 7B multimodal
+ollama pull llama3.2-vision   # 11B multimodal
+```
+
+For tool-calling (web search, web fetch):
+
+```bash
+ollama pull llama3.2          # supports tool-calling
+ollama pull qwen2.5:14b       # strong tool-calling support
+```
+
+### List installed models
+
+```bash
+ollama list
+```
+
+### Remove a model
+
+```bash
+ollama rm llama3.2
+```
+
+Once a model is pulled, it appears in Luma's model selector automatically — no restart required.
+
 ## Getting Started
 
 ```bash
