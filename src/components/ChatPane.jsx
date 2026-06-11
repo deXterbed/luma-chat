@@ -54,29 +54,43 @@ export default function ChatPane({
 
   const { sideChatPrefill, clearSideChatPrefill } = useUiStore();
 
+  const [autoScrollEnabled, setAutoScrollEnabled] = useState(false);
   const scrollContainerRef = useRef(null);
-  const autoScrollRef = useRef(true);
+  const nearBottomRef = useRef(true);
+  const justSentRef = useRef(false);
 
   useEffect(() => {
-    if (autoScrollRef.current && scrollContainerRef.current) {
-      const el = scrollContainerRef.current;
-      el.scrollTop = el.scrollHeight;
+    if ((autoScrollEnabled && nearBottomRef.current) || justSentRef.current) {
+      justSentRef.current = false;
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+      }
     }
-  }, [messages]);
+  }, [messages, autoScrollEnabled]);
 
   useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
     const onScroll = () => {
-      autoScrollRef.current =
+      nearBottomRef.current =
         el.scrollHeight - el.scrollTop - el.clientHeight < 50;
     };
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
 
+  const toggleAutoScroll = () => {
+    setAutoScrollEnabled((v) => {
+      if (!v && scrollContainerRef.current) {
+        nearBottomRef.current = true;
+        scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+      }
+      return !v;
+    });
+  };
+
   const onSend = (text, images) => {
-    autoScrollRef.current = true;
+    justSentRef.current = true;
     handleSend(text, images);
   };
 
@@ -160,6 +174,8 @@ export default function ChatPane({
         placeholder={placeholder}
         prefill={isSideChat && isActive ? sideChatPrefill : null}
         onPrefillApplied={isSideChat && isActive ? clearSideChatPrefill : null}
+        autoScrollEnabled={autoScrollEnabled}
+        onToggleAutoScroll={toggleAutoScroll}
       />
     </div>
   );

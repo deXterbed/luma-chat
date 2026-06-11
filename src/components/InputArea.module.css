@@ -128,6 +128,31 @@
     cursor: default;
 }
 
+.scrollBtn {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    cursor: pointer;
+    color: var(--text-subtle);
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.scrollBtn:hover {
+    color: var(--accent);
+}
+
+.scrollBtnActive {
+    background: var(--accent-subtle);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
 .hint {
     margin-top: 5px;
     font-size: 9px;

@@ -3,7 +3,7 @@ import { Send, Square, Paperclip, X } from "lucide-react";
 import { fileToBase64 } from "../lib/ollama";
 import styles from "./InputArea.module.css";
 
-export default function InputArea({ onSend, isStreaming, onStop, compact, placeholder, prefill, onPrefillApplied }) {
+export default function InputArea({ onSend, isStreaming, onStop, compact, placeholder, prefill, onPrefillApplied, autoScrollEnabled, onToggleAutoScroll }) {
   const [input, setInput] = useState("");
   const [attachedImages, setAttachedImages] = useState([]);
 
@@ -133,6 +133,27 @@ export default function InputArea({ onSend, isStreaming, onStop, compact, placeh
           className={`${styles.textarea} ${compact ? styles.textareaCompact : ""}`}
         />
 
+        {onToggleAutoScroll && (
+          <button
+            onClick={onToggleAutoScroll}
+            className={`${styles.scrollBtn} ${autoScrollEnabled ? styles.scrollBtnActive : ""}`}
+            title={autoScrollEnabled ? "Auto-scroll on — click to disable" : "Auto-scroll off — click to enable"}
+          >
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <polyline points="19 12 12 19 5 12" />
+            </svg>
+          </button>
+        )}
         {isStreaming ? (
           <button onClick={onStop} className={styles.actionBtn} title="Stop">
             <Square size={11} fill="var(--send-icon)" />
