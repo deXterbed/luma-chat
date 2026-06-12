@@ -47,6 +47,21 @@ export default function TitleBar() {
     } catch {}
   };
 
+  const handleTitlebarMouseDown = async (e) => {
+    // Ignore clicks on the no-drag controls
+    if (e.target.closest(`.${styles.controls}`)) return;
+    if (e.buttons !== 1) return; // primary button only
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const win = getCurrentWindow();
+      if (e.detail === 2) {
+        await win.toggleMaximize();
+      } else {
+        await win.startDragging();
+      }
+    } catch {}
+  };
+
   const handleClose = async () => {
     try {
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
@@ -55,7 +70,11 @@ export default function TitleBar() {
   };
 
   return (
-    <div className={styles.titlebar}>
+    <div
+      className={styles.titlebar}
+      data-tauri-drag-region
+      onMouseDown={handleTitlebarMouseDown}
+    >
       {/* App name */}
       <div className={styles.brand}>
         <div className={styles.brandDot} />
