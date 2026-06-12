@@ -95,39 +95,38 @@
 }
 
 .editTextarea {
-    width: 100%;
-    background: transparent;
-    border: none;
+    display: inline-block;
+    min-width: 1ch;
+    max-width: 100%;
     outline: none;
-    resize: none;
     color: var(--text);
     font-size: 13px;
     font-family: 'JetBrains Mono', monospace;
     line-height: 1.65;
-    overflow-y: hidden;
-    padding: 0;
-    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
     caret-color: var(--accent);
 }
 
 .editActions {
+    position: absolute;
+    bottom: -14px;
+    right: 0;
     display: flex;
-    justify-content: flex-end;
     gap: 4px;
-    margin-top: 8px;
-    padding-top: 6px;
-    border-top: 1px solid var(--border);
+    z-index: 10;
 }
 
 .editBtn {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 26px;
-    height: 26px;
-    border-radius: 5px;
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
     cursor: pointer;
     transition: all 0.15s;
+    box-sizing: border-box;
 }
 
 .editBtnCancel {

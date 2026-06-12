@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useLayoutEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -27,19 +27,48 @@ export default function MessageBubble({
   const t = getTheme(theme);
 
   const [editing, setEditing] = useState(false);
+  const [editIsEmpty, setEditIsEmpty] = useState(false);
   const [draft, setDraft] = useState(message.content);
   const menuRef = useRef(null);
   const editRef = useRef(null);
+  const bubbleRef = useRef(null);
+  const wrapperRef = useRef(null);
   const selectedTextRef = useRef("");
+  const bubbleWidthRef = useRef(0);
+  const editingRef = useRef(false);
+  const cancelEditRef = useRef(null);
+
+  useLayoutEffect(() => {
+    if (bubbleRef.current) bubbleWidthRef.current = bubbleRef.current.offsetWidth;
+  }, []);
+
+  useEffect(() => {
+    if (!bubbleRef.current) return;
+    const ro = new ResizeObserver((entries) => {
+      if (!editingRef.current) {
+        bubbleWidthRef.current =
+          entries[0]?.borderBoxSize?.[0]?.inlineSize ??
+          bubbleRef.current?.offsetWidth ??
+          0;
+      }
+    });
+    ro.observe(bubbleRef.current);
+    return () => ro.disconnect();
+  }, []);
+
+  useEffect(() => { editingRef.current = editing; }, [editing]);
 
   useEffect(() => {
     if (!editing || !editRef.current) return;
     const el = editRef.current;
-    el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 160) + "px";
+    el.innerText = message.content;
     el.focus();
-    el.selectionStart = el.value.length;
-    el.selectionEnd = el.value.length;
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    range.collapse(false);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
   }, [editing]);
 
   useEffect(() => {
@@ -47,19 +76,24 @@ export default function MessageBubble({
   }, [message.content, editing]);
 
   const startEdit = () => {
-    setDraft(message.content);
+    if (bubbleRef.current && bubbleWidthRef.current) {
+      bubbleRef.current.style.minWidth = bubbleWidthRef.current + "px";
+    }
+    setEditIsEmpty(!message.content.trim());
     setEditing(true);
   };
 
   const cancelEdit = () => {
+    if (bubbleRef.current) bubbleRef.current.style.minWidth = "";
     setDraft(message.content);
     setEditing(false);
   };
 
   const submitEdit = () => {
-    const text = draft.trim();
+    const text = (editRef.current?.innerText ?? draft).trim();
     if (!text) return;
     if (onResend) {
+      if (bubbleRef.current) bubbleRef.current.style.minWidth = "";
       onResend(message.id, text);
       setEditing(false);
     }
@@ -93,10 +127,15 @@ export default function MessageBubble({
     if (menuRef.current) menuRef.current.style.display = "none";
   };
 
+  cancelEditRef.current = cancelEdit;
+
   useEffect(() => {
     const onMouseDown = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) {
         hideMenu();
+      }
+      if (editingRef.current && wrapperRef.current && !wrapperRef.current.contains(e.target)) {
+        cancelEditRef.current();
       }
     };
     document.addEventListener("mousedown", onMouseDown);
@@ -116,6 +155,7 @@ export default function MessageBubble({
 
   return (
     <div
+      ref={wrapperRef}
       onMouseUp={handleMouseUp}
       className={`${styles.wrapper} ${isUser ? styles.wrapperUser : styles.wrapperAssistant}`}
     >
@@ -148,41 +188,21 @@ export default function MessageBubble({
       )}
 
       <div
+        ref={bubbleRef}
         onClick={
           isUser && !editing && onResend && !isStreaming ? startEdit : undefined
         }
-        className={`${styles.bubble} ${isUser && !editing ? styles.bubbleUser : ""}`}
+        className={`${styles.bubble} ${isUser ? styles.bubbleUser : ""}`}
       >
         {isUser && editing ? (
-          <div className={styles.editWrapper}>
-            <textarea
-              ref={editRef}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={handleEditKeyDown}
-              rows={1}
-              className={styles.editTextarea}
-            />
-            <div className={styles.editActions}>
-              <button
-                onClick={cancelEdit}
-                aria-label="Cancel edit"
-                title="Cancel"
-                className={`${styles.editBtn} ${styles.editBtnCancel}`}
-              >
-                <X size={13} />
-              </button>
-              <button
-                onClick={submitEdit}
-                disabled={!draft.trim()}
-                aria-label="Send edited message"
-                title="Send"
-                className={`${styles.editBtn} ${styles.editBtnSend} ${draft.trim() ? styles.editBtnSendActive : styles.editBtnSendDisabled}`}
-              >
-                <CornerDownLeft size={13} />
-              </button>
-            </div>
-          </div>
+          <div
+            ref={editRef}
+            contentEditable
+            suppressContentEditableWarning
+            onKeyDown={handleEditKeyDown}
+            onInput={(e) => setEditIsEmpty(!e.currentTarget.innerText.trim())}
+            className={styles.editTextarea}
+          />
         ) : isUser ? (
           <span className={styles.userText}>
             {message.content}
@@ -269,6 +289,28 @@ export default function MessageBubble({
           />
         )}
       </div>
+
+      {isUser && editing && (
+        <div className={styles.editActions}>
+          <button
+            onClick={cancelEdit}
+            aria-label="Cancel edit"
+            title="Cancel"
+            className={`${styles.editBtn} ${styles.editBtnCancel}`}
+          >
+            <X size={8} />
+          </button>
+          <button
+            onClick={submitEdit}
+            disabled={editIsEmpty}
+            aria-label="Send edited message"
+            title="Send"
+            className={`${styles.editBtn} ${styles.editBtnSend} ${!editIsEmpty ? styles.editBtnSendActive : styles.editBtnSendDisabled}`}
+          >
+            <CornerDownLeft size={8} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
