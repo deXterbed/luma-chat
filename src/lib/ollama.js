@@ -121,6 +121,7 @@ export async function streamChat({
   onDone,
   maxToolRounds = 10,
   signal,
+  think,
 }) {
   const workingMessages = [...messages];
   let round = 0;
@@ -203,9 +204,10 @@ export async function streamChat({
         model,
         messages: workingMessages,
         stream: true,
-        options: { temperature: 0.7 },
+        options: { temperature: 0.7, num_ctx: 8192 },
       };
       if (tools && tools.length > 0) body.tools = tools;
+      if (think !== undefined) body.think = think;
 
       // Reset per-round state
       state.requestId = nextRequestId();

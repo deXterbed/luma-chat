@@ -6,6 +6,7 @@ import {
   buildSideChatSystemPrompt,
 } from "../lib/systemPrompt";
 import { useChatSession } from "./useChatSession";
+import { useSettingsStore } from "../store/settingsStore";
 
 export function useStreamingChat({
   store,
@@ -17,6 +18,7 @@ export function useStreamingChat({
 }) {
   // Subscribe only to values that drive re-renders or guard logic
   const model = store((s) => s.model);
+  const thinkingEnabled = useSettingsStore((s) => s.thinkingDefault);
   const isStreaming = store((s) => s.isStreaming);
   const error = store((s) => s.error);
 
@@ -113,6 +115,7 @@ export function useStreamingChat({
           messages: [...systemMessages, ...apiMessages],
           tools: activeTools,
           executeTool,
+          think: thinkingEnabled,
           onToken: (_, full) => {
             pendingContent.current = full;
             if (pendingContent.rafId === null) {
@@ -170,6 +173,7 @@ export function useStreamingChat({
       saveNow,
       saveOnReply,
       store,
+      thinkingEnabled,
       webSearchEnabled,
     ],
   );
