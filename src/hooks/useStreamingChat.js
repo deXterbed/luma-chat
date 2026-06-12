@@ -21,7 +21,6 @@ export function useStreamingChat({
   const error = store((s) => s.error);
 
   const { activeChatId, createSession, saveNow, saveOnReply } = useChatSession({
-    compact,
     sideChatId,
     sessionId,
     store,
@@ -43,7 +42,7 @@ export function useStreamingChat({
       }
 
       let currentSessionId = activeChatId;
-      if (!compact && isFirstMessage && !afterMessageId) {
+      if (!sideChatId && isFirstMessage && !afterMessageId) {
         currentSessionId = createSession(text, model);
       }
 

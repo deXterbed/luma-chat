@@ -22,13 +22,14 @@ export default function Sidebar() {
     removeChatSession,
     hydrateSession,
   } = useSessionStore();
-  const { ollamaConnected } = useUiStore();
+  const { ollamaConnected, setSideChatOpen } = useUiStore();
   const clearMain = useMainChat((s) => s.clearMessages);
   const loadMessages = useMainChat((s) => s.loadMessages);
 
   const handleNewChat = () => {
     clearMain();
     setActiveChatId(null);
+    setSideChatOpen(false);
   };
 
   const handleLoadSession = async (session) => {
