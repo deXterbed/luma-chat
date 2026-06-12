@@ -6,10 +6,7 @@ import { useStreamingChat } from "../hooks/useStreamingChat";
 import { useUiStore } from "../store/uiStore";
 import { useSettingsStore } from "../store/settingsStore";
 import { useSessionStore } from "../store/sessionStore";
-import {
-  getSideChatStore,
-  deleteSideChatStore,
-} from "../store/chatStore";
+import { getSideChatStore, deleteSideChatStore } from "../store/chatStore";
 import { Trash2 } from "lucide-react";
 import styles from "./ChatPane.module.css";
 
@@ -61,13 +58,31 @@ export default function ChatPane({
   const scrollContainerRef = useRef(null);
   const nearBottomRef = useRef(true);
   const justSentRef = useRef(false);
+  // Tracks previous messages count. A jump in length (loading a session,
+  // re-sending) signals "new content was added" — distinct from streaming
+  // token updates that grow `content` in place. We use this to scroll to
+  // the bottom when opening an existing session.
+  const prevMessagesCountRef = useRef(0);
 
   useEffect(() => {
-    if ((autoScrollEnabled && nearBottomRef.current) || justSentRef.current) {
+    const prev = prevMessagesCountRef.current;
+    const grew = messages.length > prev;
+    prevMessagesCountRef.current = messages.length;
+
+    if (
+      grew ||
+      (autoScrollEnabled && nearBottomRef.current) ||
+      justSentRef.current
+    ) {
       justSentRef.current = false;
-      if (scrollContainerRef.current) {
-        scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
-      }
+      // Scroll on next frame so the new message is mounted and the container
+      // has the new scrollHeight.
+      requestAnimationFrame(() => {
+        if (scrollContainerRef.current) {
+          scrollContainerRef.current.scrollTop =
+            scrollContainerRef.current.scrollHeight;
+        }
+      });
     }
   }, [messages, autoScrollEnabled]);
 
@@ -86,7 +101,8 @@ export default function ChatPane({
     setAutoScrollEnabled((v) => {
       if (!v && scrollContainerRef.current) {
         nearBottomRef.current = true;
-        scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+        scrollContainerRef.current.scrollTop =
+          scrollContainerRef.current.scrollHeight;
       }
       return !v;
     });
@@ -166,7 +182,6 @@ export default function ChatPane({
         ))}
 
         {error && <div className={styles.errorBox}>{error}</div>}
-
       </div>
 
       <InputArea
