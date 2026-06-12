@@ -62,6 +62,7 @@ export function useStreamingChat({
       const pendingContent = { current: null, rafId: null };
       const flushToken = () => {
         pendingContent.rafId = null;
+        if (ctrl.signal.aborted) return;
         if (pendingContent.current !== null) {
           store.getState().updateStreamingMessage(streamId, pendingContent.current);
           pendingContent.current = null;
@@ -148,7 +149,7 @@ export function useStreamingChat({
           cancelAnimationFrame(pendingContent.rafId);
           pendingContent.rafId = null;
         }
-        if (err.name === "AbortError") {
+        if (err.name === "AbortError" || err.message === "aborted") {
           const partial =
             store.getState().messages.find((m) => m.id === streamId)
               ?.content || "";

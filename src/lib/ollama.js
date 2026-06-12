@@ -147,7 +147,7 @@ export async function streamChat({
       const text = line?.message?.content;
       if (typeof text === "string" && text.length > 0) {
         state.content += text;
-        onToken?.(text, state.content);
+        if (!signal?.aborted) onToken?.(text, state.content);
       }
 
       if (Array.isArray(line?.message?.tool_calls)) {
@@ -229,6 +229,7 @@ export async function streamChat({
 
       const result = await completionPromise;
       if (!result.ok) throw new Error(`Ollama error: ${result.error}`);
+      if (signal?.aborted) throw new Error("aborted");
 
       // Strip leaked tool_call XML some models emit in the text content
       const content = state.finalContent
