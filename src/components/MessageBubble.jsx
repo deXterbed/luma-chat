@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useLayoutEffect } from "react";
+import { useRef, useState, useEffect, useLayoutEffect, memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -15,7 +15,7 @@ function StreamingCursor() {
   return <span className={styles.cursor} />;
 }
 
-export default function MessageBubble({
+const MessageBubble = memo(function MessageBubble({
   message,
   showAskInSideChat = false,
   onResend = null,
@@ -313,4 +313,6 @@ export default function MessageBubble({
       )}
     </div>
   );
-}
+});
+
+export default MessageBubble;

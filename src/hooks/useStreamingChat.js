@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { streamChat } from "../lib/ollama";
 import { TOOLS, executeTool } from "../lib/tools";
 import {
@@ -52,6 +52,18 @@ export function useStreamingChat({
       const ctrl = new AbortController();
       store.getState().setAbortController(ctrl);
 
+      // Throttle token updates to rAF cadence (~60fps). Without this, fast
+      // models trigger Zustand set() hundreds of times per second, causing
+      // every MessageBubble to re-render on every token.
+      const pendingContent = { current: null, rafId: null };
+      const flushToken = () => {
+        pendingContent.rafId = null;
+        if (pendingContent.current !== null) {
+          store.getState().updateStreamingMessage(streamId, pendingContent.current);
+          pendingContent.current = null;
+        }
+      };
+
       try {
         const apiMessages = store
           .getState()
@@ -97,8 +109,12 @@ export function useStreamingChat({
           messages: [...systemMessages, ...apiMessages],
           tools: activeTools,
           executeTool,
-          onToken: (_, full) =>
-            store.getState().updateStreamingMessage(streamId, full),
+          onToken: (_, full) => {
+            pendingContent.current = full;
+            if (pendingContent.rafId === null) {
+              pendingContent.rafId = requestAnimationFrame(flushToken);
+            }
+          },
           onToolCall: (name, args) => {
             currentCallId = store.getState().addToolCall(streamId, name, args);
           },
@@ -114,12 +130,20 @@ export function useStreamingChat({
             }
           },
           onDone: (full) => {
+            if (pendingContent.rafId !== null) {
+              cancelAnimationFrame(pendingContent.rafId);
+              pendingContent.rafId = null;
+            }
             store.getState().finalizeMessage(streamId, full);
             saveOnReply(streamId, full, model, currentSessionId);
           },
           signal: ctrl.signal,
         });
       } catch (err) {
+        if (pendingContent.rafId !== null) {
+          cancelAnimationFrame(pendingContent.rafId);
+          pendingContent.rafId = null;
+        }
         if (err.name === "AbortError") {
           store
             .getState()
