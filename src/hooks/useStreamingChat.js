@@ -20,7 +20,7 @@ export function useStreamingChat({
   const isStreaming = store((s) => s.isStreaming);
   const error = store((s) => s.error);
 
-  const { activeChatId, createSession, saveOnReply } = useChatSession({
+  const { activeChatId, createSession, saveNow, saveOnReply } = useChatSession({
     compact,
     sideChatId,
     sessionId,
@@ -46,6 +46,10 @@ export function useStreamingChat({
       if (!compact && isFirstMessage && !afterMessageId) {
         currentSessionId = createSession(text, model);
       }
+
+      // Persist the user message before streaming starts so it survives a
+      // crash, close, or error mid-generation.
+      saveNow(currentSessionId, model);
 
       const streamId = store.getState().addStreamingMessage();
       let currentCallId = null;
@@ -145,16 +149,15 @@ export function useStreamingChat({
           pendingContent.rafId = null;
         }
         if (err.name === "AbortError") {
-          store
-            .getState()
-            .finalizeMessage(
-              streamId,
-              store.getState().messages.find((m) => m.id === streamId)
-                ?.content || "",
-            );
+          const partial =
+            store.getState().messages.find((m) => m.id === streamId)
+              ?.content || "";
+          store.getState().finalizeMessage(streamId, partial);
+          saveNow(currentSessionId, model);
         } else {
           store.getState().finalizeMessage(streamId, "");
           store.getState().setError(err.message);
+          saveNow(currentSessionId, model);
         }
       }
     },
@@ -164,6 +167,7 @@ export function useStreamingChat({
       contextStore,
       createSession,
       model,
+      saveNow,
       saveOnReply,
       store,
       webSearchEnabled,

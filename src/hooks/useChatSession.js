@@ -12,6 +12,18 @@ export function useChatSession({ compact, sideChatId, sessionId, store }) {
     return id
   }, [addChatSession, setActiveChatId])
 
+  // Persist whatever messages are currently in the store. Used to save the
+  // user message before streaming starts, and on abort/error so nothing is lost.
+  const saveNow = useCallback((currentSessionId, model) => {
+    const msgs = store.getState().messages.filter(m => !m.isStreaming || m.content)
+    if (!compact && currentSessionId) {
+      updateChatSession(currentSessionId, { messages: msgs, model })
+    }
+    if (sideChatId && sessionId) {
+      updateSideChat(sessionId, sideChatId, { messages: msgs, model })
+    }
+  }, [compact, sideChatId, sessionId, store, updateChatSession, updateSideChat])
+
   const saveOnReply = useCallback((streamId, full, model, currentSessionId) => {
     const updatedMessages = store.getState().messages.map(m =>
       m.id === streamId ? { ...m, content: full, isStreaming: false } : m
@@ -24,5 +36,5 @@ export function useChatSession({ compact, sideChatId, sessionId, store }) {
     }
   }, [compact, sideChatId, sessionId, store, updateChatSession, updateSideChat])
 
-  return { activeChatId, createSession, saveOnReply }
+  return { activeChatId, createSession, saveNow, saveOnReply }
 }
