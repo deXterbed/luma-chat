@@ -10,6 +10,10 @@ import { getSideChatStore, deleteSideChatStore } from "../store/chatStore";
 import { Trash2 } from "lucide-react";
 import styles from "./ChatPane.module.css";
 
+// Ollama cloud models carry a `cloud` tag suffix (e.g. `minimax-m3:cloud`,
+// `gpt-oss:120b-cloud`); local models don't.
+const isCloudModel = (m) => /(?::|-)cloud$/.test(m || "");
+
 export default function ChatPane({
   store,
   contextStore,
@@ -42,6 +46,23 @@ export default function ChatPane({
     webSearchAppliedRef.current = true;
     setWebSearchEnabled(useSettingsStore.getState().webSearchDefault);
   }, [settingsHydrated]);
+
+  // Thinking defaults on for cloud models (which reason quickly) and off for
+  // local models (where the extra reasoning pass is slow). Each new chat or
+  // loaded session (chatNonce bump) re-derives from the model and drops the
+  // manual override; within a chat the user's toggle wins.
+  const chatNonce = store((s) => s.chatNonce);
+  const [thinkingEnabled, setThinkingEnabled] = useState(false);
+  const thinkingTouchedRef = useRef(false);
+  const prevNonceRef = useRef(chatNonce);
+  useEffect(() => {
+    if (chatNonce !== prevNonceRef.current) {
+      prevNonceRef.current = chatNonce;
+      thinkingTouchedRef.current = false;
+    }
+    if (thinkingTouchedRef.current) return;
+    setThinkingEnabled(isCloudModel(model));
+  }, [model, chatNonce]);
   const { handleSend, resend, isStreaming, stopStreaming, error } =
     useStreamingChat({
       store,
@@ -50,6 +71,7 @@ export default function ChatPane({
       sideChatId,
       sessionId,
       webSearchEnabled,
+      thinkingEnabled,
     });
 
   const { sideChatPrefill, clearSideChatPrefill } = useUiStore();
@@ -144,7 +166,30 @@ export default function ChatPane({
               <line x1="2" y1="12" x2="22" y2="12" />
               <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
             </svg>
-            web
+          </button>
+          <button
+            onClick={() => {
+              thinkingTouchedRef.current = true;
+              setThinkingEnabled((v) => !v);
+            }}
+            title={thinkingEnabled ? "Thinking on" : "Thinking off"}
+            className={`${styles.headerBtn} ${compact ? styles.headerBtnCompact : ""} ${thinkingEnabled ? styles.webBtnActive : ""}`}
+          >
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M9.5 2A6.5 6.5 0 0 0 4 12a5 5 0 0 0 2 4v3a1 1 0 0 0 1 1h2" />
+              <path d="M14.5 2A6.5 6.5 0 0 1 20 12a5 5 0 0 1-2 4v3a1 1 0 0 1-1 1h-2" />
+              <line x1="9" y1="22" x2="15" y2="22" />
+              <line x1="12" y1="2" x2="12" y2="16" />
+            </svg>
           </button>
           <ModelPicker model={model} setModel={setModel} compact={compact} />
         </div>

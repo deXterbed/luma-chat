@@ -17,8 +17,6 @@ export default function SettingsPage() {
   const setDefaultModel = useSettingsStore((s) => s.setDefaultModel);
   const webSearchDefault = useSettingsStore((s) => s.webSearchDefault);
   const setWebSearchDefault = useSettingsStore((s) => s.setWebSearchDefault);
-  const thinkingDefault = useSettingsStore((s) => s.thinkingDefault);
-  const setThinkingDefault = useSettingsStore((s) => s.setThinkingDefault);
   const resetToDefaults = useSettingsStore((s) => s.resetToDefaults);
 
   // Model picker state
@@ -225,29 +223,6 @@ export default function SettingsPage() {
               aria-checked={webSearchDefault}
               onClick={() => setWebSearchDefault(!webSearchDefault)}
               className={`${styles.switch} ${webSearchDefault ? styles.switchOn : ""}`}
-            >
-              <span className={styles.switchKnob} />
-            </button>
-          </label>
-        </section>
-
-        {/* ── Thinking mode ── */}
-        <section className={styles.section}>
-          <div className={styles.sectionHeader}>
-            <h2 className={styles.sectionTitle}>Thinking mode</h2>
-            <p className={styles.sectionHint}>
-              Models like Qwen3 reason internally before responding. Disable to
-              skip the reasoning step and get faster replies.
-            </p>
-          </div>
-
-          <label className={styles.toggleRow}>
-            <span className={styles.toggleLabel}>Enable thinking mode</span>
-            <button
-              role="switch"
-              aria-checked={thinkingDefault}
-              onClick={() => setThinkingDefault(!thinkingDefault)}
-              className={`${styles.switch} ${thinkingDefault ? styles.switchOn : ""}`}
             >
               <span className={styles.switchKnob} />
             </button>

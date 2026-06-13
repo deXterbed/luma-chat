@@ -9,7 +9,6 @@ export const SETTING_KEYS = {
   theme: "theme",
   defaultModel: "defaultModel",
   webSearchDefault: "webSearchDefault",
-  thinkingDefault: "thinkingDefault",
 };
 
 // Hardcoded fallbacks used when the DB has no value yet (first launch).
@@ -29,7 +28,6 @@ const DEFAULTS = {
   theme: readInitialTheme(),
   defaultModel: "minimax-m3:cloud",
   webSearchDefault: false,
-  thinkingDefault: true,
 };
 
 export const useSettingsStore = create((set, get) => ({
@@ -40,7 +38,6 @@ export const useSettingsStore = create((set, get) => ({
   theme: DEFAULTS.theme,
   defaultModel: DEFAULTS.defaultModel,
   webSearchDefault: DEFAULTS.webSearchDefault,
-  thinkingDefault: DEFAULTS.thinkingDefault,
 
   // Called from useDbInit. Loads from DB and applies the theme to <html>.
   // Unknown keys are ignored; missing keys keep their default. On the very
@@ -76,7 +73,6 @@ export const useSettingsStore = create((set, get) => ({
           ? stored[SETTING_KEYS.defaultModel]
           : DEFAULTS.defaultModel,
       webSearchDefault: stored[SETTING_KEYS.webSearchDefault] === "true",
-      thinkingDefault: stored[SETTING_KEYS.thinkingDefault] !== "false",
     };
     applyTheme(next.theme);
     set({ ...next, hydrated: true });
@@ -106,11 +102,6 @@ export const useSettingsStore = create((set, get) => ({
     db.saveSetting(SETTING_KEYS.webSearchDefault, enabled ? "true" : "false");
   },
 
-  setThinkingDefault: (enabled) => {
-    set({ thinkingDefault: !!enabled });
-    db.saveSetting(SETTING_KEYS.thinkingDefault, enabled ? "true" : "false");
-  },
-
   // Reset every well-known key back to its hardcoded default and persist.
   // Used by the settings page's "Reset to defaults" link.
   resetToDefaults: () => {
@@ -119,17 +110,12 @@ export const useSettingsStore = create((set, get) => ({
       theme: DEFAULTS.theme,
       defaultModel: DEFAULTS.defaultModel,
       webSearchDefault: DEFAULTS.webSearchDefault,
-      thinkingDefault: DEFAULTS.thinkingDefault,
     });
     db.saveSetting(SETTING_KEYS.theme, DEFAULTS.theme);
     db.saveSetting(SETTING_KEYS.defaultModel, DEFAULTS.defaultModel);
     db.saveSetting(
       SETTING_KEYS.webSearchDefault,
       DEFAULTS.webSearchDefault ? "true" : "false",
-    );
-    db.saveSetting(
-      SETTING_KEYS.thinkingDefault,
-      DEFAULTS.thinkingDefault ? "true" : "false",
     );
   },
 }));

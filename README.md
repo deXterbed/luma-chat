@@ -13,6 +13,7 @@ A research workbench for deep-dive topic exploration, built as a dual-pane deskt
 - **Dual-pane layout** — main chat on the left, resizable side panel on the right
 - **Resizable side panel** — drag the divider to resize
 - **Sidebar** — session list with persistent history
+- **Custom frameless title bar** — drag it to move the window, double-click to maximize/restore, with the app's own minimize/maximize/close controls
 
 ### Side chat as first-class research branch
 - **Auto context bridge** — the side chat automatically receives the main chat's conversation as context, so you can ask follow-up questions about main-chat responses without losing the main thread
@@ -22,11 +23,15 @@ A research workbench for deep-dive topic exploration, built as a dual-pane deskt
 ### Models
 - **Multi-model support** — switch models per pane, independent of the other
 - **Default model in Settings** — pick which model new chats and side chats start on; the per-pane picker still wins once a chat is open
+- **Side chats inherit the main model** — a side chat opens on whatever model the main chat is using
 - **Local + cloud** — uses any Ollama-served model, including Ollama Pro cloud models
 
 ### Streaming & control
-- **Token-by-token streaming** — see the response build as the model generates
-- **Stop button** — cancel mid-generation
+- **Token-by-token streaming** — see the response build as the model generates, throttled to animation-frame cadence so long responses stay smooth
+- **Stop button** — cancels mid-generation and halts the UI immediately, keeping whatever streamed so far
+- **Auto-scroll toggle** — a control next to the send button keeps the view pinned to the newest tokens; off by default so you can read back without fighting the scroll
+- **Inline message editing** — edit one of your earlier messages in place and resend from that point
+- **Per-pane thinking toggle** — an icon next to the web-search button turns the model's internal reasoning step on or off for that pane. It defaults on for cloud models (which reason quickly) and off for local models (where the extra reasoning pass is slow), following the pane's model until you toggle it manually
 
 ### Vision
 - **Image attachments** — file picker or clipboard paste (Ctrl/Cmd+V) into either pane
@@ -52,6 +57,7 @@ A dedicated settings page (gear icon in the title bar) covers the most common kn
 
 ### Persistence
 - **SQLite via Tauri Rust backend** — sessions, messages, side chats, custom model aliases, and user settings are all stored locally (rusqlite) and restored on launch
+- **Immediate writes** — messages are persisted as they arrive, so a session survives a crash, an aborted generation, or an error mid-stream
 - **No cloud sync** — research is the user's private work, not a collaborative product
 - **Migrations** — `ALTER TABLE` upgrades run on init to handle existing DBs gracefully; a one-time theme migration picks up a legacy `localStorage` value and writes it to SQLite
 

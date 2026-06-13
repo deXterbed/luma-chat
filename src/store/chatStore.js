@@ -16,6 +16,10 @@ export const createChatStore = (id) => {
     isStreaming: false,
     abortController: null,
     error: null,
+    // Bumped on every new-chat/load-session reset so panes can re-derive
+    // per-chat defaults (e.g. the thinking toggle) even when the model
+    // string is unchanged.
+    chatNonce: 0,
 
     setModel: (model) => set({ model }),
 
@@ -130,11 +134,12 @@ export const createChatStore = (id) => {
     // truth here, so we read it directly rather than relying on the
     // hydration subscription (which only fires once per store).
     clearMessages: () =>
-      set({
+      set((s) => ({
         messages: [],
         error: null,
         model: useSettingsStore.getState().defaultModel || "",
-      }),
+        chatNonce: s.chatNonce + 1,
+      })),
 
     // Replace a message's content. Used by inline-edit on user messages.
     editMessage: (id, content) =>
@@ -152,13 +157,14 @@ export const createChatStore = (id) => {
       }),
 
     loadMessages: (messages, model) =>
-      set({
+      set((s) => ({
         messages,
         model,
         error: null,
         isStreaming: false,
         abortController: null,
-      }),
+        chatNonce: s.chatNonce + 1,
+      })),
 
     // Build messages array for Ollama API (includes image data)
     getApiMessages: () => {

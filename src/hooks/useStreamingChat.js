@@ -6,7 +6,6 @@ import {
   buildSideChatSystemPrompt,
 } from "../lib/systemPrompt";
 import { useChatSession } from "./useChatSession";
-import { useSettingsStore } from "../store/settingsStore";
 
 export function useStreamingChat({
   store,
@@ -15,10 +14,10 @@ export function useStreamingChat({
   sideChatId,
   sessionId,
   webSearchEnabled,
+  thinkingEnabled,
 }) {
   // Subscribe only to values that drive re-renders or guard logic
   const model = store((s) => s.model);
-  const thinkingEnabled = useSettingsStore((s) => s.thinkingDefault);
   const isStreaming = store((s) => s.isStreaming);
   const error = store((s) => s.error);
 
