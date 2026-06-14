@@ -9,6 +9,7 @@ export const SETTING_KEYS = {
   theme: "theme",
   defaultModel: "defaultModel",
   webSearchDefault: "webSearchDefault",
+  toolCallLimit: "toolCallLimit",
 };
 
 // Hardcoded fallbacks used when the DB has no value yet (first launch).
@@ -28,6 +29,9 @@ const DEFAULTS = {
   theme: readInitialTheme(),
   defaultModel: "minimax-m3:cloud",
   webSearchDefault: false,
+  // Max tool-calling rounds before the model must give a final answer.
+  // 0 = unlimited (no cap).
+  toolCallLimit: 0,
 };
 
 export const useSettingsStore = create((set, get) => ({
@@ -38,6 +42,7 @@ export const useSettingsStore = create((set, get) => ({
   theme: DEFAULTS.theme,
   defaultModel: DEFAULTS.defaultModel,
   webSearchDefault: DEFAULTS.webSearchDefault,
+  toolCallLimit: DEFAULTS.toolCallLimit,
 
   // Called from useDbInit. Loads from DB and applies the theme to <html>.
   // Unknown keys are ignored; missing keys keep their default. On the very
@@ -73,6 +78,7 @@ export const useSettingsStore = create((set, get) => ({
           ? stored[SETTING_KEYS.defaultModel]
           : DEFAULTS.defaultModel,
       webSearchDefault: stored[SETTING_KEYS.webSearchDefault] === "true",
+      toolCallLimit: parseToolCallLimit(stored[SETTING_KEYS.toolCallLimit]),
     };
     applyTheme(next.theme);
     set({ ...next, hydrated: true });
@@ -102,6 +108,12 @@ export const useSettingsStore = create((set, get) => ({
     db.saveSetting(SETTING_KEYS.webSearchDefault, enabled ? "true" : "false");
   },
 
+  setToolCallLimit: (n) => {
+    const v = parseToolCallLimit(n);
+    set({ toolCallLimit: v });
+    db.saveSetting(SETTING_KEYS.toolCallLimit, String(v));
+  },
+
   // Reset every well-known key back to its hardcoded default and persist.
   // Used by the settings page's "Reset to defaults" link.
   resetToDefaults: () => {
@@ -110,6 +122,7 @@ export const useSettingsStore = create((set, get) => ({
       theme: DEFAULTS.theme,
       defaultModel: DEFAULTS.defaultModel,
       webSearchDefault: DEFAULTS.webSearchDefault,
+      toolCallLimit: DEFAULTS.toolCallLimit,
     });
     db.saveSetting(SETTING_KEYS.theme, DEFAULTS.theme);
     db.saveSetting(SETTING_KEYS.defaultModel, DEFAULTS.defaultModel);
@@ -117,7 +130,15 @@ export const useSettingsStore = create((set, get) => ({
       SETTING_KEYS.webSearchDefault,
       DEFAULTS.webSearchDefault ? "true" : "false",
     );
+    db.saveSetting(SETTING_KEYS.toolCallLimit, String(DEFAULTS.toolCallLimit));
   },
 }));
+
+// Parse a stored/user-supplied tool-call limit into a non-negative integer.
+// Anything invalid falls back to 0 (unlimited).
+function parseToolCallLimit(raw) {
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 0 ? n : DEFAULTS.toolCallLimit;
+}
 
 export const SETTINGS_DEFAULTS = DEFAULTS;

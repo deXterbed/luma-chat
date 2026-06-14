@@ -17,6 +17,8 @@ export default function SettingsPage() {
   const setDefaultModel = useSettingsStore((s) => s.setDefaultModel);
   const webSearchDefault = useSettingsStore((s) => s.webSearchDefault);
   const setWebSearchDefault = useSettingsStore((s) => s.setWebSearchDefault);
+  const toolCallLimit = useSettingsStore((s) => s.toolCallLimit);
+  const setToolCallLimit = useSettingsStore((s) => s.setToolCallLimit);
   const resetToDefaults = useSettingsStore((s) => s.resetToDefaults);
 
   // Model picker state
@@ -227,6 +229,38 @@ export default function SettingsPage() {
               <span className={styles.switchKnob} />
             </button>
           </label>
+        </section>
+
+        {/* ── Tool call limit ── */}
+        <section className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <h2 className={styles.sectionTitle}>Tool call limit</h2>
+            <p className={styles.sectionHint}>
+              Maximum number of tool-calling rounds before the model is forced
+              to give a final answer. Leave empty (0) for unlimited.
+            </p>
+          </div>
+
+          <div className={styles.numberRow}>
+            <input
+              type="number"
+              min={0}
+              value={toolCallLimit === 0 ? "" : toolCallLimit}
+              placeholder="Unlimited"
+              onChange={(e) =>
+                setToolCallLimit(
+                  e.target.value === "" ? 0 : parseInt(e.target.value, 10),
+                )
+              }
+              className={styles.numberInput}
+              aria-label="Tool call limit (0 = unlimited)"
+            />
+            <span className={styles.numberHint}>
+              {toolCallLimit === 0
+                ? "Unlimited"
+                : `${toolCallLimit} round${toolCallLimit === 1 ? "" : "s"}`}
+            </span>
+          </div>
         </section>
 
         {/* ── Reset ── */}

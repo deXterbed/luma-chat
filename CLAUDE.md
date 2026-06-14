@@ -53,7 +53,7 @@ Commands are registered in `main.rs` via `tauri::generate_handler![]`. When addi
 | `src/components/InputArea.jsx` | Textarea, image attachments, send/stop. Single source of truth for the input box. |
 | `src/components/Sidebar.jsx` | Recent chats list, "New Chat" button, Ollama status |
 | `src/components/SidePanel.jsx` | Side-chat tabs + `+` button to add a new tab |
-| `src/lib/ollama.js` | `streamChat()` runs the full tool-calling loop (model ↔ tool calls, up to `maxToolRounds = 5`) |
+| `src/lib/ollama.js` | `streamChat()` runs the full tool-calling loop (model ↔ tool calls). `toolCallLimit` setting (0 = unlimited) caps rounds; when hit, it re-prompts tool-free for a final answer |
 | `src/lib/tools.js` | `TOOLS` (Ollama-format definitions) + `executeTool(name, args)` dispatcher |
 | `src/lib/db.js` | Thin `invoke()` wrappers for every Tauri DB command |
 | `src/hooks/useStreamingChat.js` | Wires `streamChat` callbacks to store actions; creates the session on first message |
@@ -69,7 +69,7 @@ Independent stores; none are persisted to `localStorage` — persistence goes to
 | `getSideChatStore(id)` | `src/store/chatStore.js` | Same factory as `useMainChat`; one store per side-chat tab. Stored in a `Map` keyed by tab id — never recreated on tab switch. | Same as above. |
 | `useSessionStore` | `src/store/sessionStore.js` | Session list (incl. side-chat metadata), chat data write-through to SQLite | `chatSessions`, `activeChatId` |
 | `useUiStore` | `src/store/uiStore.js` | Transient view state: side-chat open/closed, Ollama connectivity, settings page open, side-chat prefill text | All fields; this is a small UI-only store |
-| `useSettingsStore` | `src/store/settingsStore.js` | Persisted settings (theme, default model, web search default) write-through to SQLite | `hydrated` (one-shot), individual settings fields |
+| `useSettingsStore` | `src/store/settingsStore.js` | Persisted settings (theme, default model, web search default, tool call limit) write-through to SQLite | `hydrated` (one-shot), individual settings fields |
 
 `chatStore.js` exports a factory `createChatStore(id)` — both panes use identical logic from the same factory. `useMainChat` is a singleton; side chats get one store per tab via `getSideChatStore(id)`. New chats start with an empty `model`; each store subscribes to `useSettingsStore` and lazily applies `defaultModel` once settings have hydrated, so module-init doesn't depend on the DB being open.
 
@@ -77,7 +77,7 @@ Independent stores; none are persisted to `localStorage` — persistence goes to
 
 ### Streaming and tool-calling loop
 
-`src/lib/ollama.js` → `streamChat()` runs the full tool-calling loop. It sends the messages array to Ollama, streams the response, and if the model returns `tool_calls`, it executes them via `executeTool` (from `src/lib/tools.js`), appends `role: "tool"` messages, and re-calls the model — up to `maxToolRounds = 5` times. The final text response triggers `onDone`.
+`src/lib/ollama.js` → `streamChat()` runs the full tool-calling loop. It sends the messages array to Ollama, streams the response, and if the model returns `tool_calls`, it executes them via `executeTool` (from `src/lib/tools.js`), appends `role: "tool"` messages, and re-calls the model. The `toolCallLimit` param (from `useSettingsStore`, 0 = unlimited) caps the rounds; once hit, the loop discards everything gathered and makes one final tool-free call using `fallbackMessages` (the web-disabled system prompt, built in `useStreamingChat`) so the model is forced to answer — it never throws a "called tools N times" error. A soft `maxToolRounds = 10` nudge and a fixed 15-round DuckDuckGo rate-limit nudge inject "wrap up" system messages along the way. The final text response triggers `onDone`.
 
 `useStreamingChat` hook (`src/hooks/useStreamingChat.js`) wires the store actions (`addToolCall`, `completeToolCall`, `finalizeMessage`) to the `streamChat` callbacks and handles session creation on first message.
 

@@ -6,6 +6,7 @@ import {
   buildSideChatSystemPrompt,
 } from "../lib/systemPrompt";
 import { useChatSession } from "./useChatSession";
+import { useSettingsStore } from "../store/settingsStore";
 
 export function useStreamingChat({
   store,
@@ -79,7 +80,16 @@ export function useStreamingChat({
           ? buildSideChatSystemPrompt(webSearchEnabled)
           : buildMainChatSystemPrompt(webSearchEnabled);
 
+        // Tool-free variant used for the forced final answer when the model
+        // exhausts its tool-call budget (see streamChat's fallbackMessages).
+        const fallbackSystemPrompt = compact
+          ? buildSideChatSystemPrompt(false)
+          : buildMainChatSystemPrompt(false);
+
         const systemMessages = [{ role: "system", content: appSystemPrompt }];
+        const fallbackSystemMessages = [
+          { role: "system", content: fallbackSystemPrompt },
+        ];
 
         if (contextStore) {
           const ctxMessages = contextStore.getState().getApiMessages();
@@ -96,10 +106,12 @@ export function useStreamingChat({
             if (transcript.length > 4000) {
               transcript = "…" + transcript.slice(-4000);
             }
-            systemMessages.push({
+            const ctxSystem = {
               role: "system",
               content: `The following is the recent conversation from the main chat. Use it as context when answering the user's questions.\n\n${transcript}`,
-            });
+            };
+            systemMessages.push(ctxSystem);
+            fallbackSystemMessages.push(ctxSystem);
           }
         }
 
@@ -112,9 +124,11 @@ export function useStreamingChat({
         await streamChat({
           model,
           messages: [...systemMessages, ...apiMessages],
+          fallbackMessages: [...fallbackSystemMessages, ...apiMessages],
           tools: activeTools,
           executeTool,
           think: thinkingEnabled,
+          toolCallLimit: useSettingsStore.getState().toolCallLimit,
           onToken: (_, full) => {
             pendingContent.current = full;
             if (pendingContent.rafId === null) {

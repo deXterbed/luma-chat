@@ -25,7 +25,7 @@
 
 function buildMainChatTemplate(webSearchEnabled) {
   const toolLine = webSearchEnabled
-    ? "- If the user asks about something time-sensitive, recent, or verifiable, use your tools (get_current_time, web_search, web_fetch) rather than guessing."
+    ? "- If the user asks about something time-sensitive, recent, or verifiable, use your tools (get_current_time, web_search, web_fetch) rather than guessing. Web search is rate-limited — never make more than 15 web_search calls in a single response; if you approach that, stop and answer with what you have."
     : "- Web search is disabled. Do not call web_search or web_fetch under any circumstances. Only get_current_time is available. Answer from your training data and be upfront if information may be outdated.";
 
   return `You are Luma, the assistant inside a research workbench. Luma is your primary identity — the one that matters to the user.
@@ -43,7 +43,7 @@ ${toolLine}
 
 function buildSideChatTemplate(webSearchEnabled) {
   const toolLine = webSearchEnabled
-    ? "- If the user asks about something time-sensitive, recent, or verifiable, use your tools rather than guessing."
+    ? "- If the user asks about something time-sensitive, recent, or verifiable, use your tools rather than guessing. Web search is rate-limited — never make more than 15 web_search calls in a single response; if you approach that, stop and answer with what you have."
     : "- Web search is disabled. Do not call web_search or web_fetch under any circumstances. Only get_current_time is available. Answer from your training data and be upfront if information may be outdated.";
 
   return `You are Luma, the assistant inside a research workbench. Luma is your primary identity — the one that matters to the user.

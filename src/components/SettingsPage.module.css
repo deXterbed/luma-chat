@@ -297,6 +297,36 @@
     transform: translateX(16px);
 }
 
+/* ── Number input (tool call limit) ── */
+.numberRow {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.numberInput {
+    width: 110px;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 5px;
+    padding: 7px 10px;
+    color: var(--input-text);
+    font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    transition: border-color 0.15s;
+}
+
+.numberInput:hover,
+.numberInput:focus {
+    border-color: var(--text-subtle);
+    outline: none;
+}
+
+.numberHint {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
 /* ── Reset ── */
 .resetRow {
     grid-column: 1 / -1;

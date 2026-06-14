@@ -101,6 +101,7 @@ function nextRequestId() {
  * @param {object} params
  * @param {string} params.model
  * @param {Array}  params.messages            - initial messages array
+ * @param {Array}  [params.fallbackMessages]  - messages for the forced final answer (tool-free system prompt); defaults to `messages`
  * @param {Array}  [params.tools]            - Ollama-format tool definitions
  * @param {function} [params.executeTool]    - (name, args) => Promise<string>
  * @param {function} [params.onToken]
@@ -108,11 +109,13 @@ function nextRequestId() {
  * @param {function} [params.onToolResult]
  * @param {function} [params.onDone]
  * @param {number}  [params.maxToolRounds=10]
+ * @param {number}  [params.toolCallLimit=0]   - max tool rounds before a forced tools-disabled final answer; 0 = unlimited
  * @param {AbortSignal} [params.signal]
  */
 export async function streamChat({
   model,
   messages,
+  fallbackMessages,
   tools,
   executeTool,
   onToken,
@@ -120,12 +123,18 @@ export async function streamChat({
   onToolResult,
   onDone,
   maxToolRounds = 10,
+  toolCallLimit = 0,
   signal,
   think,
 }) {
   const workingMessages = [...messages];
   let round = 0;
-  const HARD_CAP = 15;
+  // 0 = unlimited. Otherwise, once the model has used this many tool rounds
+  // without finishing, we make one last tools-disabled call to force an answer.
+  const hardCap = toolCallLimit > 0 ? toolCallLimit : null;
+  // Fires regardless of `hardCap` (even when unlimited): DuckDuckGo rate-limits
+  // heavy use, so urge the model to wrap up once it's made this many rounds.
+  const WEB_SEARCH_NUDGE_AT = 15;
 
   // Per-stream state. Mutated by the event listeners and read on completion.
   const state = {
@@ -186,11 +195,12 @@ export async function streamChat({
   try {
     while (true) {
       if (signal?.aborted) throw new Error("aborted");
-      if (round >= HARD_CAP) {
-        throw new Error(
-          `Model called tools ${HARD_CAP} times without producing a final answer.`,
-        );
-      }
+
+      // Budget exhausted: re-prompt from scratch with no tools, as if the model
+      // had been called without tool support in the first place — using the
+      // tool-free system prompt. Everything gathered during the tool rounds is
+      // discarded.
+      const forceFinal = hardCap !== null && round >= hardCap;
 
       if (round === maxToolRounds) {
         workingMessages.push({
@@ -200,13 +210,21 @@ export async function streamChat({
         });
       }
 
+      if (round === WEB_SEARCH_NUDGE_AT) {
+        workingMessages.push({
+          role: "system",
+          content:
+            "You have made many web searches. The search provider (DuckDuckGo) rate-limits heavy use, so stop searching now and write your final answer from what you have already gathered. Do not call web_search or web_fetch again.",
+        });
+      }
+
       const body = {
         model,
-        messages: workingMessages,
+        messages: forceFinal ? fallbackMessages || messages : workingMessages,
         stream: true,
         options: { temperature: 0.7, num_ctx: 8192 },
       };
-      if (tools && tools.length > 0) body.tools = tools;
+      if (!forceFinal && tools && tools.length > 0) body.tools = tools;
       if (think !== undefined) body.think = think;
 
       // Reset per-round state
@@ -238,7 +256,9 @@ export async function streamChat({
         .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "")
         .trim();
 
-      const toolCalls = state.toolCalls;
+      // On the forced-final round we ignore any tool calls the model still
+      // emitted and finalize with whatever text it produced.
+      const toolCalls = forceFinal ? [] : state.toolCalls;
       if (toolCalls.length === 0) {
         onDone?.(content);
         return;
