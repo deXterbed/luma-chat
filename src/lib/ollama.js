@@ -158,7 +158,15 @@ export async function streamChat({
         if (!signal?.aborted) onToken?.(text, state.content);
       }
 
-      if (Array.isArray(line?.message?.tool_calls)) {
+      // Only capture a non-empty tool_calls array. Some models/Ollama emit a
+      // trailing chunk with `tool_calls: []`, which would otherwise wipe the
+      // calls captured earlier in the round — ending the round with zero tool
+      // calls, so the loop finalizes early (Stop button flips to Send) and the
+      // tool never runs.
+      if (
+        Array.isArray(line?.message?.tool_calls) &&
+        line.message.tool_calls.length > 0
+      ) {
         state.toolCalls = line.message.tool_calls.map((tc) => ({
           function: {
             name: tc.function?.name,
