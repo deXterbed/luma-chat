@@ -10,6 +10,8 @@ export const useUiStore = create((set, get) => ({
   customModels: [],
   sideChatPrefill: null,
   settingsOpen: false,
+  // Quota/auth message from the Ollama web search backend (null when none).
+  webSearchNotice: null,
 
   setSideChatOpen: (open) => set({ sideChatOpen: open }),
   toggleSideChat: () => set((s) => ({ sideChatOpen: !s.sideChatOpen })),
@@ -34,4 +36,7 @@ export const useUiStore = create((set, get) => ({
 
   openSettings: () => set({ settingsOpen: true }),
   closeSettings: () => set({ settingsOpen: false }),
+
+  setWebSearchNotice: (msg) => set({ webSearchNotice: msg }),
+  clearWebSearchNotice: () => set({ webSearchNotice: null }),
 }));

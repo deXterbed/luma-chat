@@ -99,13 +99,37 @@ pub fn save_setting(db: State<Database>, key: String, value: String) {
 // ── Web tool commands ──
 
 #[tauri::command]
-pub async fn web_search(query: String, max_results: Option<usize>) -> String {
-    tools::search_web(&query, max_results.unwrap_or(5)).await
+pub async fn web_search(
+    query: String,
+    max_results: Option<usize>,
+    provider: Option<String>,
+    api_key: Option<String>,
+) -> String {
+    let limit = max_results.unwrap_or(5);
+    if provider.as_deref() == Some("ollama") {
+        tools::search_web_ollama(&query, limit, &resolve_ollama_key(api_key)).await
+    } else {
+        tools::search_web(&query, limit).await
+    }
 }
 
 #[tauri::command]
-pub async fn web_fetch(url: String) -> String {
-    tools::fetch_page(&url).await
+pub async fn web_fetch(url: String, provider: Option<String>, api_key: Option<String>) -> String {
+    if provider.as_deref() == Some("ollama") {
+        tools::fetch_page_ollama(&url, &resolve_ollama_key(api_key)).await
+    } else {
+        tools::fetch_page(&url).await
+    }
+}
+
+/// Resolve the Ollama API key: prefer the one set in app settings, fall back
+/// to the OLLAMA_API_KEY env var (only inherited when launched from a shell,
+/// e.g. `npm run dev` — not from a Finder/Dock-launched bundle on macOS).
+fn resolve_ollama_key(from_settings: Option<String>) -> String {
+    match from_settings {
+        Some(k) if !k.trim().is_empty() => k,
+        _ => std::env::var("OLLAMA_API_KEY").unwrap_or_default(),
+    }
 }
 
 // ── Helper types ──

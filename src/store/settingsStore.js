@@ -10,7 +10,13 @@ export const SETTING_KEYS = {
   defaultModel: "defaultModel",
   webSearchDefault: "webSearchDefault",
   toolCallLimit: "toolCallLimit",
+  searchProvider: "searchProvider",
+  ollamaApiKey: "ollamaApiKey",
 };
+
+// Web search backends. "duckduckgo" scrapes DDG locally (no key); "ollama"
+// uses the key-gated Ollama cloud web search API.
+export const SEARCH_PROVIDERS = ["duckduckgo", "ollama"];
 
 // Hardcoded fallbacks used when the DB has no value yet (first launch).
 // Theme prefers the OS preference (handled in `readInitialTheme`),
@@ -32,6 +38,8 @@ const DEFAULTS = {
   // Max tool-calling rounds before the model must give a final answer.
   // 0 = unlimited (no cap).
   toolCallLimit: 0,
+  searchProvider: "duckduckgo",
+  ollamaApiKey: "",
 };
 
 export const useSettingsStore = create((set, get) => ({
@@ -43,6 +51,8 @@ export const useSettingsStore = create((set, get) => ({
   defaultModel: DEFAULTS.defaultModel,
   webSearchDefault: DEFAULTS.webSearchDefault,
   toolCallLimit: DEFAULTS.toolCallLimit,
+  searchProvider: DEFAULTS.searchProvider,
+  ollamaApiKey: DEFAULTS.ollamaApiKey,
 
   // Called from useDbInit. Loads from DB and applies the theme to <html>.
   // Unknown keys are ignored; missing keys keep their default. On the very
@@ -79,6 +89,13 @@ export const useSettingsStore = create((set, get) => ({
           : DEFAULTS.defaultModel,
       webSearchDefault: stored[SETTING_KEYS.webSearchDefault] === "true",
       toolCallLimit: parseToolCallLimit(stored[SETTING_KEYS.toolCallLimit]),
+      searchProvider: SEARCH_PROVIDERS.includes(stored[SETTING_KEYS.searchProvider])
+        ? stored[SETTING_KEYS.searchProvider]
+        : DEFAULTS.searchProvider,
+      ollamaApiKey:
+        typeof stored[SETTING_KEYS.ollamaApiKey] === "string"
+          ? stored[SETTING_KEYS.ollamaApiKey]
+          : DEFAULTS.ollamaApiKey,
     };
     applyTheme(next.theme);
     set({ ...next, hydrated: true });
@@ -114,6 +131,20 @@ export const useSettingsStore = create((set, get) => ({
     db.saveSetting(SETTING_KEYS.toolCallLimit, String(v));
   },
 
+  setSearchProvider: (provider) => {
+    const v = SEARCH_PROVIDERS.includes(provider)
+      ? provider
+      : DEFAULTS.searchProvider;
+    set({ searchProvider: v });
+    db.saveSetting(SETTING_KEYS.searchProvider, v);
+  },
+
+  setOllamaApiKey: (key) => {
+    const v = (key || "").trim();
+    set({ ollamaApiKey: v });
+    db.saveSetting(SETTING_KEYS.ollamaApiKey, v);
+  },
+
   // Reset every well-known key back to its hardcoded default and persist.
   // Used by the settings page's "Reset to defaults" link.
   resetToDefaults: () => {
@@ -123,6 +154,8 @@ export const useSettingsStore = create((set, get) => ({
       defaultModel: DEFAULTS.defaultModel,
       webSearchDefault: DEFAULTS.webSearchDefault,
       toolCallLimit: DEFAULTS.toolCallLimit,
+      searchProvider: DEFAULTS.searchProvider,
+      ollamaApiKey: DEFAULTS.ollamaApiKey,
     });
     db.saveSetting(SETTING_KEYS.theme, DEFAULTS.theme);
     db.saveSetting(SETTING_KEYS.defaultModel, DEFAULTS.defaultModel);
@@ -131,6 +164,8 @@ export const useSettingsStore = create((set, get) => ({
       DEFAULTS.webSearchDefault ? "true" : "false",
     );
     db.saveSetting(SETTING_KEYS.toolCallLimit, String(DEFAULTS.toolCallLimit));
+    db.saveSetting(SETTING_KEYS.searchProvider, DEFAULTS.searchProvider);
+    db.saveSetting(SETTING_KEYS.ollamaApiKey, DEFAULTS.ollamaApiKey);
   },
 }));
 

@@ -149,7 +149,26 @@ export default function ChatPane({
         </span>
         <div className={styles.headerActions}>
           <button
-            onClick={() => setWebSearchEnabled((v) => !v)}
+            onClick={() => {
+              // Block turning web search on when the Ollama backend is
+              // selected but has no key — surface the banner instead of
+              // letting the model fire a doomed search. (The renderer only
+              // sees the settings key, not the OLLAMA_API_KEY env-var
+              // fallback, but that path is dev-only and unreliable anyway.)
+              if (!webSearchEnabled) {
+                const { searchProvider, ollamaApiKey } =
+                  useSettingsStore.getState();
+                if (searchProvider === "ollama" && !ollamaApiKey.trim()) {
+                  useUiStore
+                    .getState()
+                    .setWebSearchNotice(
+                      "Ollama web search needs an API key. Add one in Settings → Web search, or switch to DuckDuckGo.",
+                    );
+                  return;
+                }
+              }
+              setWebSearchEnabled((v) => !v);
+            }}
             title={webSearchEnabled ? "Web search on" : "Web search off"}
             className={`${styles.headerBtn} ${compact ? styles.headerBtnCompact : ""} ${webSearchEnabled ? styles.webBtnActive : ""}`}
           >

@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { PanelRight, PanelRightClose } from "lucide-react";
+import { PanelRight, PanelRightClose, X } from "lucide-react";
 import TitleBar from "./components/TitleBar";
 import Sidebar from "./components/Sidebar";
 import ChatPane from "./components/ChatPane";
@@ -21,6 +21,9 @@ export default function App() {
     setAvailableModels,
     setCustomModels,
     settingsOpen,
+    openSettings,
+    webSearchNotice,
+    clearWebSearchNotice,
   } = useUiStore();
   useDbInit();
 
@@ -41,10 +44,35 @@ export default function App() {
       .catch(() => {});
   }, [setCustomModels]);
 
+  const quotaBanner = webSearchNotice ? (
+    <div className={styles.quotaBanner} role="alert">
+      <span className={styles.quotaBannerText}>{webSearchNotice}</span>
+      {!settingsOpen && (
+        <button
+          className={styles.quotaBannerBtn}
+          onClick={() => {
+            clearWebSearchNotice();
+            openSettings();
+          }}
+        >
+          Open Settings
+        </button>
+      )}
+      <button
+        className={styles.quotaBannerClose}
+        onClick={clearWebSearchNotice}
+        aria-label="Dismiss"
+      >
+        <X size={14} />
+      </button>
+    </div>
+  ) : null;
+
   if (settingsOpen) {
     return (
       <div className={styles.app}>
         <TitleBar />
+        {quotaBanner}
         <SettingsPage />
       </div>
     );
@@ -53,6 +81,7 @@ export default function App() {
   return (
     <div className={styles.app}>
       <TitleBar />
+      {quotaBanner}
 
       <div className={styles.body}>
         <Sidebar />

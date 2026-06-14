@@ -101,7 +101,6 @@ function nextRequestId() {
  * @param {object} params
  * @param {string} params.model
  * @param {Array}  params.messages            - initial messages array
- * @param {Array}  [params.fallbackMessages]  - messages for the forced final answer (tool-free system prompt); defaults to `messages`
  * @param {Array}  [params.tools]            - Ollama-format tool definitions
  * @param {function} [params.executeTool]    - (name, args) => Promise<string>
  * @param {function} [params.onToken]
@@ -115,7 +114,6 @@ function nextRequestId() {
 export async function streamChat({
   model,
   messages,
-  fallbackMessages,
   tools,
   executeTool,
   onToken,
@@ -196,13 +194,20 @@ export async function streamChat({
     while (true) {
       if (signal?.aborted) throw new Error("aborted");
 
-      // Budget exhausted: re-prompt from scratch with no tools, as if the model
-      // had been called without tool support in the first place — using the
-      // tool-free system prompt. Everything gathered during the tool rounds is
-      // discarded.
+      // Budget exhausted: make one final call with NO tools, but keep every
+      // tool result gathered so far so the model answers from what it actually
+      // found — not from training data. (Previously this re-prompted with a
+      // tool-free prompt and discarded the gathered context, producing "I
+      // don't have live access…" answers even after successful searches.)
       const forceFinal = hardCap !== null && round >= hardCap;
 
-      if (round === maxToolRounds) {
+      if (forceFinal) {
+        workingMessages.push({
+          role: "system",
+          content:
+            "You have reached the tool-use limit and can no longer call tools. Write your final answer now using only the information gathered from the tool results above. Do not claim you lack access to real-time or live data — base your answer on what was already retrieved.",
+        });
+      } else if (round === maxToolRounds) {
         workingMessages.push({
           role: "system",
           content:
@@ -210,7 +215,7 @@ export async function streamChat({
         });
       }
 
-      if (round === WEB_SEARCH_NUDGE_AT) {
+      if (!forceFinal && round === WEB_SEARCH_NUDGE_AT) {
         workingMessages.push({
           role: "system",
           content:
@@ -220,7 +225,7 @@ export async function streamChat({
 
       const body = {
         model,
-        messages: forceFinal ? fallbackMessages || messages : workingMessages,
+        messages: workingMessages,
         stream: true,
         options: { temperature: 0.7, num_ctx: 8192 },
       };
@@ -271,6 +276,7 @@ export async function streamChat({
       });
 
       let allFailed = true;
+      let quotaError = false;
       for (const call of toolCalls) {
         const name = call.function.name;
         const args = call.function.arguments || {};
@@ -287,11 +293,22 @@ export async function streamChat({
         if (typeof result !== "string" || !result.startsWith("Error")) {
           allFailed = false;
         }
+        // A QUOTA/auth failure (bad or exhausted Ollama key) won't recover on
+        // retry — every further web call fails too. Stop the whole stream
+        // rather than re-prompting for a final answer; the UI banner explains.
+        if (typeof result === "string" && result.startsWith("Error: QUOTA:")) {
+          quotaError = true;
+        }
         onToolResult?.(name, result);
         workingMessages.push({
           role: "tool",
           content: typeof result === "string" ? result : JSON.stringify(result),
         });
+      }
+
+      if (quotaError) {
+        onDone?.(content);
+        return;
       }
 
       if (allFailed && round < maxToolRounds) {

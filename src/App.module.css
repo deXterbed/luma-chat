@@ -14,6 +14,57 @@
     overflow: hidden;
 }
 
+/* ── Web search quota/auth banner ── */
+.quotaBanner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 16px;
+    background: var(--status-warn-bg, rgba(180, 120, 0, 0.12));
+    border-bottom: 1px solid var(--status-warn, #b47800);
+    color: var(--text);
+    font-size: 12px;
+    flex-shrink: 0;
+}
+
+.quotaBannerText {
+    flex: 1;
+    line-height: 1.5;
+}
+
+.quotaBannerBtn {
+    background: transparent;
+    border: 1px solid var(--border-strong);
+    border-radius: 5px;
+    padding: 4px 10px;
+    color: var(--text);
+    font-size: 11px;
+    font-family: 'Geist', sans-serif;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    flex-shrink: 0;
+}
+
+.quotaBannerBtn:hover {
+    background: var(--surface-hover);
+    border-color: var(--text-subtle);
+}
+
+.quotaBannerClose {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    display: inline-flex;
+    padding: 2px;
+    flex-shrink: 0;
+}
+
+.quotaBannerClose:hover {
+    color: var(--text);
+}
+
 .mainArea {
     flex: 1;
     display: flex;

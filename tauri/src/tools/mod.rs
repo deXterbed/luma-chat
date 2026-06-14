@@ -1,8 +1,10 @@
 mod fetch;
 mod html;
+mod ollama_search;
 mod search;
 
 pub use fetch::fetch_page;
+pub use ollama_search::{fetch_page_ollama, search_web_ollama};
 pub use search::search_web;
 
 #[cfg(test)]

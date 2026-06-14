@@ -17,6 +17,10 @@ export default function SettingsPage() {
   const setDefaultModel = useSettingsStore((s) => s.setDefaultModel);
   const webSearchDefault = useSettingsStore((s) => s.webSearchDefault);
   const setWebSearchDefault = useSettingsStore((s) => s.setWebSearchDefault);
+  const searchProvider = useSettingsStore((s) => s.searchProvider);
+  const setSearchProvider = useSettingsStore((s) => s.setSearchProvider);
+  const ollamaApiKey = useSettingsStore((s) => s.ollamaApiKey);
+  const setOllamaApiKey = useSettingsStore((s) => s.setOllamaApiKey);
   const toolCallLimit = useSettingsStore((s) => s.toolCallLimit);
   const setToolCallLimit = useSettingsStore((s) => s.setToolCallLimit);
   const resetToDefaults = useSettingsStore((s) => s.resetToDefaults);
@@ -229,6 +233,71 @@ export default function SettingsPage() {
               <span className={styles.switchKnob} />
             </button>
           </label>
+        </section>
+
+        {/* ── Web search provider ── */}
+        <section className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <h2 className={styles.sectionTitle}>Web search provider</h2>
+            <p className={styles.sectionHint}>
+              DuckDuckGo needs no setup. Ollama's web search is more reliable
+              but requires an API key — being signed in to Ollama is{" "}
+              <strong>not</strong> enough.
+            </p>
+          </div>
+
+          <div
+            className={styles.segmented}
+            role="radiogroup"
+            aria-label="Search provider"
+          >
+            <button
+              role="radio"
+              aria-checked={searchProvider === "duckduckgo"}
+              onClick={() => setSearchProvider("duckduckgo")}
+              className={`${styles.segBtn} ${searchProvider === "duckduckgo" ? styles.segBtnActive : ""}`}
+            >
+              DuckDuckGo
+            </button>
+            <button
+              role="radio"
+              aria-checked={searchProvider === "ollama"}
+              onClick={() => setSearchProvider("ollama")}
+              className={`${styles.segBtn} ${searchProvider === "ollama" ? styles.segBtnActive : ""}`}
+            >
+              Ollama
+            </button>
+          </div>
+
+          {searchProvider === "ollama" && (
+            <div className={styles.apiKeyBlock}>
+              <input
+                type="password"
+                value={ollamaApiKey}
+                placeholder="Ollama API key"
+                onChange={(e) => setOllamaApiKey(e.target.value)}
+                className={styles.textInput}
+                aria-label="Ollama API key"
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <p className={styles.sectionHint}>
+                Create a key at{" "}
+                <a
+                  href="https://ollama.com/settings/keys"
+                  target="_blank"
+                  rel="noreferrer"
+                  className={styles.link}
+                >
+                  ollama.com/settings/keys
+                </a>{" "}
+                (free account). Leave blank to use the{" "}
+                <code>OLLAMA_API_KEY</code> environment variable instead. If your
+                free quota runs out, upgrade your account or switch back to
+                DuckDuckGo.
+              </p>
+            </div>
+          )}
         </section>
 
         {/* ── Tool call limit ── */}

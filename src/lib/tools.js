@@ -8,6 +8,9 @@
 // `@tauri-apps/api/core` invoke — this avoids CORS in the renderer
 // and keeps network/parsing code in one auditable place.
 
+import { useSettingsStore } from "../store/settingsStore";
+import { useUiStore } from "../store/uiStore";
+
 export const TOOLS = [
   {
     type: "function",
@@ -99,10 +102,15 @@ export async function executeTool(name, args) {
     case "web_search": {
       try {
         const { invoke } = await import("@tauri-apps/api/core");
-        return await invoke("web_search", {
+        const { provider, apiKey } = getSearchConfig();
+        const result = await invoke("web_search", {
           query: args?.query || "",
           maxResults: args?.max_results ?? 5,
+          provider,
+          apiKey,
         });
+        raiseQuotaNoticeIfNeeded(result);
+        return result;
       } catch {
         return "Error: web tools are not available in this environment";
       }
@@ -110,9 +118,14 @@ export async function executeTool(name, args) {
     case "web_fetch": {
       try {
         const { invoke } = await import("@tauri-apps/api/core");
-        return await invoke("web_fetch", {
+        const { provider, apiKey } = getSearchConfig();
+        const result = await invoke("web_fetch", {
           url: args?.url || "",
+          provider,
+          apiKey,
         });
+        raiseQuotaNoticeIfNeeded(result);
+        return result;
       } catch {
         return "Error: web tools are not available in this environment";
       }
@@ -120,4 +133,21 @@ export async function executeTool(name, args) {
     default:
       return `Error: unknown tool "${name}"`;
   }
+}
+
+// Read the current web-search backend + key from settings. The Rust side
+// falls back to the OLLAMA_API_KEY env var when apiKey is blank.
+function getSearchConfig() {
+  const { searchProvider, ollamaApiKey } = useSettingsStore.getState();
+  return { provider: searchProvider, apiKey: ollamaApiKey };
+}
+
+// Ollama web tools tag quota/auth failures with a leading "Error: QUOTA:".
+// Surface those as a dismissible app-wide banner so the user can upgrade or
+// switch back to DuckDuckGo, rather than the error hiding in a tool record.
+function raiseQuotaNoticeIfNeeded(result) {
+  if (typeof result !== "string" || !result.startsWith("Error: QUOTA:")) return;
+  useUiStore
+    .getState()
+    .setWebSearchNotice(result.replace("Error: QUOTA:", "").trim());
 }

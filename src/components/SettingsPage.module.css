@@ -297,6 +297,41 @@
     transform: translateX(16px);
 }
 
+/* ── API key (Ollama web search) ── */
+.apiKeyBlock {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.textInput {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 5px;
+    padding: 7px 10px;
+    color: var(--input-text);
+    font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    transition: border-color 0.15s;
+}
+
+.textInput:hover,
+.textInput:focus {
+    border-color: var(--text-subtle);
+    outline: none;
+}
+
+.link {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+.link:hover {
+    text-decoration: underline;
+}
+
 /* ── Number input (tool call limit) ── */
 .numberRow {
     display: flex;

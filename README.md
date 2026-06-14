@@ -39,21 +39,24 @@ A research workbench for deep-dive topic exploration, built as a dual-pane deskt
 
 ### Research tools (tool-calling)
 The model can call tools as it responds, with full visibility into the process:
-- **`web_search(query)`** — DuckDuckGo search, no API key required. Returns titles, URLs, snippets.
-- **`web_fetch(url)`** — fetch a URL and extract clean readable content via Mozilla Readability
+- **`web_search(query)`** — web search via the selected provider (DuckDuckGo, no key; or Ollama cloud, API-key gated). Returns titles, URLs, snippets.
+- **`web_fetch(url)`** — fetch a URL and extract clean readable content (Mozilla Readability for DuckDuckGo; Ollama's extractor for the cloud provider)
 - **`get_current_time()`** — local time + timezone
 
-Web tools run in the Tauri Rust backend (no CORS, network code stays in one auditable place) and are exposed to the frontend via `@tauri-apps/api/core`. The tool-call loop is capped at 5 rounds per response to prevent runaway iteration. The `ToolActivity` component shows a live indicator (`🔍 Searching for "..."`, `📖 Reading article...`) plus a collapsible summary of every tool used for that response.
+Web tools run in the Tauri Rust backend (no CORS, network code stays in one auditable place) and are exposed to the frontend via `@tauri-apps/api/core`. The tool-call loop is bounded by the **Tool call limit** setting (0 = unlimited); when the limit is reached the model makes one final pass with tools disabled but keeps everything it gathered, so it answers from its findings instead of erroring out. The `ToolActivity` component shows a live indicator (`🔍 Searching for "..."`, `📖 Reading article...`) plus a collapsible summary of every tool used for that response.
 
 ### Search controls
 - **Per-pane web search toggle** — disable web tools in either pane for sessions that don't need them. The renderer filters the tool list before passing it to the model.
 - **Global web search default** — the per-pane toggle seeds from a setting you can change in the Settings page. The per-pane override itself isn't persisted.
+- **Search provider** — choose DuckDuckGo (no key) or Ollama cloud search (needs an API key) in Settings. Quota/auth failures from the Ollama provider surface as a dismissible app-wide banner that links to Settings, instead of failing silently mid-response.
 
 ### Settings
 A dedicated settings page (gear icon in the title bar) covers the most common knobs, all persisted to SQLite (no `localStorage`):
 - **Appearance** — dark/light theme; choice re-applied synchronously before React mounts to avoid a flash of the wrong theme on launch
 - **Default model** — dropdown of locally-pulled and user-added custom models; new chats and side chats start with this
 - **Web search default** — global on/off for the per-pane web search toggle
+- **Search provider & Ollama API key** — pick DuckDuckGo or Ollama cloud search; the key is stored locally and only used for the Ollama provider
+- **Tool call limit** — max tool-calling rounds before the model is made to answer from what it has (0 = unlimited)
 
 ### Persistence
 - **SQLite via Tauri Rust backend** — sessions, messages, side chats, custom model aliases, and user settings are all stored locally (rusqlite) and restored on launch
@@ -125,7 +128,7 @@ State lives in four independent Zustand stores. None of them persist to `localSt
 | `useMainChat` / `useSideChat` | `src/store/chatStore.js` | Per-pane messages, streaming state, tool-call records (same factory) |
 | `useSessionStore` | `src/store/sessionStore.js` | Session list, side-chat metadata — the only store that writes chat data to SQLite |
 | `useUiStore` | `src/store/uiStore.js` | Transient view state: side-chat open/closed, Ollama connectivity, settings page open |
-| `useSettingsStore` | `src/store/settingsStore.js` | Persisted settings: theme, default model, web search default — write-through to the `settings` SQLite table |
+| `useSettingsStore` | `src/store/settingsStore.js` | Persisted settings: theme, default model, web search default, tool call limit, search provider, Ollama API key — write-through to the `settings` SQLite table |
 
 ## Stack
 
@@ -145,7 +148,7 @@ State lives in four independent Zustand stores. None of them persist to `localSt
 luma-chat/
 ├── tauri/                 Rust backend: DB, commands, web tools
 │   └── src/
-│       └── tools/         search.rs, fetch.rs, html.rs (web tools)
+│       └── tools/         search.rs, fetch.rs, ollama_search.rs, html.rs (web tools)
 ├── src/                   React UI
 │   ├── components/        ChatPane, SidePanel, Sidebar, SettingsPage, InputArea, MessageBubble, ToolActivity…
 │   ├── hooks/             useStreamingChat, useDbInit, useChatSession
