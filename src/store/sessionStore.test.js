@@ -202,11 +202,13 @@ describe("sessionStore", () => {
 
   describe("addSideChat", () => {
     let mockSetModel;
+    let mockBumpFocus;
 
     beforeEach(() => {
       mockSetModel = vi.fn();
+      mockBumpFocus = vi.fn();
       getSideChatStore.mockReturnValue({
-        getState: () => ({ setModel: mockSetModel }),
+        getState: () => ({ setModel: mockSetModel, bumpFocus: mockBumpFocus }),
       });
     });
 

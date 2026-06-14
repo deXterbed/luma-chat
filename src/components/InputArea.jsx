@@ -3,7 +3,18 @@ import { Send, Square, Paperclip, X } from "lucide-react";
 import { fileToBase64 } from "../lib/ollama";
 import styles from "./InputArea.module.css";
 
-export default function InputArea({ onSend, isStreaming, onStop, compact, placeholder, prefill, onPrefillApplied, autoScrollEnabled, onToggleAutoScroll }) {
+export default function InputArea({
+  onSend,
+  isStreaming,
+  onStop,
+  compact,
+  placeholder,
+  prefill,
+  onPrefillApplied,
+  autoScrollEnabled,
+  onToggleAutoScroll,
+  focusNonce,
+}) {
   const [input, setInput] = useState("");
   const [attachedImages, setAttachedImages] = useState([]);
 
@@ -31,11 +42,27 @@ export default function InputArea({ onSend, isStreaming, onStop, compact, placeh
     });
   }, [prefill]);
 
+  // Focus the textarea when the parent bumps focusNonce (e.g. on a new
+  // main/side chat). Skip the initial mount so we don't steal focus on
+  // app boot — only respond to subsequent bumps.
+  const hasSeenFocusBump = useRef(false);
+  useEffect(() => {
+    if (!textareaRef.current) return;
+    if (!hasSeenFocusBump.current) {
+      hasSeenFocusBump.current = true;
+      return;
+    }
+    textareaRef.current.focus();
+  }, [focusNonce]);
+
   const doSend = useCallback(() => {
     const text = input.trim();
     if (!text && attachedImages.length === 0) return;
     if (isStreaming) return;
-    onSend(text, attachedImages.map((img) => img.base64));
+    onSend(
+      text,
+      attachedImages.map((img) => img.base64),
+    );
     setInput("");
     setAttachedImages([]);
   }, [input, attachedImages, isStreaming, onSend]);
@@ -48,7 +75,9 @@ export default function InputArea({ onSend, isStreaming, onStop, compact, placeh
   };
 
   const handleFileAttach = async (e) => {
-    const files = Array.from(e.target.files).filter((f) => f.type.startsWith("image/"));
+    const files = Array.from(e.target.files).filter((f) =>
+      f.type.startsWith("image/"),
+    );
     const converted = await Promise.all(
       files.map(async (f) => ({
         base64: await fileToBase64(f),
@@ -86,7 +115,9 @@ export default function InputArea({ onSend, isStreaming, onStop, compact, placeh
   const hasContent = input.trim() || attachedImages.length > 0;
 
   return (
-    <div className={`${styles.wrapper} ${compact ? styles.wrapperCompact : ""}`}>
+    <div
+      className={`${styles.wrapper} ${compact ? styles.wrapperCompact : ""}`}
+    >
       {/* Image previews */}
       {attachedImages.length > 0 && (
         <div className={styles.imagePreviews}>
@@ -97,7 +128,10 @@ export default function InputArea({ onSend, isStreaming, onStop, compact, placeh
                 alt={img.name}
                 className={styles.imagePreviewImg}
               />
-              <button onClick={() => removeImage(i)} className={styles.imageRemoveBtn}>
+              <button
+                onClick={() => removeImage(i)}
+                className={styles.imageRemoveBtn}
+              >
                 <X size={8} />
               </button>
             </div>
@@ -137,7 +171,11 @@ export default function InputArea({ onSend, isStreaming, onStop, compact, placeh
           <button
             onClick={onToggleAutoScroll}
             className={`${styles.scrollBtn} ${autoScrollEnabled ? styles.scrollBtnActive : ""}`}
-            title={autoScrollEnabled ? "Auto-scroll on — click to disable" : "Auto-scroll off — click to enable"}
+            title={
+              autoScrollEnabled
+                ? "Auto-scroll on — click to disable"
+                : "Auto-scroll off — click to enable"
+            }
           >
             <svg
               width="11"
@@ -170,9 +208,7 @@ export default function InputArea({ onSend, isStreaming, onStop, compact, placeh
         )}
       </div>
 
-      <div className={styles.hint}>
-        Enter to send · Shift+Enter for newline
-      </div>
+      <div className={styles.hint}>Enter to send · Shift+Enter for newline</div>
     </div>
   );
 }

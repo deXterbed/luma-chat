@@ -116,7 +116,10 @@ export const useSessionStore = create((set, get) => ({
     const finalModel =
       model ?? useSettingsStore.getState().defaultModel ?? "minimax-m3:cloud";
     const id = uuidv4();
-    getSideChatStore(id).getState().setModel(finalModel);
+    const tabStore = getSideChatStore(id);
+    tabStore.getState().setModel(finalModel);
+    // Bump focusNonce on the new tab so its input box auto-focuses.
+    tabStore.getState().bumpFocus();
     set((s) => ({
       chatSessions: s.chatSessions.map((sess) => {
         if (sess.id !== sessionId) return sess;

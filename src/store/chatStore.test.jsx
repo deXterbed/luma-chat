@@ -197,6 +197,30 @@ describe("chatStore", () => {
       expect(store.getState().messages).toHaveLength(0);
       expect(store.getState().error).toBeNull();
     });
+
+    it("bumps focusNonce so the input auto-focuses", () => {
+      const start = store.getState().focusNonce;
+      store.getState().clearMessages();
+      expect(store.getState().focusNonce).toBe(start + 1);
+      store.getState().clearMessages();
+      expect(store.getState().focusNonce).toBe(start + 2);
+    });
+  });
+
+  describe("bumpFocus", () => {
+    it("increments focusNonce without touching other state", () => {
+      store.getState().addMessage("user", "Hello");
+      const before = {
+        focusNonce: store.getState().focusNonce,
+        messages: store.getState().messages,
+        model: store.getState().model,
+      };
+      store.getState().bumpFocus();
+      const after = store.getState();
+      expect(after.focusNonce).toBe(before.focusNonce + 1);
+      expect(after.messages).toEqual(before.messages);
+      expect(after.model).toBe(before.model);
+    });
   });
 
   describe("editMessage", () => {

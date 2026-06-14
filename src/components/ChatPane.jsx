@@ -32,6 +32,7 @@ export default function ChatPane({
   const messages = store((s) => s.messages);
   const model = store((s) => s.model);
   const setModel = store((s) => s.setModel);
+  const focusNonce = store((s) => s.focusNonce);
   // Seed the per-pane web search toggle from the user's default. The
   // setting might not be hydrated yet on first render, so we also watch
   // `hydrated` and apply the default once — but only if the user hasn't
@@ -239,6 +240,7 @@ export default function ChatPane({
         onPrefillApplied={isSideChat && isActive ? clearSideChatPrefill : null}
         autoScrollEnabled={autoScrollEnabled}
         onToggleAutoScroll={toggleAutoScroll}
+        focusNonce={focusNonce}
       />
     </div>
   );

@@ -20,6 +20,12 @@ export const createChatStore = (id) => {
     // per-chat defaults (e.g. the thinking toggle) even when the model
     // string is unchanged.
     chatNonce: 0,
+    // Bumped only on "user started a brand-new chat" actions (clearMessages,
+    // addSideChat). Distinct from chatNonce because we don't want to steal
+    // focus when loading an existing session from the sidebar — that's a
+    // different intent. InputArea watches this and focuses the textarea
+    // when it changes.
+    focusNonce: 0,
 
     setModel: (model) => set({ model }),
 
@@ -139,6 +145,7 @@ export const createChatStore = (id) => {
         error: null,
         model: useSettingsStore.getState().defaultModel || "",
         chatNonce: s.chatNonce + 1,
+        focusNonce: s.focusNonce + 1,
       })),
 
     // Replace a message's content. Used by inline-edit on user messages.
@@ -165,6 +172,10 @@ export const createChatStore = (id) => {
         abortController: null,
         chatNonce: s.chatNonce + 1,
       })),
+
+    // Bump the focus signal without touching anything else. Used by
+    // addSideChat so a freshly created side chat's input auto-focuses.
+    bumpFocus: () => set((s) => ({ focusNonce: s.focusNonce + 1 })),
 
     // Build messages array for Ollama API (includes image data)
     getApiMessages: () => {

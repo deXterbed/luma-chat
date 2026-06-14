@@ -9,9 +9,11 @@ npm run dev        # Start Vite dev server + Tauri dev window (hot reload)
 npm run build      # Vite production build → Tauri bundler
 npm run dev:vite   # Vite dev server only (for browser-based dev)
 npm run build:vite # Vite production build only
+npm test           # Vitest in watch mode (jsdom, Tauri APIs mocked)
+npm run test:run   # Vitest single run (use this in CI / pre-commit)
+npm run test:rust  # Cargo tests for the Tauri backend
+npm run test:all   # Both test suites sequentially
 ```
-
-There are no tests or linters configured.
 
 ### Prerequisites
 
@@ -42,18 +44,34 @@ There are no tests or linters configured.
 
 Commands are registered in `main.rs` via `tauri::generate_handler![]`. When adding a new command, add the function to `commands.rs` and register it in `main.rs`.
 
+### Frontend structure
+
+| File | Purpose |
+|---|---|
+| `src/App.jsx` | Layout: TitleBar, Sidebar, main ChatPane, optional SidePanel, SettingsPage |
+| `src/components/ChatPane.jsx` | One chat surface (used for both main and side panes — identical logic, different `store`/`compact` props) |
+| `src/components/InputArea.jsx` | Textarea, image attachments, send/stop. Single source of truth for the input box. |
+| `src/components/Sidebar.jsx` | Recent chats list, "New Chat" button, Ollama status |
+| `src/components/SidePanel.jsx` | Side-chat tabs + `+` button to add a new tab |
+| `src/lib/ollama.js` | `streamChat()` runs the full tool-calling loop (model ↔ tool calls, up to `maxToolRounds = 5`) |
+| `src/lib/tools.js` | `TOOLS` (Ollama-format definitions) + `executeTool(name, args)` dispatcher |
+| `src/lib/db.js` | Thin `invoke()` wrappers for every Tauri DB command |
+| `src/hooks/useStreamingChat.js` | Wires `streamChat` callbacks to store actions; creates the session on first message |
+| `src/hooks/useDbInit.js` | Triggers initial SQLite → store hydration on app start |
+
 ### State management (Zustand)
 
-Four independent stores; none are persisted to `localStorage` (persistence goes to SQLite):
+Independent stores; none are persisted to `localStorage` — persistence goes to SQLite. Selectors are used everywhere, so each subscription only re-renders for the slices it reads.
 
-| Store | File | Owns |
-|---|---|---|
-| `useMainChat` / `useSideChat` | `src/store/chatStore.js` | Per-pane messages, streaming state, tool call records |
-| `useSessionStore` | `src/store/sessionStore.js` | Session list, side-chat metadata, chat data write-through |
-| `useUiStore` | `src/store/uiStore.js` | Transient view state: side-chat open/closed, Ollama connectivity, settings page open |
-| `useSettingsStore` | `src/store/settingsStore.js` | Persisted settings (theme, default model, web search default) write-through to SQLite |
+| Store | File | Owns | Re-render triggers (only the selected slice matters) |
+|---|---|---|---|
+| `useMainChat` | `src/store/chatStore.js` | Per-pane messages, streaming state, tool call records, model, `chatNonce` | `messages`, `isStreaming`, `model`, `error`. `abortController` does **not** re-render. |
+| `getSideChatStore(id)` | `src/store/chatStore.js` | Same factory as `useMainChat`; one store per side-chat tab. Stored in a `Map` keyed by tab id — never recreated on tab switch. | Same as above. |
+| `useSessionStore` | `src/store/sessionStore.js` | Session list (incl. side-chat metadata), chat data write-through to SQLite | `chatSessions`, `activeChatId` |
+| `useUiStore` | `src/store/uiStore.js` | Transient view state: side-chat open/closed, Ollama connectivity, settings page open, side-chat prefill text | All fields; this is a small UI-only store |
+| `useSettingsStore` | `src/store/settingsStore.js` | Persisted settings (theme, default model, web search default) write-through to SQLite | `hydrated` (one-shot), individual settings fields |
 
-`chatStore.js` exports a factory `createChatStore(id)` — both panes use identical logic from the same factory. The two singletons are `useMainChat` and `useSideChat`. New chats start with an empty `model`; each store subscribes to `useSettingsStore` and lazily applies `defaultModel` once settings have hydrated, so module-init doesn't depend on the DB being open.
+`chatStore.js` exports a factory `createChatStore(id)` — both panes use identical logic from the same factory. `useMainChat` is a singleton; side chats get one store per tab via `getSideChatStore(id)`. New chats start with an empty `model`; each store subscribes to `useSettingsStore` and lazily applies `defaultModel` once settings have hydrated, so module-init doesn't depend on the DB being open.
 
 `useSessionStore` writes chat data to SQLite (via `db` from `src/lib/db.js`); `useSettingsStore` writes the `settings` key/value table. All DB mutations happen inside store actions, not in components.
 
@@ -82,3 +100,23 @@ Web search has a global default in `useSettingsStore`; the per-pane web toggle i
 `src/theme.js` has the full color palette for `dark` and `light` as a JS object (`getTheme(name)`) and sets a `data-theme` attribute on `<html>`. `src/index.css` mirrors the same tokens as CSS custom properties (`var(--bg)`, etc.) for use in stylesheets. Components use whichever is convenient — the values are kept in sync manually.
 
 Theme persistence lives in the `settings` SQLite table via `useSettingsStore` (no `localStorage`). To prevent a flash of the wrong theme on launch, an inline `<script>` at the top of `<head>` in `index.html` reads a legacy `localStorage['luma:theme']` value (if any), falls back to `prefers-color-scheme`, and sets `data-theme` on `<html>` synchronously before React mounts. `useSettingsStore.hydrate()` then re-applies the authoritative SQLite value (and migrates a legacy `localStorage` entry into SQLite on first run).
+
+## Common tasks
+
+Concrete entry points for changes that come up often. Skim this list before grepping.
+
+- **Focus the input box** — `textareaRef` in `InputArea.jsx`. Existing trigger: the `prefill` effect focuses + sets cursor. For a generic "focus on new chat" use case, add a new `autoFocus` prop (or bump a `chatNonce`-derived value passed in as a key on `InputArea`).
+- **Auto-scroll on new content** — `messages.length` watcher in `ChatPane.jsx`. Uses a `prevMessagesCountRef` to distinguish new messages from in-place streaming token updates. `requestAnimationFrame` is required because the new message isn't mounted when the effect fires.
+- **Per-pane toggle (web search, thinking)** — local `useState` in `ChatPane`, seeded once from `useSettingsStore` after hydration, with a `*TouchedRef` so the user's manual override survives re-derivation. Don't re-derive on every render.
+- **Reset a chat's per-pane state** — bump `chatNonce` (e.g. `clearMessages` and `loadMessages` already do this). Effects that derive per-chat defaults should watch `chatNonce`, not `model`.
+- **Add a new Tauri command** — add the function in `tauri/src/commands.rs`, register it in `tauri::generate_handler![]` in `main.rs`, and mirror a wrapper in `src/lib/db.js` or `src/lib/tools.js`. For a long-running stream, use the `ollama_chat_stream` pattern (Rust emits `ollama://chunk` / `ollama://done` / `ollama://error` events; frontend subscribes with `listen()` keyed by a `request_id`).
+- **Add a new persisted setting** — add the key to `SETTING_KEYS` in `src/store/settingsStore.js`, read it via the store (never `localStorage`), and the write-through to SQLite is automatic. For schema-level changes, add an `ALTER TABLE … ADD COLUMN` migration in `db.rs` and wrap it in `.ok()`.
+- **Add a new tool the model can call** — define the Ollama schema in `TOOLS` in `src/lib/tools.js` and a case in `executeTool`. Web tools must run as Tauri commands (CORS). Local tools run in the renderer.
+- **Add a test** — Vitest with jsdom, Tauri APIs mocked in `src/test/setup.ts`. Files match `src/**/*.test.{js,jsx,ts,tsx}`. Prefer `npm run test:run` over `npm test` to avoid the watch loop.
+
+## Things to know before you change state stores
+
+- **Don't read `useSettingsStore` at module init.** It returns in-memory defaults before SQLite hydration completes. Subscribe to `hydrated` and apply values in an effect, or read `useSettingsStore.getState()` inside an action (e.g. `clearMessages` does this for `defaultModel`).
+- **Store actions, not components, write to SQLite.** The pattern is: store action mutates state → calls `db.saveX()` → store is the single source of truth.
+- **Tab switching in the side panel never calls `loadMessages`.** Each tab owns its store permanently (via the `_sideChatStores` Map in `chatStore.js`). Switching tabs is a pure UI concern handled by `activeSideChatId`.
+- **`activeChatId` is for navigation, not activity.** Bump `updated_at` only on real user actions via `bumpSessionActivity(id)`.
