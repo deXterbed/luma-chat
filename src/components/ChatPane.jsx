@@ -33,26 +33,31 @@ export default function ChatPane({
   const model = store((s) => s.model);
   const setModel = store((s) => s.setModel);
   const focusNonce = store((s) => s.focusNonce);
-  // Seed the per-pane web search toggle from the user's default. The
-  // setting might not be hydrated yet on first render, so we also watch
-  // `hydrated` and apply the default once — but only if the user hasn't
-  // already toggled the button (we don't clobber their override).
+  const chatNonce = store((s) => s.chatNonce);
+
+  // Seed the per-pane web search toggle from the user's default. Re-derives on
+  // each new chat or loaded session (chatNonce bump) so the toggle doesn't
+  // carry over from the previous chat; within a chat the user's manual toggle
+  // wins. Gated on `hydrated` since the default comes from settings.
   const webSearchDefault = useSettingsStore((s) => s.webSearchDefault);
   const settingsHydrated = useSettingsStore((s) => s.hydrated);
-  const [webSearchEnabled, setWebSearchEnabled] = useState(webSearchDefault);
-  const webSearchAppliedRef = useRef(webSearchDefault);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  const webSearchTouchedRef = useRef(false);
+  const prevWebNonceRef = useRef(chatNonce);
   useEffect(() => {
-    if (webSearchAppliedRef.current) return;
+    if (chatNonce !== prevWebNonceRef.current) {
+      prevWebNonceRef.current = chatNonce;
+      webSearchTouchedRef.current = false;
+    }
     if (!settingsHydrated) return;
-    webSearchAppliedRef.current = true;
+    if (webSearchTouchedRef.current) return;
     setWebSearchEnabled(useSettingsStore.getState().webSearchDefault);
-  }, [settingsHydrated]);
+  }, [settingsHydrated, chatNonce]);
 
   // Thinking defaults on for cloud models (which reason quickly) and off for
   // local models (where the extra reasoning pass is slow). Each new chat or
   // loaded session (chatNonce bump) re-derives from the model and drops the
   // manual override; within a chat the user's toggle wins.
-  const chatNonce = store((s) => s.chatNonce);
   const [thinkingEnabled, setThinkingEnabled] = useState(false);
   const thinkingTouchedRef = useRef(false);
   const prevNonceRef = useRef(chatNonce);
@@ -167,6 +172,7 @@ export default function ChatPane({
                   return;
                 }
               }
+              webSearchTouchedRef.current = true;
               setWebSearchEnabled((v) => !v);
             }}
             title={webSearchEnabled ? "Web search on" : "Web search off"}
