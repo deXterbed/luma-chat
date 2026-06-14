@@ -1,5 +1,6 @@
 use scraper::{Html, Selector};
 use serde::Serialize;
+use std::time::Duration;
 
 use super::html::USER_AGENT;
 
@@ -19,7 +20,10 @@ pub async fn search_web(query: &str, max_results: usize) -> String {
 
     let limit = max_results.clamp(1, 10);
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()
+        .unwrap();
     let params = [("q", query), ("kl", "us-en")];
 
     let res = match client
@@ -32,7 +36,12 @@ pub async fn search_web(query: &str, max_results: usize) -> String {
         .await
     {
         Ok(r) => r,
-        Err(e) => return format!("Error: search failed ({})", e),
+        Err(e) => {
+            if e.is_timeout() {
+                return "Error: search timed out after 15s".to_string();
+            }
+            return format!("Error: search failed ({})", e);
+        }
     };
 
     if !res.status().is_success() {
