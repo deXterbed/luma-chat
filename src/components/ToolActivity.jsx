@@ -13,6 +13,23 @@ function summarizeArgs(name, args) {
   return args?.[meta.argKey] ?? "";
 }
 
+function ToolArg({ name, args }) {
+  const text = summarizeArgs(name, args);
+  if (name === "web_fetch" && text.startsWith("http")) {
+    return (
+      <a
+        href={text}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={styles.toolArg}
+      >
+        {text}
+      </a>
+    );
+  }
+  return <span className={styles.toolArg}>{text}</span>;
+}
+
 function extractHttpStatus(tc) {
   if (tc.name !== "web_fetch") return null;
   if (tc.resultPreview) {
@@ -44,7 +61,8 @@ export default function ToolActivity({ toolCalls, isStreaming }) {
           className={styles.toggleBtn}
         >
           🔧 Used {toolCalls.length} tool{toolCalls.length === 1 ? "" : "s"}
-          {errorCount > 0 && ` (${errorCount} error${errorCount === 1 ? "" : "s"})`}
+          {errorCount > 0 &&
+            ` (${errorCount} error${errorCount === 1 ? "" : "s"})`}
           <span style={{ marginLeft: "2px" }}>{expanded ? "▴" : "▾"}</span>
         </button>
         {expanded && (
@@ -59,9 +77,7 @@ export default function ToolActivity({ toolCalls, isStreaming }) {
                   <span className={styles.toolLabel}>
                     {meta.icon} {meta.label}:
                   </span>
-                  <span className={styles.toolArg}>
-                    {summarizeArgs(tc.name, tc.args)}
-                  </span>
+                  <ToolArg name={tc.name} args={tc.args} />
                   {extractHttpStatus(tc) && (
                     <span className={styles.httpStatus}>
                       [{extractHttpStatus(tc)}]
@@ -80,17 +96,18 @@ export default function ToolActivity({ toolCalls, isStreaming }) {
     <div className={styles.section}>
       {toolCalls.map((tc) => {
         const meta = TOOL_META[tc.name] || { icon: "🔧", label: tc.name };
-        const statusIcon = tc.status === "pending" ? "⏳" : tc.status === "error" ? "❌" : "✓";
+        const statusIcon =
+          tc.status === "pending" ? "⏳" : tc.status === "error" ? "❌" : "✓";
         return (
           <div
             key={tc.id}
             className={`${styles.toolRow} ${tc.status === "pending" ? styles.toolRowPending : ""}`}
           >
             <span className={styles.statusIcon}>{statusIcon}</span>
-            <span>{meta.icon} {meta.label}:</span>
-            <span className={styles.toolArg}>
-              {summarizeArgs(tc.name, tc.args)}
+            <span>
+              {meta.icon} {meta.label}:
             </span>
+            <ToolArg name={tc.name} args={tc.args} />
             {extractHttpStatus(tc) && (
               <span className={styles.httpStatus}>
                 [{extractHttpStatus(tc)}]
