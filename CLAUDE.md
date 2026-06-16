@@ -114,6 +114,7 @@ Concrete entry points for changes that come up often. Skim this list before grep
 - **Add a new persisted setting** — add the key to `SETTING_KEYS` in `src/store/settingsStore.js`, read it via the store (never `localStorage`), and the write-through to SQLite is automatic. For schema-level changes, add an `ALTER TABLE … ADD COLUMN` migration in `db.rs` and wrap it in `.ok()`.
 - **Add a new tool the model can call** — define the Ollama schema in `TOOLS` in `src/lib/tools.js` and a case in `executeTool`. Web tools must run as Tauri commands (CORS). Local tools run in the renderer.
 - **Add a test** — Vitest with jsdom, Tauri APIs mocked in `src/test/setup.ts`. Files match `src/**/*.test.{js,jsx,ts,tsx}`. Prefer `npm run test:run` over `npm test` to avoid the watch loop.
+- **Delete a side chat** — trash button in `ChatPane`'s header (next to the `{label}` caption, gated on `isSideChat`), using the same two-step confirm pattern as the Sidebar's `SessionRow`. Calls `removeSideChat(sessionId, sideChatId)` in `sessionStore`. That action must also call `deleteSideChatStore(id)` to evict the tab's store from the `_sideChatStores` Map (same cleanup `removeChatSession` does for its side chats) — otherwise a stale store lingers. Deleting the last side chat leaves the panel empty (no auto-recreate; that only fires on session switch).
 
 ## Things to know before you change state stores
 

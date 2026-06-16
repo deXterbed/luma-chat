@@ -173,6 +173,7 @@ export const useSessionStore = create((set, get) => ({
 
   removeSideChat: (sessionId, sideChatId) => {
     db.deleteSideChat(sideChatId);
+    deleteSideChatStore(sideChatId);
     set((s) => ({
       chatSessions: s.chatSessions.map((sess) => {
         if (sess.id !== sessionId) return sess;

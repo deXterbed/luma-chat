@@ -346,6 +346,7 @@ describe("sessionStore", () => {
       expect(session.sideChats[0].id).toBe("sc2");
       expect(session.activeSideChatId).toBe("sc2");
       expect(db.deleteSideChat).toHaveBeenCalledWith("sc1");
+      expect(deleteSideChatStore).toHaveBeenCalledWith("sc1");
     });
 
     it("clears activeSideChatId when removing last side chat", () => {

@@ -6,8 +6,7 @@ import { useStreamingChat } from "../hooks/useStreamingChat";
 import { useUiStore } from "../store/uiStore";
 import { useSettingsStore } from "../store/settingsStore";
 import { useSessionStore } from "../store/sessionStore";
-import { getSideChatStore, deleteSideChatStore } from "../store/chatStore";
-import { Trash2 } from "lucide-react";
+import { Trash2, Check, X } from "lucide-react";
 import styles from "./ChatPane.module.css";
 
 // Ollama cloud models carry a `cloud` tag suffix (e.g. `minimax-m3:cloud`,
@@ -81,6 +80,15 @@ export default function ChatPane({
     });
 
   const { sideChatPrefill, clearSideChatPrefill } = useUiStore();
+  const removeSideChat = useSessionStore((s) => s.removeSideChat);
+
+  // Two-step delete confirm for side chats (mirrors the Sidebar row pattern).
+  const [deleteConfirming, setDeleteConfirming] = useState(false);
+  useEffect(() => {
+    if (!deleteConfirming) return;
+    const id = setTimeout(() => setDeleteConfirming(false), 3000);
+    return () => clearTimeout(id);
+  }, [deleteConfirming]);
 
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(false);
   const scrollContainerRef = useRef(null);
@@ -147,11 +155,44 @@ export default function ChatPane({
       <div
         className={`${styles.header} ${compact ? styles.headerCompact : ""}`}
       >
-        <span
-          className={`${styles.headerLabel} ${compact ? styles.headerLabelCompact : ""}`}
-        >
-          {label}
-        </span>
+        <div className={styles.headerTitle}>
+          <span
+            className={`${styles.headerLabel} ${compact ? styles.headerLabelCompact : ""}`}
+          >
+            {label}
+          </span>
+          {isSideChat &&
+            sideChatId &&
+            (deleteConfirming ? (
+              <>
+                <button
+                  onClick={() => removeSideChat(sessionId, sideChatId)}
+                  aria-label="Confirm delete side chat"
+                  title="Confirm delete"
+                  className={`${styles.deleteBtn} ${styles.deleteBtnDanger}`}
+                >
+                  <Check size={13} />
+                </button>
+                <button
+                  onClick={() => setDeleteConfirming(false)}
+                  aria-label="Cancel delete"
+                  title="Cancel"
+                  className={styles.deleteBtn}
+                >
+                  <X size={13} />
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setDeleteConfirming(true)}
+                aria-label="Delete side chat"
+                title="Delete side chat"
+                className={styles.deleteBtn}
+              >
+                <Trash2 size={13} />
+              </button>
+            ))}
+        </div>
         <div className={styles.headerActions}>
           <button
             onClick={() => {
