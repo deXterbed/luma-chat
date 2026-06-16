@@ -7,6 +7,8 @@ import "katex/dist/katex.min.css";
 import { MessageSquarePlus, X, CornerDownLeft } from "lucide-react";
 import { useUiStore } from "../store/uiStore";
 import { useSettingsStore } from "../store/settingsStore";
+import { useSessionStore } from "../store/sessionStore";
+import { useMainChat } from "../store/chatStore";
 import { getTheme } from "../theme";
 import ToolActivity from "./ToolActivity";
 import styles from "./MessageBubble.module.css";
@@ -39,7 +41,8 @@ const MessageBubble = memo(function MessageBubble({
   const cancelEditRef = useRef(null);
 
   useLayoutEffect(() => {
-    if (bubbleRef.current) bubbleWidthRef.current = bubbleRef.current.offsetWidth;
+    if (bubbleRef.current)
+      bubbleWidthRef.current = bubbleRef.current.offsetWidth;
   }, []);
 
   useEffect(() => {
@@ -56,7 +59,9 @@ const MessageBubble = memo(function MessageBubble({
     return () => ro.disconnect();
   }, []);
 
-  useEffect(() => { editingRef.current = editing; }, [editing]);
+  useEffect(() => {
+    editingRef.current = editing;
+  }, [editing]);
 
   useEffect(() => {
     if (!editing || !editRef.current) return;
@@ -134,7 +139,11 @@ const MessageBubble = memo(function MessageBubble({
       if (menuRef.current && !menuRef.current.contains(e.target)) {
         hideMenu();
       }
-      if (editingRef.current && wrapperRef.current && !wrapperRef.current.contains(e.target)) {
+      if (
+        editingRef.current &&
+        wrapperRef.current &&
+        !wrapperRef.current.contains(e.target)
+      ) {
         cancelEditRef.current();
       }
     };
@@ -149,6 +158,14 @@ const MessageBubble = memo(function MessageBubble({
         .map((l) => `> ${l}`)
         .join("\n") + "\n\n";
     hideMenu();
+    // Always start a fresh side chat for the new question so the quoted text
+    // doesn't land in the user's existing tab. The prefill flows into the
+    // newly-active tab via ChatPane's existing sideChatPrefill wiring.
+    const { activeChatId } = useSessionStore.getState();
+    if (activeChatId) {
+      const model = useMainChat.getState().model || undefined;
+      useSessionStore.getState().addSideChat(activeChatId, model);
+    }
     setSideChatOpen(true);
     setSideChatPrefill(quoted);
   };
@@ -170,12 +187,12 @@ const MessageBubble = memo(function MessageBubble({
         </button>
       </div>
 
-      <div className={styles.roleLabel}>
-        {isUser ? "you" : "assistant"}
-      </div>
+      <div className={styles.roleLabel}>{isUser ? "you" : "assistant"}</div>
 
       {message.images && message.images.length > 0 && (
-        <div className={`${styles.imageRow} ${isUser ? styles.imageRowUser : styles.imageRowAssistant}`}>
+        <div
+          className={`${styles.imageRow} ${isUser ? styles.imageRowUser : styles.imageRowAssistant}`}
+        >
           {message.images.map((img, i) => (
             <img
               key={i}
@@ -204,9 +221,7 @@ const MessageBubble = memo(function MessageBubble({
             className={styles.editTextarea}
           />
         ) : isUser ? (
-          <span className={styles.userText}>
-            {message.content}
-          </span>
+          <span className={styles.userText}>{message.content}</span>
         ) : (
           <div className={styles.markdownBody}>
             <ReactMarkdown
