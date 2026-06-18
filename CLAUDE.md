@@ -99,7 +99,7 @@ Web search has a global default in `useSettingsStore`; the per-pane web toggle i
 
 ### Theming
 
-`src/theme.js` has the full color palette for `dark` and `light` as a JS object (`getTheme(name)`) and sets a `data-theme` attribute on `<html>`. `src/index.css` mirrors the same tokens as CSS custom properties (`var(--bg)`, etc.) for use in stylesheets. Components use whichever is convenient — the values are kept in sync manually.
+`src/theme.js` has the full color palette for `dark` and `light` as a JS object (`getTheme(name)`) and sets a `data-theme` attribute on `<html>`. `src/index.css` mirrors the same tokens as CSS custom properties (`var(--bg)`, etc.) for use in stylesheets. Components use CSS Modules (`*.module.css`) for scoped styles — no Tailwind CSS.
 
 Theme persistence lives in the `settings` SQLite table via `useSettingsStore` (no `localStorage`). To prevent a flash of the wrong theme on launch, an inline `<script>` at the top of `<head>` in `index.html` reads a legacy `localStorage['luma:theme']` value (if any), falls back to `prefers-color-scheme`, and sets `data-theme` on `<html>` synchronously before React mounts. `useSettingsStore.hydrate()` then re-applies the authoritative SQLite value (and migrates a legacy `localStorage` entry into SQLite on first run).
 
