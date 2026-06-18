@@ -29,6 +29,7 @@ npm run test:all   # Both test suites sequentially
 
 - **Rust backend** (`tauri/`): owns the SQLite DB (via `rusqlite`), window controls, and all network I/O (web search/fetch via `reqwest` + `scraper` + `readability`). Exposed to the frontend through Tauri commands.
 - **Frontend** (`src/`): React UI. Reaches the Rust backend through `@tauri-apps/api/core` → `invoke()` calls, wrapped in thin client modules (`src/lib/db.js`, `src/lib/tools.js`).
+- **All Ollama API calls go through Rust Tauri commands** — the `ollama` npm package is unused and should not be added back. The frontend's `src/lib/ollama.js` proxies everything through `invoke()` to avoid CORS issues in production WebView2 builds.
 
 ### Rust backend structure
 
