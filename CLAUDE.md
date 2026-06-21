@@ -83,6 +83,8 @@ Independent stores; none are persisted to `localStorage` — persistence goes to
 
 `useStreamingChat` hook (`src/hooks/useStreamingChat.js`) wires the store actions (`addToolCall`, `completeToolCall`, `finalizeMessage`) to the `streamChat` callbacks and handles session creation on first message.
 
+When `think: true` is sent (the per-pane thinking toggle), Ollama streams the model's reasoning in a **separate** `message.thinking` field, distinct from the final-answer `message.content`. `streamChat` accumulates it across all rounds (it is *not* reset per round, unlike `content`) and fires `onThinking(chunk, full)`; the hook flushes it (rAF-throttled like tokens) into `message.thinking` via `updateThinking`, and `MessageBubble` renders it in a collapsible "Thinking…/Thoughts" block above the answer. The reasoning is **transient** — not saved to SQLite, so it disappears on reload. Persisting it would need a `messages.thinking` column migration in `db.rs` plus save/load plumbing. The Rust `ollama_chat_stream` needs no change: it forwards the full JSON line, so `thinking` already reaches the renderer; its accumulated `full` buffer (for `onDone`) intentionally only collects `content`.
+
 ### Tool execution
 
 `src/lib/tools.js` exports `TOOLS` (Ollama-format definitions) and `executeTool(name, args)`. Local tools (e.g. `get_current_time`) run in the renderer. Web tools (`web_search`, `web_fetch`) invoke Tauri commands via `@tauri-apps/api/core` to avoid CORS; the implementations live in `tauri/src/tools/`.
@@ -100,6 +102,10 @@ Web search has a global default in `useSettingsStore`; the per-pane web toggle i
 ### Theming
 
 `src/theme.js` has the full color palette for `dark` and `light` as a JS object (`getTheme(name)`) and sets a `data-theme` attribute on `<html>`. `src/index.css` mirrors the same tokens as CSS custom properties (`var(--bg)`, etc.) for use in stylesheets. Components use CSS Modules (`*.module.css`) for scoped styles — no Tailwind CSS.
+
+`src/index.css` has a global `*{margin:0;padding:0}` reset. This strips list indentation, so `ReactMarkdown` content in `MessageBubble.jsx` must restore padding **per tag** via its `components` overrides — `ul`, `ol`, and `li` each need their own style. A missing `ol` override is what let ordered-list numbers render in the (zero-width) padding area and overflow left, outside the chat bubble. When adding a new markdown element, give it explicit spacing.
+
+**All markdown element styling lives in the `components` prop of `<ReactMarkdown>` in `MessageBubble.jsx` (inline styles), not in CSS.** The `.markdown-body …` block in `index.css` (headings, `strong`, `a`, `blockquote`, `table`) is **dead**: the component applies the CSS-module class `styles.markdownBody` (a hashed name), so the literal global `.markdown-body` selector never matches. Elements without a `components` override (previously the headings) fall back to browser defaults — which is why h1/h2/h3 were oversized until `h1`/`h2`/`h3` overrides were added. To style a markdown tag, add/edit its entry in the `components` prop; don't edit the dead `.markdown-body` rules.
 
 Theme persistence lives in the `settings` SQLite table via `useSettingsStore` (no `localStorage`). To prevent a flash of the wrong theme on launch, an inline `<script>` at the top of `<head>` in `index.html` reads a legacy `localStorage['luma:theme']` value (if any), falls back to `prefers-color-scheme`, and sets `data-theme` on `<html>` synchronously before React mounts. `useSettingsStore.hydrate()` then re-applies the authoritative SQLite value (and migrates a legacy `localStorage` entry into SQLite on first run).
 
@@ -127,3 +133,4 @@ Concrete entry points for changes that come up often. Skim this list before grep
 ## Editor tooling
 
 - **Ignore Prettier-only churn in diffs.** The editor's file-write tool runs Prettier on the whole file when saving, which can reformat unrelated lines (line breaks, JSX attribute wrapping, etc.). Don't try to revert those hunks — they're a no-op in practice since the project's `npm run dev` / `npm run build` pipeline would format the same way. Focus on the semantic change and the lines that trace directly to the user's request.
+- **Verify UI/CSS tweaks with a throwaway HTML repro, not the repo.** When confirming a visual change (heading sizes, list indent, etc.), build a minimal standalone HTML that mirrors the global reset + bubble + `markdownBody` and screenshot it via the Playwright MCP. Write that file and its screenshot to `/tmp`, **not** the repo root — the Playwright screenshot tool defaults its output dir to the repo root, and the commit hook auto-stages untracked files, so stray `*.png` will silently get swept into your commit. Always `git show --stat HEAD` after committing to catch this.

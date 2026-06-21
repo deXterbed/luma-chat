@@ -204,3 +204,44 @@
 .markdownBody {
     font-family: 'JetBrains Mono', monospace;
 }
+
+/* Reasoning / thinking block */
+.thinking {
+    margin-bottom: 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+}
+
+.thinkingHeader {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 6px 8px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: left;
+}
+
+.thinkingChevron {
+    transition: transform 0.15s ease;
+    flex-shrink: 0;
+}
+
+.thinkingChevronOpen {
+    transform: rotate(90deg);
+}
+
+.thinkingBody {
+    padding: 0 10px 8px 10px;
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--text-muted);
+    white-space: pre-wrap;
+    word-break: break-word;
+}

@@ -80,6 +80,8 @@ export function isVisionModel(modelName) {
 //                             "let me search for..." narration in tool-
 //                             decision rounds is useful — it shows the
 //                             research process in action.
+//   onThinking(chunk, full) — called for every reasoning chunk (think: true);
+//                             `full` is the reasoning accumulated across rounds.
 //   onToolCall(name, args)  — called when the model invokes a tool
 //                             (use this to show "🔍 Searching for..." UI)
 //   onToolResult(name, res) — called after a tool returns
@@ -117,6 +119,7 @@ export async function streamChat({
   tools,
   executeTool,
   onToken,
+  onThinking,
   onToolCall,
   onToolResult,
   onDone,
@@ -138,6 +141,9 @@ export async function streamChat({
   const state = {
     requestId: null,
     content: "",
+    // Accumulated across ALL rounds (unlike `content`, which resets each
+    // round) so the displayed reasoning spans the whole tool-calling loop.
+    thinking: "",
     toolCalls: [],
     finalContent: "",
     error: null,
@@ -156,6 +162,14 @@ export async function streamChat({
       if (typeof text === "string" && text.length > 0) {
         state.content += text;
         if (!signal?.aborted) onToken?.(text, state.content);
+      }
+
+      // When `think: true`, Ollama streams the model's reasoning in a separate
+      // `thinking` field, distinct from the final-answer `content`.
+      const thinking = line?.message?.thinking;
+      if (typeof thinking === "string" && thinking.length > 0) {
+        state.thinking += thinking;
+        if (!signal?.aborted) onThinking?.(thinking, state.thinking);
       }
 
       // Only capture a non-empty tool_calls array. Some models/Ollama emit a

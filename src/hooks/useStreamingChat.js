@@ -70,6 +70,16 @@ export function useStreamingChat({
         }
       };
 
+      const pendingThinking = { current: null, rafId: null };
+      const flushThinking = () => {
+        pendingThinking.rafId = null;
+        if (ctrl.signal.aborted) return;
+        if (pendingThinking.current !== null) {
+          store.getState().updateThinking(streamId, pendingThinking.current);
+          pendingThinking.current = null;
+        }
+      };
+
       try {
         const apiMessages = store
           .getState()
@@ -124,6 +134,12 @@ export function useStreamingChat({
               pendingContent.rafId = requestAnimationFrame(flushToken);
             }
           },
+          onThinking: (_, full) => {
+            pendingThinking.current = full;
+            if (pendingThinking.rafId === null) {
+              pendingThinking.rafId = requestAnimationFrame(flushThinking);
+            }
+          },
           onToolCall: (name, args) => {
             currentCallId = store.getState().addToolCall(streamId, name, args);
           },
@@ -143,6 +159,10 @@ export function useStreamingChat({
               cancelAnimationFrame(pendingContent.rafId);
               pendingContent.rafId = null;
             }
+            if (pendingThinking.rafId !== null) {
+              cancelAnimationFrame(pendingThinking.rafId);
+              pendingThinking.rafId = null;
+            }
             store.getState().finalizeMessage(streamId, full);
             saveOnReply(streamId, full, model, currentSessionId);
           },
@@ -152,6 +172,10 @@ export function useStreamingChat({
         if (pendingContent.rafId !== null) {
           cancelAnimationFrame(pendingContent.rafId);
           pendingContent.rafId = null;
+        }
+        if (pendingThinking.rafId !== null) {
+          cancelAnimationFrame(pendingThinking.rafId);
+          pendingThinking.rafId = null;
         }
         if (err.name === "AbortError" || err.message === "aborted") {
           const partial =

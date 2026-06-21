@@ -48,6 +48,7 @@ export const createChatStore = (id) => {
         id,
         role: "assistant",
         content: "",
+        thinking: "",
         isStreaming: true,
         toolCalls: [],
       };
@@ -58,6 +59,13 @@ export const createChatStore = (id) => {
     updateStreamingMessage: (id, content) => {
       set((s) => ({
         messages: s.messages.map((m) => (m.id === id ? { ...m, content } : m)),
+      }));
+    },
+
+    // Live reasoning text (transient; not persisted to SQLite).
+    updateThinking: (id, thinking) => {
+      set((s) => ({
+        messages: s.messages.map((m) => (m.id === id ? { ...m, thinking } : m)),
       }));
     },
 

@@ -4,7 +4,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
-import { MessageSquarePlus, X, CornerDownLeft } from "lucide-react";
+import { MessageSquarePlus, X, CornerDownLeft, Brain, ChevronRight } from "lucide-react";
 import { useUiStore } from "../store/uiStore";
 import { useSettingsStore } from "../store/settingsStore";
 import { useSessionStore } from "../store/sessionStore";
@@ -28,6 +28,7 @@ const MessageBubble = memo(function MessageBubble({
   const theme = useSettingsStore((s) => s.theme);
   const t = getTheme(theme);
 
+  const [thinkingOpen, setThinkingOpen] = useState(isStreaming);
   const [editing, setEditing] = useState(false);
   const [editIsEmpty, setEditIsEmpty] = useState(false);
   const [draft, setDraft] = useState(message.content);
@@ -224,6 +225,25 @@ const MessageBubble = memo(function MessageBubble({
           <span className={styles.userText}>{message.content}</span>
         ) : (
           <div className={styles.markdownBody}>
+            {message.thinking && (
+              <div className={styles.thinking}>
+                <button
+                  type="button"
+                  className={styles.thinkingHeader}
+                  onClick={() => setThinkingOpen((v) => !v)}
+                >
+                  <ChevronRight
+                    size={12}
+                    className={`${styles.thinkingChevron} ${thinkingOpen ? styles.thinkingChevronOpen : ""}`}
+                  />
+                  <Brain size={12} />
+                  {isStreaming && !message.content ? "Thinking…" : "Thoughts"}
+                </button>
+                {thinkingOpen && (
+                  <div className={styles.thinkingBody}>{message.thinking}</div>
+                )}
+              </div>
+            )}
             <ReactMarkdown
               remarkPlugins={[remarkGfm, remarkMath]}
               rehypePlugins={[rehypeKatex]}
@@ -273,6 +293,27 @@ const MessageBubble = memo(function MessageBubble({
                     </code>
                   );
                 },
+                h1({ children }) {
+                  return (
+                    <h1 style={{ fontSize: "18px", margin: "12px 0 6px" }}>
+                      {children}
+                    </h1>
+                  );
+                },
+                h2({ children }) {
+                  return (
+                    <h2 style={{ fontSize: "15px", margin: "12px 0 6px" }}>
+                      {children}
+                    </h2>
+                  );
+                },
+                h3({ children }) {
+                  return (
+                    <h3 style={{ fontSize: "14px", margin: "10px 0 4px" }}>
+                      {children}
+                    </h3>
+                  );
+                },
                 p({ children }) {
                   return (
                     <p style={{ margin: "0 0 8px", lineHeight: 1.65 }}>
@@ -285,6 +326,13 @@ const MessageBubble = memo(function MessageBubble({
                     <ul style={{ paddingLeft: "16px", margin: "6px 0" }}>
                       {children}
                     </ul>
+                  );
+                },
+                ol({ children }) {
+                  return (
+                    <ol style={{ paddingLeft: "28px", margin: "6px 0" }}>
+                      {children}
+                    </ol>
                   );
                 },
                 li({ children }) {
