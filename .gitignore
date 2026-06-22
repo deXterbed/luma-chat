@@ -35,8 +35,8 @@ Thumbs.db
 npm-debug.log*
 
 # Tauri icons (generate proper ones with: cargo tauri icon path/to/source.png)
-tauri/icons/*.png
-tauri/icons/*.icns
-tauri/icons/*.ico
-tauri/icons/android/
-tauri/icons/ios/
+#tauri/icons/*.png
+#tauri/icons/*.icns
+#tauri/icons/*.ico
+#tauri/icons/android/
+#tauri/icons/ios/
