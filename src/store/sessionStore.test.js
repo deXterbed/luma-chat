@@ -349,6 +349,48 @@ describe("sessionStore", () => {
       expect(deleteSideChatStore).toHaveBeenCalledWith("sc1");
     });
 
+    it("falls back to the parent side chat when deleting an active branch", () => {
+      store.setState({
+        chatSessions: [
+          {
+            id: "sess-1",
+            title: "Test",
+            model: "m",
+            sideChats: [
+              { id: "sc1" },
+              { id: "sc2", parentSideChatId: "sc1" },
+              { id: "sc3" },
+            ],
+            activeSideChatId: "sc2",
+          },
+        ],
+      });
+
+      store.getState().removeSideChat("sess-1", "sc2");
+
+      const session = store.getState().chatSessions[0];
+      expect(session.activeSideChatId).toBe("sc1");
+    });
+
+    it("falls back to the most recently created tab when there is no parent", () => {
+      store.setState({
+        chatSessions: [
+          {
+            id: "sess-1",
+            title: "Test",
+            model: "m",
+            sideChats: [{ id: "sc1" }, { id: "sc2" }, { id: "sc3" }],
+            activeSideChatId: "sc1",
+          },
+        ],
+      });
+
+      store.getState().removeSideChat("sess-1", "sc1");
+
+      const session = store.getState().chatSessions[0];
+      expect(session.activeSideChatId).toBe("sc3");
+    });
+
     it("clears activeSideChatId when removing last side chat", () => {
       store.setState({
         chatSessions: [

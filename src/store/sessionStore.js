@@ -185,14 +185,24 @@ export const useSessionStore = create((set, get) => ({
     set((s) => ({
       chatSessions: s.chatSessions.map((sess) => {
         if (sess.id !== sessionId) return sess;
+        const deleted = sess.sideChats.find((sc) => sc.id === sideChatId);
         const remaining = sess.sideChats.filter((sc) => sc.id !== sideChatId);
         if (remaining.length === 0)
           return { ...sess, sideChats: [], activeSideChatId: null };
         const wasActive = sess.activeSideChatId === sideChatId;
+        // Prefer the deleted tab's parent side chat (if it still exists);
+        // otherwise fall back to the most recently created remaining tab —
+        // not always the first one, which could be an unrelated old branch.
+        const parentId = deleted?.parentSideChatId;
+        const parentStillExists =
+          parentId && remaining.some((sc) => sc.id === parentId);
+        const fallbackId = parentStillExists
+          ? parentId
+          : remaining[remaining.length - 1].id;
         return {
           ...sess,
           sideChats: remaining,
-          activeSideChatId: wasActive ? remaining[0].id : sess.activeSideChatId,
+          activeSideChatId: wasActive ? fallbackId : sess.activeSideChatId,
         };
       }),
     }));
