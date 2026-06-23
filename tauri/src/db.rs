@@ -89,6 +89,56 @@ fn dirs_next() -> String {
     }
 }
 
+// Ordered schema migrations, gated by SQLite's built-in `PRAGMA user_version`
+// (a plain integer stored in the DB file — no extra table needed). Each
+// closure is the Nth migration (1-indexed); `run_migrations` only invokes the
+// ones above the DB's current version, then advances the version, so a given
+// migration's ALTER/UPDATE statements are attempted at most once per DB
+// rather than re-attempted (and silently failing) on every app launch.
+//
+// Each step still wraps its SQL in `.ok()`: a DB upgraded from before this
+// tracking existed may already have these columns from the old `.ok()`-swallowed
+// approach, in which case `user_version` starts at 0 but the column exists —
+// the ALTER fails harmlessly that one time, then the version advances and the
+// statement is never attempted again.
+const MIGRATIONS: &[fn(&Connection)] = &[
+    |conn| {
+        for table in &["messages", "side_chat_messages"] {
+            conn.execute_batch(&format!(
+                "ALTER TABLE {} ADD COLUMN tool_calls TEXT NOT NULL DEFAULT '[]'",
+                table
+            ))
+            .ok();
+        }
+    },
+    |conn| {
+        conn.execute_batch(
+            "ALTER TABLE sessions ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0",
+        )
+        .ok();
+        conn.execute_batch("UPDATE sessions SET updated_at = created_at WHERE updated_at = 0")
+            .ok();
+    },
+    |conn| {
+        conn.execute_batch("ALTER TABLE side_chats ADD COLUMN parent_side_chat_id TEXT")
+            .ok();
+    },
+];
+
+fn run_migrations(conn: &Connection) {
+    let version: i64 = conn
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap_or(0);
+
+    for (i, migration) in MIGRATIONS.iter().enumerate() {
+        let step = (i + 1) as i64;
+        if version < step {
+            migration(conn);
+            conn.pragma_update(None, "user_version", step).ok();
+        }
+    }
+}
+
 pub struct Database {
     conn: Mutex<Connection>,
 }
@@ -148,20 +198,7 @@ impl Database {
         )
         .expect("Failed to create tables");
 
-        // Migrations: add columns if they don't exist
-        for table in &["messages", "side_chat_messages"] {
-            conn.execute_batch(&format!(
-                "ALTER TABLE {} ADD COLUMN tool_calls TEXT NOT NULL DEFAULT '[]'",
-                table
-            ))
-            .ok();
-        }
-        conn.execute_batch("ALTER TABLE sessions ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0")
-            .ok();
-        conn.execute_batch("UPDATE sessions SET updated_at = created_at WHERE updated_at = 0")
-            .ok();
-        conn.execute_batch("ALTER TABLE side_chats ADD COLUMN parent_side_chat_id TEXT")
-            .ok();
+        run_migrations(&conn);
 
         Database {
             conn: Mutex::new(conn),
@@ -482,6 +519,42 @@ fn chrono_now() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_migrations_apply_once_and_track_version() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE messages (id TEXT PRIMARY KEY);
+             CREATE TABLE side_chat_messages (id TEXT PRIMARY KEY);
+             CREATE TABLE sessions (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL);
+             CREATE TABLE side_chats (id TEXT PRIMARY KEY);",
+        )
+        .unwrap();
+
+        run_migrations(&conn);
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, MIGRATIONS.len() as i64);
+
+        // Columns from every migration step should now exist.
+        conn.execute_batch("SELECT tool_calls FROM messages").unwrap();
+        conn.execute_batch("SELECT updated_at FROM sessions").unwrap();
+        conn.execute_batch("SELECT parent_side_chat_id FROM side_chats")
+            .unwrap();
+
+        // Re-running must be a no-op: dropping the column would make a
+        // re-attempted ALTER TABLE crash this test (it isn't wrapped in
+        // `.ok()` here on purpose, to prove the second run never touches it).
+        conn.execute_batch("ALTER TABLE side_chats DROP COLUMN parent_side_chat_id")
+            .unwrap();
+        run_migrations(&conn);
+        let result = conn.execute_batch("SELECT parent_side_chat_id FROM side_chats");
+        assert!(
+            result.is_err(),
+            "second run_migrations() call re-applied a migration that was already marked done"
+        );
+    }
 
     #[test]
     fn test_session_serialization() {
