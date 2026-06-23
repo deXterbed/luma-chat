@@ -228,6 +228,26 @@ pub async fn ollama_chat_stream(
             e.to_string()
         })?;
 
+    if !response.status().is_success() {
+        let status = response.status().as_u16();
+        let body_text = response.text().await.unwrap_or_default();
+        let message = match status {
+            401 | 403 => format!(
+                "Ollama rejected the request (HTTP {status}). You may have hit a usage limit — check your account at ollama.com, or switch models."
+            ),
+            429 => "Ollama usage limit reached (HTTP 429). Wait a bit, check your account at ollama.com, or switch models.".to_string(),
+            _ => format!(
+                "Ollama chat request failed (HTTP {status}) {}",
+                body_text.chars().take(200).collect::<String>()
+            ),
+        };
+        let _ = app.emit(
+            "ollama://error",
+            serde_json::json!({ "request_id": &request_id, "error": &message }),
+        );
+        return Err(message);
+    }
+
     let mut full = String::new();
     let mut buffer = String::new();
 
