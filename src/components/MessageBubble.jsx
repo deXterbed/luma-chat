@@ -345,6 +345,51 @@ const MessageBubble = memo(function MessageBubble({
                 li({ children }) {
                   return <li style={{ marginBottom: "4px" }}>{children}</li>;
                 },
+                table({ children }) {
+                  return (
+                    <table
+                      style={{
+                        borderCollapse: "collapse",
+                        width: "100%",
+                        tableLayout: "fixed",
+                        margin: "8px 0",
+                      }}
+                    >
+                      {children}
+                    </table>
+                  );
+                },
+                th({ children }) {
+                  return (
+                    <th
+                      style={{
+                        border: "1px solid " + t.mdTdBorder,
+                        background: t.mdThBg,
+                        color: t.mdThText,
+                        padding: "6px 10px",
+                        textAlign: "left",
+                        wordBreak: "normal",
+                        overflowWrap: "normal",
+                      }}
+                    >
+                      {children}
+                    </th>
+                  );
+                },
+                td({ children }) {
+                  return (
+                    <td
+                      style={{
+                        border: "1px solid " + t.mdTdBorder,
+                        padding: "6px 10px",
+                        wordBreak: "normal",
+                        overflowWrap: "normal",
+                      }}
+                    >
+                      {children}
+                    </td>
+                  );
+                },
               }}
             >
               {message.content}
