@@ -38,6 +38,10 @@ pub struct SideChat {
     pub id: String,
     pub model: String,
     pub messages: Vec<Message>,
+    // The side chat this one was branched from, if any. None means its
+    // context is the main session chat (the original/default behavior).
+    #[serde(rename = "parentSideChatId", default)]
+    pub parent_side_chat_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -156,6 +160,8 @@ impl Database {
             .ok();
         conn.execute_batch("UPDATE sessions SET updated_at = created_at WHERE updated_at = 0")
             .ok();
+        conn.execute_batch("ALTER TABLE side_chats ADD COLUMN parent_side_chat_id TEXT")
+            .ok();
 
         Database {
             conn: Mutex::new(conn),
@@ -191,7 +197,7 @@ impl Database {
                 // Load side chat stubs
                 let mut sc_stmt = conn
                     .prepare(
-                        "SELECT id, model FROM side_chats WHERE session_id = ? ORDER BY position",
+                        "SELECT id, model, parent_side_chat_id FROM side_chats WHERE session_id = ? ORDER BY position",
                     )
                     .unwrap();
                 s.side_chats = sc_stmt
@@ -200,6 +206,7 @@ impl Database {
                             id: row.get(0)?,
                             model: row.get(1)?,
                             messages: vec![],
+                            parent_side_chat_id: row.get(2)?,
                         })
                     })
                     .unwrap()
@@ -247,16 +254,20 @@ impl Database {
 
         let side_chats: Vec<SideChat> = {
             let mut sc_stmt = conn
-                .prepare("SELECT id, model FROM side_chats WHERE session_id = ? ORDER BY position")
+                .prepare("SELECT id, model, parent_side_chat_id FROM side_chats WHERE session_id = ? ORDER BY position")
                 .unwrap();
 
             sc_stmt
                 .query_map(params![session_id], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                    ))
                 })
                 .unwrap()
                 .filter_map(|r| r.ok())
-                .map(|(sc_id, model)| {
+                .map(|(sc_id, model, parent_side_chat_id)| {
                     let mut msg_stmt = conn
                         .prepare("SELECT id, role, content, images, tool_calls, position FROM side_chat_messages WHERE side_chat_id = ? ORDER BY position")
                         .unwrap();
@@ -279,7 +290,7 @@ impl Database {
                         .filter_map(|r| r.ok())
                         .collect();
 
-                    SideChat { id: sc_id, model, messages }
+                    SideChat { id: sc_id, model, messages, parent_side_chat_id }
                 })
                 .collect()
         };
@@ -346,11 +357,12 @@ impl Database {
         side_chat_id: &str,
         model: &str,
         position: i64,
+        parent_side_chat_id: Option<&str>,
     ) {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO side_chats (id, session_id, model, position) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(id) DO UPDATE SET model = excluded.model",
-            params![side_chat_id, session_id, model, position],
+            "INSERT INTO side_chats (id, session_id, model, position, parent_side_chat_id) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(id) DO UPDATE SET model = excluded.model",
+            params![side_chat_id, session_id, model, position, parent_side_chat_id],
         )
         .ok();
     }

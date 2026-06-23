@@ -8,7 +8,7 @@ import { MessageSquarePlus, X, CornerDownLeft, Brain, ChevronRight } from "lucid
 import { useUiStore } from "../store/uiStore";
 import { useSettingsStore } from "../store/settingsStore";
 import { useSessionStore } from "../store/sessionStore";
-import { useMainChat } from "../store/chatStore";
+import { useMainChat, getSideChatStore } from "../store/chatStore";
 import { getTheme } from "../theme";
 import ToolActivity from "./ToolActivity";
 import styles from "./MessageBubble.module.css";
@@ -20,6 +20,9 @@ function StreamingCursor() {
 const MessageBubble = memo(function MessageBubble({
   message,
   showAskInSideChat = false,
+  // When this bubble lives inside a side chat, its id — the new side chat
+  // created by "Ask in side chat" branches off of it instead of the main chat.
+  parentSideChatId = null,
   onResend = null,
 }) {
   const isUser = message.role === "user";
@@ -164,8 +167,12 @@ const MessageBubble = memo(function MessageBubble({
     // newly-active tab via ChatPane's existing sideChatPrefill wiring.
     const { activeChatId } = useSessionStore.getState();
     if (activeChatId) {
-      const model = useMainChat.getState().model || undefined;
-      useSessionStore.getState().addSideChat(activeChatId, model);
+      const model = parentSideChatId
+        ? getSideChatStore(parentSideChatId).getState().model
+        : useMainChat.getState().model || undefined;
+      useSessionStore
+        .getState()
+        .addSideChat(activeChatId, model, parentSideChatId);
     }
     setSideChatOpen(true);
     setSideChatPrefill(quoted);

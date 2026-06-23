@@ -6,7 +6,7 @@ import { useStreamingChat } from "../hooks/useStreamingChat";
 import { useUiStore } from "../store/uiStore";
 import { useSettingsStore } from "../store/settingsStore";
 import { useSessionStore } from "../store/sessionStore";
-import { Trash2, Check, X } from "lucide-react";
+import { Trash2, Check, X, GitBranch } from "lucide-react";
 import styles from "./ChatPane.module.css";
 
 // Ollama cloud models carry a `cloud` tag suffix (e.g. `minimax-m3:cloud`,
@@ -18,6 +18,7 @@ export default function ChatPane({
   contextStore,
   sideChatId,
   sessionId,
+  onBranch,
   placeholder = "Ask anything…",
   compact = false,
   isSideChat = false,
@@ -161,6 +162,16 @@ export default function ChatPane({
           >
             {label}
           </span>
+          {isSideChat && sideChatId && onBranch && (
+            <button
+              onClick={onBranch}
+              aria-label="Branch a new side chat from this one"
+              title="Branch a new side chat from this one"
+              className={styles.branchBtn}
+            >
+              <GitBranch size={13} />
+            </button>
+          )}
           {isSideChat &&
             sideChatId &&
             (deleteConfirming ? (
@@ -288,7 +299,8 @@ export default function ChatPane({
           <MessageBubble
             key={msg.id}
             message={msg}
-            showAskInSideChat={!isSideChat}
+            showAskInSideChat={true}
+            parentSideChatId={isSideChat ? sideChatId : null}
             onResend={isStreaming ? null : resend}
           />
         ))}

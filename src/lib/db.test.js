@@ -80,7 +80,7 @@ describe("db (frontend wrapper)", () => {
 
       expect(invoke).toHaveBeenCalledWith("upsert_side_chat", {
         sessionId: "session-1",
-        sideChat: { id: "sc1", model: "model" },
+        sideChat: { id: "sc1", model: "model", parentSideChatId: null },
         position: 0,
       });
     });

@@ -110,7 +110,11 @@ export const useSessionStore = create((set, get) => ({
     });
   },
 
-  addSideChat: (sessionId, model) => {
+  // `parentSideChatId`, if given, marks this side chat as branched from
+  // another side chat rather than the main session — its conversation
+  // context (see SidePanel's contextStore wiring) comes from that parent
+  // side chat instead of the main chat.
+  addSideChat: (sessionId, model, parentSideChatId = null) => {
     // New side chats inherit the user's default model unless the caller
     // explicitly passes one (e.g. "add tab" copies the current tab's model).
     const finalModel =
@@ -124,13 +128,17 @@ export const useSessionStore = create((set, get) => ({
       chatSessions: s.chatSessions.map((sess) => {
         if (sess.id !== sessionId) return sess;
         const position = (sess.sideChats || []).length;
-        db.upsertSideChat(sessionId, { id, model: finalModel }, position);
+        db.upsertSideChat(
+          sessionId,
+          { id, model: finalModel, parentSideChatId },
+          position,
+        );
         db.setActiveSideChat(sessionId, id);
         return {
           ...sess,
           sideChats: [
             ...(sess.sideChats || []),
-            { id, model: finalModel, messages: [] },
+            { id, model: finalModel, messages: [], parentSideChatId },
           ],
           activeSideChatId: id,
         };

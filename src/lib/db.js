@@ -26,7 +26,11 @@ export const db = {
   upsertSideChat: (sid, sc, pos) =>
     invoke("upsert_side_chat", {
       sessionId: sid,
-      sideChat: { id: sc.id, model: sc.model },
+      sideChat: {
+        id: sc.id,
+        model: sc.model,
+        parentSideChatId: sc.parentSideChatId ?? null,
+      },
       position: pos,
     }).catch(noop),
   saveSideChatMessages: (scid, msgs) =>

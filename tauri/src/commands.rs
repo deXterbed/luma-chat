@@ -44,7 +44,13 @@ pub fn upsert_side_chat(
     side_chat: SideChatStub,
     position: i64,
 ) {
-    db.upsert_side_chat(&session_id, &side_chat.id, &side_chat.model, position);
+    db.upsert_side_chat(
+        &session_id,
+        &side_chat.id,
+        &side_chat.model,
+        position,
+        side_chat.parent_side_chat_id.as_deref(),
+    );
 }
 
 #[tauri::command]
@@ -138,6 +144,8 @@ fn resolve_ollama_key(from_settings: Option<String>) -> String {
 pub struct SideChatStub {
     pub id: String,
     pub model: String,
+    #[serde(rename = "parentSideChatId", default)]
+    pub parent_side_chat_id: Option<String>,
 }
 
 // ── Ollama proxy commands ──
