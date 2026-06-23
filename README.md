@@ -19,6 +19,8 @@ A research workbench for deep-dive topic exploration, built as a dual-pane deskt
 - **Auto context bridge** — the side chat automatically receives the main chat's conversation as context, so you can ask follow-up questions about main-chat responses without losing the main thread
 - **Side chats are isolated** — drilling into a subtopic in a side chat doesn't disturb the main conversation
 - **Pre-filled prompts** — opening a side chat from a main message prefills a research-focused prompt
+- **Nested side chats** — branch a side chat off of another side chat (the branch icon in its header, or "Ask in side chat" on a selection inside it) to drill further into a subtopic without losing that thread's own context. A branched side chat's context bridge points at its parent side chat, not the main chat
+- **Path-numbered tabs** — side chat tabs are labeled by their position in the branch tree (`1`, `2`, `1.1`, `1.1.1`, ...) so it's clear at a glance which side chat each one branched from
 
 ### Models
 - **Multi-model support** — switch models per pane, independent of the other
@@ -62,12 +64,12 @@ A dedicated settings page (gear icon in the title bar) covers the most common kn
 - **SQLite via Tauri Rust backend** — sessions, messages, side chats, custom model aliases, and user settings are all stored locally (rusqlite) and restored on launch
 - **Immediate writes** — messages are persisted as they arrive, so a session survives a crash, an aborted generation, or an error mid-stream
 - **No cloud sync** — research is the user's private work, not a collaborative product
-- **Migrations** — `ALTER TABLE` upgrades run on init to handle existing DBs gracefully; a one-time theme migration picks up a legacy `localStorage` value and writes it to SQLite
+- **Migrations** — schema upgrades are tracked via SQLite's `PRAGMA user_version`, so each migration runs exactly once per database instead of being re-attempted on every launch; a one-time theme migration picks up a legacy `localStorage` value and writes it to SQLite
 
 ### Theming
 - **Light & dark themes** — toggle in the title bar or the Settings page; choice persists in the `settings` SQLite table, with `prefers-color-scheme` as the first-launch fallback
 - **No FOUC** — an inline `<script>` in `index.html` sets `data-theme` on `<html>` before React mounts, so the first paint already uses the right palette
-- **Tailwind CSS** — utility classes for layout and components
+- **CSS Modules** — scoped per-component styles (`*.module.css`); no Tailwind
 
 ## Requirements
 
@@ -125,8 +127,8 @@ State lives in four independent Zustand stores. None of them persist to `localSt
 
 | Store | File | Owns |
 |---|---|---|
-| `useMainChat` / `useSideChat` | `src/store/chatStore.js` | Per-pane messages, streaming state, tool-call records (same factory) |
-| `useSessionStore` | `src/store/sessionStore.js` | Session list, side-chat metadata — the only store that writes chat data to SQLite |
+| `useMainChat` / `getSideChatStore(id)` | `src/store/chatStore.js` | Per-pane messages, streaming state, tool-call records (same factory; one store per side chat tab, keyed by id) |
+| `useSessionStore` | `src/store/sessionStore.js` | Session list, side-chat metadata (including parent/branch relationships) — the only store that writes chat data to SQLite |
 | `useUiStore` | `src/store/uiStore.js` | Transient view state: side-chat open/closed, Ollama connectivity, settings page open |
 | `useSettingsStore` | `src/store/settingsStore.js` | Persisted settings: theme, default model, web search default, tool call limit, search provider, Ollama API key — write-through to the `settings` SQLite table |
 
@@ -136,7 +138,7 @@ State lives in four independent Zustand stores. None of them persist to `localSt
 - **React 18 + Vite 5** — UI and dev server
 - **Zustand 4** — state management
 - **rusqlite** — synchronous local persistence in the Rust backend
-- **Tailwind CSS** — utility classes
+- **CSS Modules** — scoped per-component stylesheets
 - **Ollama API** — local and cloud model inference
 - **react-markdown + remark-gfm + remark-math + rehype-katex** — message rendering
 - **reqwest + scraper + readability** — web search and article extraction in the Rust backend
@@ -158,7 +160,7 @@ luma-chat/
 │   │   └── *.test.js      Unit tests for store logic
 │   └── test/              test setup and shared mocks (setup.ts)
 ├── vitest.config.ts       Vitest configuration
-├── index.html, vite.config.mjs, tailwind.config.js, postcss.config.js
+├── index.html, vite.config.mjs
 └── package.json
 ```
 

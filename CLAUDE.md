@@ -131,6 +131,10 @@ Concrete entry points for changes that come up often. Skim this list before grep
 - **Tab switching in the side panel never calls `loadMessages`.** Each tab owns its store permanently (via the `_sideChatStores` Map in `chatStore.js`). Switching tabs is a pure UI concern handled by `activeSideChatId`.
 - **`activeChatId` is for navigation, not activity.** Bump `updated_at` only on real user actions via `bumpSessionActivity(id)`.
 
+## Keeping docs in sync
+
+- **`README.md` drifts from the codebase silently — check it whenever you touch stack/persistence/architecture.** Found stale during this session: it still listed Tailwind CSS (removed in `bbdc44f`, this repo is CSS Modules only — no `tailwind.config.js`/`postcss.config.js` on disk), described migrations as plain `.ok()`-swallowed `ALTER TABLE` (now `PRAGMA user_version`-tracked, see below), and referenced a `useSideChat` store export that never existed (it's `getSideChatStore(id)`, one store per tab). None of these were caught by tests or builds — they're prose, not code — so a deliberate skim of `README.md`'s Stack/Persistence/Architecture sections is the only way to catch this kind of drift.
+
 ## Editor tooling
 
 - **Ignore Prettier-only churn in diffs.** The editor's file-write tool runs Prettier on the whole file when saving, which can reformat unrelated lines (line breaks, JSX attribute wrapping, etc.). Don't try to revert those hunks — they're a no-op in practice since the project's `npm run dev` / `npm run build` pipeline would format the same way. Focus on the semantic change and the lines that trace directly to the user's request.
