@@ -4,7 +4,14 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
-import { MessageSquarePlus, X, CornerDownLeft, Brain, ChevronRight } from "lucide-react";
+import { open } from "@tauri-apps/plugin-shell";
+import {
+  MessageSquarePlus,
+  X,
+  CornerDownLeft,
+  Brain,
+  ChevronRight,
+} from "lucide-react";
 import { useUiStore } from "../store/uiStore";
 import { useSettingsStore } from "../store/settingsStore";
 import { useSessionStore } from "../store/sessionStore";
@@ -293,6 +300,9 @@ const MessageBubble = memo(function MessageBubble({
                         fontSize: "12px",
                         color: t.codeText,
                         fontFamily: "'JetBrains Mono', monospace",
+                        overflowWrap: "break-word",
+                        boxDecorationBreak: "clone",
+                        WebkitBoxDecorationBreak: "clone",
                       }}
                       {...props}
                     >
@@ -344,6 +354,19 @@ const MessageBubble = memo(function MessageBubble({
                 },
                 li({ children }) {
                   return <li style={{ marginBottom: "4px" }}>{children}</li>;
+                },
+                a({ href, children }) {
+                  return (
+                    <a
+                      href={href}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        if (href) open(href);
+                      }}
+                    >
+                      {children}
+                    </a>
+                  );
                 },
                 table({ children }) {
                   return (
