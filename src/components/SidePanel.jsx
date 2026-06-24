@@ -174,11 +174,7 @@ export default function SidePanel() {
           {orderedSideChats.map((sc) => (
             <div
               key={sc.id}
-              style={{
-                display: sc.id === activeSideChatId ? "flex" : "none",
-                flexDirection: "column",
-                height: "100%",
-              }}
+              className={`${styles.tabPane} ${sc.id === activeSideChatId ? styles.tabPaneActive : ""}`}
             >
               <ChatPane
                 store={getSideChatStore(sc.id)}

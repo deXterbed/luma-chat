@@ -135,7 +135,12 @@ Concrete entry points for changes that come up often. Skim this list before grep
 
 ## Keeping docs in sync
 
-- **`README.md` drifts from the codebase silently — check it whenever you touch stack/persistence/architecture.** Found stale during this session: it still listed Tailwind CSS (removed in `bbdc44f`, this repo is CSS Modules only — no `tailwind.config.js`/`postcss.config.js` on disk), described migrations as plain `.ok()`-swallowed `ALTER TABLE` (now `PRAGMA user_version`-tracked, see below), and referenced a `useSideChat` store export that never existed (it's `getSideChatStore(id)`, one store per tab). None of these were caught by tests or builds — they're prose, not code — so a deliberate skim of `README.md`'s Stack/Persistence/Architecture sections is the only way to catch this kind of drift.
+- **Skim `README.md` whenever you touch stack, persistence, or architecture — and fix any drift you find.** README drift is silent (no tests catch it), so the only way to keep it honest is a deliberate check. If a section describes something that no longer matches the code, correct it in the same commit as the code change. Sections most prone to drift: Stack, Persistence/Migrations, Architecture/State stores, and the project layout file tree.
+
+## Tauri / WebView pitfalls
+
+- **Don't use `display: none` to hide simultaneously-mounted panes.** In Tauri's WKWebView, a textarea inside a container that transitions from `display: none` → `display: flex` will render visually but won't accept click-to-focus (no cursor, no placeholder). Use `visibility: hidden; pointer-events: none` with `position: absolute; inset: 0` stacking instead — all elements stay in the layout and fully initialized, so focus works the moment the pane becomes visible. See `SidePanel.module.css` (`.tabPane` / `.tabPaneActive`) for the pattern.
+- **CSS module changes may not hot-reload in the Tauri dev window.** A full app restart is sometimes needed to pick up layout changes even when Vite reports a successful HMR update.
 
 ## Editor tooling
 

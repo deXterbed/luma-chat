@@ -86,4 +86,23 @@
 .paneContent {
     flex: 1;
     overflow: hidden;
+    position: relative;
+}
+
+/* Each side chat pane is absolutely stacked inside paneContent. Inactive
+   panes are hidden via visibility + pointer-events so their textareas stay
+   fully initialized (no display:none → display:flex transitions that can
+   prevent focus in some WebView builds). */
+.tabPane {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.tabPaneActive {
+    visibility: visible;
+    pointer-events: auto;
 }
