@@ -21,6 +21,8 @@ export default function SettingsPage() {
   const setSearchProvider = useSettingsStore((s) => s.setSearchProvider);
   const ollamaApiKey = useSettingsStore((s) => s.ollamaApiKey);
   const setOllamaApiKey = useSettingsStore((s) => s.setOllamaApiKey);
+  const ollamaUrl = useSettingsStore((s) => s.ollamaUrl);
+  const setOllamaUrl = useSettingsStore((s) => s.setOllamaUrl);
   const toolCallLimit = useSettingsStore((s) => s.toolCallLimit);
   const setToolCallLimit = useSettingsStore((s) => s.setToolCallLimit);
   const resetToDefaults = useSettingsStore((s) => s.resetToDefaults);
@@ -235,6 +237,41 @@ export default function SettingsPage() {
           </label>
         </section>
 
+        {/* ── Ollama server ── */}
+        <section className={`${styles.section} ${styles.sectionFull}`}>
+          <div className={styles.sectionHeader}>
+            <h2 className={styles.sectionTitle}>Ollama server</h2>
+            <p className={styles.sectionHint}>
+              Connect to a remote Ollama instance. Leave URL blank to use{" "}
+              <code>localhost:11434</code>. The API key is sent as a Bearer
+              token and also used for Ollama web search — no need to enter it
+              twice.
+            </p>
+          </div>
+          <div className={styles.serverRow}>
+            <input
+              type="url"
+              value={ollamaUrl}
+              placeholder="http://localhost:11434"
+              onChange={(e) => setOllamaUrl(e.target.value)}
+              className={styles.textInput}
+              aria-label="Ollama server URL"
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <input
+              type="password"
+              value={ollamaApiKey}
+              placeholder="API key (optional)"
+              onChange={(e) => setOllamaApiKey(e.target.value)}
+              className={styles.textInput}
+              aria-label="Ollama API key"
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </div>
+        </section>
+
         {/* ── Web search provider ── */}
         <section className={styles.section}>
           <div className={styles.sectionHeader}>
@@ -271,31 +308,28 @@ export default function SettingsPage() {
 
           {searchProvider === "ollama" && (
             <div className={styles.apiKeyBlock}>
-              <input
-                type="password"
-                value={ollamaApiKey}
-                placeholder="Ollama API key"
-                onChange={(e) => setOllamaApiKey(e.target.value)}
-                className={styles.textInput}
-                aria-label="Ollama API key"
-                autoComplete="off"
-                spellCheck={false}
-              />
-              <p className={styles.sectionHint}>
-                Create a key at{" "}
-                <a
-                  href="https://ollama.com/settings/keys"
-                  target="_blank"
-                  rel="noreferrer"
-                  className={styles.link}
-                >
-                  ollama.com/settings/keys
-                </a>{" "}
-                (free account). Leave blank to use the{" "}
-                <code>OLLAMA_API_KEY</code> environment variable instead. If your
-                free quota runs out, upgrade your account or switch back to
-                DuckDuckGo.
-              </p>
+              {ollamaApiKey ? (
+                <p className={styles.sectionHint}>
+                  Using the API key from{" "}
+                  <strong>Ollama server</strong> settings above.
+                </p>
+              ) : (
+                <p className={styles.sectionHint}>
+                  Add an API key in the{" "}
+                  <strong>Ollama server</strong> section above, or leave blank
+                  to fall back to the <code>OLLAMA_API_KEY</code> environment
+                  variable. Create a key at{" "}
+                  <a
+                    href="https://ollama.com/settings/keys"
+                    target="_blank"
+                    rel="noreferrer"
+                    className={styles.link}
+                  >
+                    ollama.com/settings/keys
+                  </a>{" "}
+                  (free account).
+                </p>
+              )}
             </div>
           )}
         </section>

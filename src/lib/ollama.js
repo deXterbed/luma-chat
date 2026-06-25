@@ -8,6 +8,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { useSettingsStore } from "../store/settingsStore";
 
 /**
  * Check if the Ollama server is reachable.
@@ -15,7 +16,11 @@ import { listen } from "@tauri-apps/api/event";
  */
 export async function isOllamaReachable() {
   try {
-    return await invoke("ollama_reachable");
+    const { ollamaUrl, ollamaApiKey } = useSettingsStore.getState();
+    return await invoke("ollama_reachable", {
+      ollamaUrl: ollamaUrl || null,
+      apiKey: ollamaApiKey || null,
+    });
   } catch {
     return false;
   }
@@ -28,7 +33,11 @@ export async function isOllamaReachable() {
  */
 export async function listLocalModels() {
   try {
-    const names = await invoke("ollama_list_models");
+    const { ollamaUrl, ollamaApiKey } = useSettingsStore.getState();
+    const names = await invoke("ollama_list_models", {
+      ollamaUrl: ollamaUrl || null,
+      apiKey: ollamaApiKey || null,
+    });
     return Array.isArray(names) ? names : [];
   } catch {
     return [];
@@ -266,9 +275,12 @@ export async function streamChat({
       });
 
       try {
+        const { ollamaUrl, ollamaApiKey } = useSettingsStore.getState();
         await invoke("ollama_chat_stream", {
           requestId: state.requestId,
           body,
+          ollamaUrl: ollamaUrl || null,
+          apiKey: ollamaApiKey || null,
         });
       } catch (err) {
         throw new Error(`Ollama error: ${err?.message || err}`);

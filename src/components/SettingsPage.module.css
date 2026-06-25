@@ -297,6 +297,25 @@
     transform: translateX(16px);
 }
 
+/* ── Full-width section ── */
+.sectionFull {
+    grid-column: 1 / -1;
+}
+
+/* ── Ollama server URL + key row ── */
+.serverRow {
+    display: flex;
+    gap: 8px;
+}
+
+.serverRow .textInput:first-child {
+    flex: 2;
+}
+
+.serverRow .textInput:last-child {
+    flex: 1;
+}
+
 /* ── API key (Ollama web search) ── */
 .apiKeyBlock {
     margin-top: 12px;

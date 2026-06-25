@@ -12,6 +12,7 @@ export const SETTING_KEYS = {
   toolCallLimit: "toolCallLimit",
   searchProvider: "searchProvider",
   ollamaApiKey: "ollamaApiKey",
+  ollamaUrl: "ollamaUrl",
 };
 
 // Web search backends. "duckduckgo" scrapes DDG locally (no key); "ollama"
@@ -40,6 +41,7 @@ const DEFAULTS = {
   toolCallLimit: 0,
   searchProvider: "duckduckgo",
   ollamaApiKey: "",
+  ollamaUrl: "",
 };
 
 export const useSettingsStore = create((set, get) => ({
@@ -53,6 +55,7 @@ export const useSettingsStore = create((set, get) => ({
   toolCallLimit: DEFAULTS.toolCallLimit,
   searchProvider: DEFAULTS.searchProvider,
   ollamaApiKey: DEFAULTS.ollamaApiKey,
+  ollamaUrl: DEFAULTS.ollamaUrl,
 
   // Called from useDbInit. Loads from DB and applies the theme to <html>.
   // Unknown keys are ignored; missing keys keep their default. On the very
@@ -96,6 +99,10 @@ export const useSettingsStore = create((set, get) => ({
         typeof stored[SETTING_KEYS.ollamaApiKey] === "string"
           ? stored[SETTING_KEYS.ollamaApiKey]
           : DEFAULTS.ollamaApiKey,
+      ollamaUrl:
+        typeof stored[SETTING_KEYS.ollamaUrl] === "string"
+          ? stored[SETTING_KEYS.ollamaUrl]
+          : DEFAULTS.ollamaUrl,
     };
     applyTheme(next.theme);
     set({ ...next, hydrated: true });
@@ -145,6 +152,12 @@ export const useSettingsStore = create((set, get) => ({
     db.saveSetting(SETTING_KEYS.ollamaApiKey, v);
   },
 
+  setOllamaUrl: (url) => {
+    const v = (url || "").trim();
+    set({ ollamaUrl: v });
+    db.saveSetting(SETTING_KEYS.ollamaUrl, v);
+  },
+
   // Reset every well-known key back to its hardcoded default and persist.
   // Used by the settings page's "Reset to defaults" link.
   resetToDefaults: () => {
@@ -156,6 +169,7 @@ export const useSettingsStore = create((set, get) => ({
       toolCallLimit: DEFAULTS.toolCallLimit,
       searchProvider: DEFAULTS.searchProvider,
       ollamaApiKey: DEFAULTS.ollamaApiKey,
+      ollamaUrl: DEFAULTS.ollamaUrl,
     });
     db.saveSetting(SETTING_KEYS.theme, DEFAULTS.theme);
     db.saveSetting(SETTING_KEYS.defaultModel, DEFAULTS.defaultModel);
@@ -166,6 +180,7 @@ export const useSettingsStore = create((set, get) => ({
     db.saveSetting(SETTING_KEYS.toolCallLimit, String(DEFAULTS.toolCallLimit));
     db.saveSetting(SETTING_KEYS.searchProvider, DEFAULTS.searchProvider);
     db.saveSetting(SETTING_KEYS.ollamaApiKey, DEFAULTS.ollamaApiKey);
+    db.saveSetting(SETTING_KEYS.ollamaUrl, DEFAULTS.ollamaUrl);
   },
 }));
 

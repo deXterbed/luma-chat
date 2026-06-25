@@ -158,27 +158,40 @@ pub struct SideChatStub {
 
 const OLLAMA_BASE: &str = "http://localhost:11434";
 
+fn resolve_ollama_base(from_settings: Option<String>) -> String {
+    match from_settings {
+        Some(url) if !url.trim().is_empty() => url.trim_end_matches('/').to_string(),
+        _ => OLLAMA_BASE.to_string(),
+    }
+}
+
 #[tauri::command]
-pub async fn ollama_reachable() -> bool {
-    match reqwest::Client::new()
-        .get(format!("{OLLAMA_BASE}/api/version"))
-        .timeout(std::time::Duration::from_secs(2))
-        .send()
-        .await
-    {
+pub async fn ollama_reachable(ollama_url: Option<String>, api_key: Option<String>) -> bool {
+    let base = resolve_ollama_base(ollama_url);
+    let key = resolve_ollama_key(api_key);
+    let mut req = reqwest::Client::new()
+        .get(format!("{base}/api/version"))
+        .timeout(std::time::Duration::from_secs(2));
+    if !key.is_empty() {
+        req = req.header("Authorization", format!("Bearer {key}"));
+    }
+    match req.send().await {
         Ok(res) => res.status().is_success(),
         Err(_) => false,
     }
 }
 
 #[tauri::command]
-pub async fn ollama_list_models() -> Vec<String> {
-    let Ok(res) = reqwest::Client::new()
-        .get(format!("{OLLAMA_BASE}/api/tags"))
-        .timeout(std::time::Duration::from_secs(5))
-        .send()
-        .await
-    else {
+pub async fn ollama_list_models(ollama_url: Option<String>, api_key: Option<String>) -> Vec<String> {
+    let base = resolve_ollama_base(ollama_url);
+    let key = resolve_ollama_key(api_key);
+    let mut req = reqwest::Client::new()
+        .get(format!("{base}/api/tags"))
+        .timeout(std::time::Duration::from_secs(5));
+    if !key.is_empty() {
+        req = req.header("Authorization", format!("Bearer {key}"));
+    }
+    let Ok(res) = req.send().await else {
         return Vec::new();
     };
     if !res.status().is_success() {
@@ -208,16 +221,24 @@ pub async fn ollama_chat_stream(
     app: AppHandle,
     request_id: String,
     body: serde_json::Value,
+    ollama_url: Option<String>,
+    api_key: Option<String>,
 ) -> Result<(), String> {
+    let base = resolve_ollama_base(ollama_url);
+    let key = resolve_ollama_key(api_key);
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(60 * 30))
         .build()
         .map_err(|e| e.to_string())?;
 
-    let mut response = client
-        .post(format!("{OLLAMA_BASE}/api/chat"))
+    let mut req = client
+        .post(format!("{base}/api/chat"))
         .header("Content-Type", "application/json")
-        .json(&body)
+        .json(&body);
+    if !key.is_empty() {
+        req = req.header("Authorization", format!("Bearer {key}"));
+    }
+    let mut response = req
         .send()
         .await
         .map_err(|e| {
