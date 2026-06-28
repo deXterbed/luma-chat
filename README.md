@@ -86,6 +86,16 @@ npm run dev
 
 ## Troubleshooting
 
+### macOS: "Luma is damaged and can't be opened"
+
+macOS Gatekeeper quarantines apps downloaded from the internet that aren't notarized. Run this in Terminal after downloading:
+
+```bash
+xattr -cr /path/to/Luma.app
+```
+
+Then open the app normally. Alternatively: **System Settings → Privacy & Security** → scroll down → click **Open Anyway**.
+
 ### Windows: `linking with link.exe failed`
 
 If you see an error mentioning `link: extra operand` during `npm run build` (or `npm run dev`, which compiles internally), the GNU `link.exe` shipped with Git for Windows is shadowing the MSVC linker. See [`docs/windows-link-exe-conflict.md`](docs/windows-link-exe-conflict.md) for the diagnosis and three ways to fix it.

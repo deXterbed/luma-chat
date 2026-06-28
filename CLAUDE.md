@@ -142,6 +142,7 @@ Concrete entry points for changes that come up often. Skim this list before grep
 
 - **Don't use `display: none` to hide simultaneously-mounted panes.** In Tauri's WKWebView, a textarea inside a container that transitions from `display: none` → `display: flex` will render visually but won't accept click-to-focus (no cursor, no placeholder). Use `visibility: hidden; pointer-events: none` with `position: absolute; inset: 0` stacking instead — all elements stay in the layout and fully initialized, so focus works the moment the pane becomes visible. See `SidePanel.module.css` (`.tabPane` / `.tabPaneActive`) for the pattern.
 - **CSS module changes may not hot-reload in the Tauri dev window.** A full app restart is sometimes needed to pick up layout changes even when Vite reports a successful HMR update.
+- **Unsigned macOS builds are blocked by Gatekeeper on download.** The app is not code-signed or notarized, so macOS quarantines it. Users must run `xattr -cr /path/to/Luma.app` before opening. This affects arm64 (Apple Silicon) more strictly than x86_64. Fixing this properly requires an Apple Developer account and signing config in `tauri.conf.json`.
 
 ## Editor tooling
 
