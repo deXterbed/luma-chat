@@ -113,6 +113,7 @@ export function buildMarkdownComponents(t) {
       return (
         <a
           href={href}
+          title={href}
           onClick={(e) => {
             e.preventDefault();
             if (href) open(href);

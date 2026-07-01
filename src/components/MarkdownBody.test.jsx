@@ -106,6 +106,8 @@ describe("MarkdownBody", () => {
     const c = renderMd("[site](https://example.com)");
     const link = c.querySelector("a");
     expect(link.getAttribute("href")).toBe("https://example.com");
+    // Links carry a `title` showing the full URL on hover.
+    expect(link.getAttribute("title")).toBe("https://example.com");
     fireEvent.click(link);
     expect(open).toHaveBeenCalledTimes(1);
     expect(open).toHaveBeenCalledWith("https://example.com");
