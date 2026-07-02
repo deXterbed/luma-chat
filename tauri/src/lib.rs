@@ -6,14 +6,27 @@ mod db;
 mod tools;
 
 use db::Database;
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let database = Database::new();
-
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .manage(database)
+        .setup(|app| {
+            // Resolve the OS-correct app data dir via Tauri (works on Windows
+            // where `HOME` is typically unset; the old `dirs_next()` env-var
+            // probe fell through to a relative `luma_data` dir there).
+            let dir = app
+                .path()
+                .app_data_dir()
+                .expect("failed to resolve app data dir");
+            // Copy any legacy DB (old Electron-compatible location / broken
+            // Windows `luma_data` fallback) into the new app_data_dir before
+            // opening, so existing chats survive the path move.
+            db::migrate_legacy_db(&dir);
+            app.manage(Database::new(dir));
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::load_sessions,
             commands::load_session_messages,

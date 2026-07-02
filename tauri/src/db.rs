@@ -51,17 +51,13 @@ pub struct SessionMessages {
     pub side_chats: Vec<SideChat>,
 }
 
-/// Lazily resolved DB path — uses Tauri's app data dir.
-fn db_path() -> PathBuf {
-    let dir = dirs_next();
-    let mut path = PathBuf::from(dir);
-    path.push("luma.db");
-    path
-}
-
+/// Legacy data-dir resolution (matches the old Electron app location).
+/// Used by `migrate_legacy_db()` to find an old `luma.db` to copy into the new
+/// Tauri `app_data_dir()`, and by the smoke tests that read the real on-disk DB.
+/// Production reads/writes via Tauri's `app_data_dir()` (see `lib.rs`), which is
+/// correct on Windows where `HOME` is typically unset and this env-var probe
+/// fell through to a relative `luma_data` dir.
 fn dirs_next() -> String {
-    // Use the same directory as the old Electron app so existing data is preserved.
-    // Electron uses the app's productName ("Luma") for the directory.
     if let Ok(home) = std::env::var("HOME") {
         #[cfg(target_os = "macos")]
         {
@@ -69,7 +65,6 @@ fn dirs_next() -> String {
         }
         #[cfg(target_os = "linux")]
         {
-            // Electron on Linux uses XDG config dir with the app name
             if let Ok(data) = std::env::var("XDG_CONFIG_HOME") {
                 format!("{}/luma", data)
             } else {
@@ -87,6 +82,57 @@ fn dirs_next() -> String {
     } else {
         "luma_data".to_string()
     }
+}
+
+/// One-time migration from the legacy `dirs_next()` DB location to Tauri's
+/// `app_data_dir()`. Copies the old `luma.db` over the new one when the new one
+/// is absent **or** empty (zero sessions), so existing chats survive the path
+/// move. A new DB that already holds user sessions is never touched.
+///
+/// Best-effort: failures are swallowed so a migration hiccup never blocks app
+/// launch. The legacy and new paths being identical (e.g. identifier change
+/// that happens to resolve back) is a guarded no-op.
+pub fn migrate_legacy_db(new_db_dir: &std::path::Path) {
+    let new_path = new_db_dir.join("luma.db");
+    let legacy_path = std::path::PathBuf::from(dirs_next()).join("luma.db");
+    if legacy_path == new_path || !legacy_path.is_file() {
+        return;
+    }
+
+    // Only migrate if the new DB has no user data to lose. A missing new DB is
+    // trivially empty; an existing one is empty only if it has zero sessions.
+    // If we can't open the new DB to count (locked / corrupt), treat it as
+    // non-empty so we never risk clobbering real data.
+    let new_is_empty = if !new_path.exists() {
+        true
+    } else {
+        matches!(count_sessions(&new_path), Ok(0))
+    };
+    if !new_is_empty {
+        return;
+    }
+
+    // Drop any empty new DB + WAL/SHM sidecars so the copy lands clean.
+    let _ = std::fs::remove_file(&new_path);
+    let _ = std::fs::remove_file(new_db_dir.join("luma.db-wal"));
+    let _ = std::fs::remove_file(new_db_dir.join("luma.db-shm"));
+    let _ = std::fs::create_dir_all(new_db_dir);
+    let _ = std::fs::copy(&legacy_path, &new_path);
+}
+
+/// Counts rows in the `sessions` table; returns 0 if the DB/table doesn't exist.
+fn count_sessions(path: &std::path::Path) -> rusqlite::Result<usize> {
+    let conn = Connection::open(path)?;
+    let table_exists: bool = conn.query_row(
+        "SELECT count(*) > 0 FROM sqlite_master WHERE type='table' AND name='sessions'",
+        [],
+        |r| r.get(0),
+    )?;
+    if !table_exists {
+        return Ok(0);
+    }
+    let n: i64 = conn.query_row("SELECT count(*) FROM sessions", [], |r| r.get(0))?;
+    Ok(n as usize)
 }
 
 // Ordered schema migrations, gated by SQLite's built-in `PRAGMA user_version`
@@ -112,10 +158,8 @@ const MIGRATIONS: &[fn(&Connection)] = &[
         }
     },
     |conn| {
-        conn.execute_batch(
-            "ALTER TABLE sessions ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0",
-        )
-        .ok();
+        conn.execute_batch("ALTER TABLE sessions ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0")
+            .ok();
         conn.execute_batch("UPDATE sessions SET updated_at = created_at WHERE updated_at = 0")
             .ok();
     },
@@ -144,11 +188,13 @@ pub struct Database {
 }
 
 impl Database {
-    pub fn new() -> Self {
-        let dir = dirs_next();
+    /// `dir` is the resolved app data directory (e.g. Tauri's `app_data_dir()`);
+    /// `luma.db` is created inside it. Pass a dir the app has permission to write.
+    pub fn new(dir: PathBuf) -> Self {
         std::fs::create_dir_all(&dir).ok();
 
-        let path = db_path();
+        let mut path = dir;
+        path.push("luma.db");
         let conn = Connection::open(&path).expect("Failed to open database");
 
         conn.pragma_update(None, "journal_mode", "WAL").ok();
@@ -538,8 +584,10 @@ mod tests {
         assert_eq!(version, MIGRATIONS.len() as i64);
 
         // Columns from every migration step should now exist.
-        conn.execute_batch("SELECT tool_calls FROM messages").unwrap();
-        conn.execute_batch("SELECT updated_at FROM sessions").unwrap();
+        conn.execute_batch("SELECT tool_calls FROM messages")
+            .unwrap();
+        conn.execute_batch("SELECT updated_at FROM sessions")
+            .unwrap();
         conn.execute_batch("SELECT parent_side_chat_id FROM side_chats")
             .unwrap();
 
@@ -558,7 +606,7 @@ mod tests {
 
     #[test]
     fn test_session_serialization() {
-        let db = Database::new();
+        let db = Database::new(PathBuf::from(dirs_next()));
         let sessions = db.load_sessions();
 
         let json = serde_json::to_string_pretty(&sessions[0]).unwrap();
@@ -580,7 +628,7 @@ mod tests {
 
     #[test]
     fn test_load_sessions_from_existing_db() {
-        let db = Database::new();
+        let db = Database::new(PathBuf::from(dirs_next()));
         let sessions = db.load_sessions();
         eprintln!("Found {} sessions", sessions.len());
         for s in &sessions {
@@ -600,7 +648,7 @@ mod tests {
 
     #[test]
     fn test_serialization_matches_frontend() {
-        let db = Database::new();
+        let db = Database::new(PathBuf::from(dirs_next()));
         let sessions = db.load_sessions();
         let msgs = db.load_session_messages(&sessions[0].id);
 
