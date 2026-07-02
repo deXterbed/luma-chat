@@ -122,4 +122,160 @@ describe("streamChat tool-loop onDone timing", () => {
     // The tool must still run; onDone must come only after the final answer.
     expect(events).toEqual(["toolCall", "toolExec", "toolResult", "done"]);
   });
+
+  it("forces a tools-disabled final round once toolCallLimit is reached, instead of looping forever", async () => {
+    installStreamHarness([
+      // Round 0: normal — model requests a tool.
+      {
+        chunks: [
+          {
+            message: {
+              tool_calls: [
+                { function: { name: "web_search", arguments: { query: "x" } } },
+              ],
+            },
+          },
+        ],
+        content: "",
+      },
+      // Round 1 (= hardCap): force-final. Even if the model still emits a
+      // tool call here, the orchestrator must ignore it and finalize.
+      {
+        chunks: [
+          { message: { content: "Here is what I found." } },
+          {
+            message: {
+              tool_calls: [
+                { function: { name: "web_search", arguments: { query: "y" } } },
+              ],
+            },
+          },
+        ],
+        content: "Here is what I found.",
+      },
+    ]);
+
+    const events = [];
+    let doneText = null;
+    await streamChat({
+      model: "m",
+      messages: [{ role: "user", content: "q" }],
+      tools: [{ type: "function", function: { name: "web_search" } }],
+      toolCallLimit: 1,
+      executeTool: async () => {
+        events.push("toolExec");
+        return "results";
+      },
+      onToolCall: () => events.push("toolCall"),
+      onDone: (full) => {
+        doneText = full;
+        events.push("done");
+      },
+    });
+
+    // Only one tool round ran; the force-final round's tool call is ignored.
+    expect(events).toEqual(["toolCall", "toolExec", "done"]);
+    expect(doneText).toBe("Here is what I found.");
+
+    const streamCalls = invoke.mock.calls.filter(
+      (c) => c[0] === "ollama_chat_stream",
+    );
+    expect(streamCalls).toHaveLength(2);
+    // The force-final round must not offer tools to the model.
+    expect(streamCalls[1][1].body).not.toHaveProperty("tools");
+  });
+
+  it("stops the stream immediately on a QUOTA tool error, without a further round", async () => {
+    installStreamHarness([
+      {
+        chunks: [
+          {
+            message: {
+              content: "Searching…",
+              tool_calls: [
+                { function: { name: "web_search", arguments: { query: "x" } } },
+              ],
+            },
+          },
+        ],
+        content: "Searching…",
+      },
+    ]);
+
+    const events = [];
+    let doneText = null;
+    await streamChat({
+      model: "m",
+      messages: [{ role: "user", content: "q" }],
+      tools: [{ type: "function", function: { name: "web_search" } }],
+      executeTool: async () => "Error: QUOTA: usage limit reached",
+      onToolCall: () => events.push("toolCall"),
+      onToolResult: () => events.push("toolResult"),
+      onDone: (full) => {
+        doneText = full;
+        events.push("done");
+      },
+    });
+
+    expect(events).toEqual(["toolCall", "toolResult", "done"]);
+    expect(doneText).toBe("Searching…");
+    const streamCalls = invoke.mock.calls.filter(
+      (c) => c[0] === "ollama_chat_stream",
+    );
+    expect(streamCalls).toHaveLength(1);
+  });
+
+  it("jumps to the wrap-up round after every tool call in a round fails, and still finalizes", async () => {
+    installStreamHarness([
+      // Round 0: tool call that fails (non-quota error).
+      {
+        chunks: [
+          {
+            message: {
+              tool_calls: [
+                { function: { name: "web_search", arguments: { query: "x" } } },
+              ],
+            },
+          },
+        ],
+        content: "",
+      },
+      // Next round (jumped ahead to maxToolRounds): model gives up and answers.
+      {
+        chunks: [{ message: { content: "I could not find results, but…" } }],
+        content: "I could not find results, but…",
+      },
+    ]);
+
+    const events = [];
+    let doneText = null;
+    await streamChat({
+      model: "m",
+      messages: [{ role: "user", content: "q" }],
+      tools: [{ type: "function", function: { name: "web_search" } }],
+      maxToolRounds: 3,
+      executeTool: async () => "Error: search failed",
+      onToolCall: () => events.push("toolCall"),
+      onToolResult: () => events.push("toolResult"),
+      onDone: (full) => {
+        doneText = full;
+        events.push("done");
+      },
+    });
+
+    expect(events).toEqual(["toolCall", "toolResult", "done"]);
+    expect(doneText).toBe("I could not find results, but…");
+
+    const streamCalls = invoke.mock.calls.filter(
+      (c) => c[0] === "ollama_chat_stream",
+    );
+    expect(streamCalls).toHaveLength(2);
+    // The round-1 request must carry the "all tool calls failed" nudge.
+    const round1Messages = streamCalls[1][1].body.messages;
+    expect(
+      round1Messages.some((m) =>
+        m.role === "system" && /all tool calls.*failed/i.test(m.content),
+      ),
+    ).toBe(true);
+  });
 });

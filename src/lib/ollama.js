@@ -9,6 +9,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useSettingsStore } from "../store/settingsStore";
+import {
+  applyStreamLine,
+  buildRequestBody,
+  runToolCalls,
+  stripLeakedToolCallXml,
+  systemMessagesForRound,
+} from "./ollamaStream";
 
 /**
  * Check if the Ollama server is reachable.
@@ -76,27 +83,23 @@ export function isVisionModel(modelName) {
 }
 
 // =============================================================================
-// Tool-calling support
+// Tool-calling streaming chat
 // =============================================================================
 //
-// When the model decides to use a tool, we execute it, append the result
-// as a `role: "tool"` message, and re-call the model. The loop runs up to
-// `maxToolRounds` times (default 5) to prevent runaway iteration.
+// `streamChat` is the coordinator (Controller stereotype) for the tool-calling
+// loop. The per-responsibility collaborators live in `ollamaStream.js`:
+//   - applyStreamLine        parses one streamed JSON line
+//   - systemMessagesForRound  decides which system messages to inject per round
+//   - buildRequestBody         builds the Ollama request body for a round
+//   - stripLeakedToolCallXml   cleans leaked tool-call XML from final content
+//   - runToolCalls            executes a batch of tool calls
 //
 // Callbacks:
-//   onToken(chunk, full)    — called for every text chunk in every round.
-//                             For a research workbench, the model's
-//                             "let me search for..." narration in tool-
-//                             decision rounds is useful — it shows the
-//                             research process in action.
-//   onThinking(chunk, full) — called for every reasoning chunk (think: true);
-//                             `full` is the reasoning accumulated across rounds.
-//   onToolCall(name, args)  — called when the model invokes a tool
-//                             (use this to show "🔍 Searching for..." UI)
-//   onToolResult(name, res) — called after a tool returns
-//                             (use this to show "✓ Got N results" UI)
-//   onDone(full)            — called when the whole loop completes
-//                             with the final answer text
+//   onToken(chunk, full)    — text chunk in any round (model narration + answer)
+//   onThinking(chunk, full) — reasoning chunk (think: true); `full` spans rounds
+//   onToolCall(name, args)  — model invoked a tool
+//   onToolResult(name, res) — a tool returned
+//   onDone(full)            — whole loop completed with the final answer text
 //   signal                  — AbortSignal to cancel mid-flight
 // =============================================================================
 
@@ -105,6 +108,11 @@ function nextRequestId() {
   _requestCounter += 1;
   return `ollama-${Date.now()}-${_requestCounter}`;
 }
+
+const WEB_SEARCH_NUDGE_AT = 15;
+
+const ALL_FAILED_MSG =
+  "All tool calls in the last round failed. Write your final answer now based on everything gathered so far.";
 
 /**
  * Run a chat completion with optional tool-calling support.
@@ -115,6 +123,7 @@ function nextRequestId() {
  * @param {Array}  [params.tools]            - Ollama-format tool definitions
  * @param {function} [params.executeTool]    - (name, args) => Promise<string>
  * @param {function} [params.onToken]
+ * @param {function} [params.onThinking]
  * @param {function} [params.onToolCall]
  * @param {function} [params.onToolResult]
  * @param {function} [params.onDone]
@@ -142,9 +151,11 @@ export async function streamChat({
   // 0 = unlimited. Otherwise, once the model has used this many tool rounds
   // without finishing, we make one last tools-disabled call to force an answer.
   const hardCap = toolCallLimit > 0 ? toolCallLimit : null;
-  // Fires regardless of `hardCap` (even when unlimited): DuckDuckGo rate-limits
-  // heavy use, so urge the model to wrap up once it's made this many rounds.
-  const WEB_SEARCH_NUDGE_AT = 15;
+  const limits = {
+    hardCap,
+    maxToolRounds,
+    webSearchNudgeAt: WEB_SEARCH_NUDGE_AT,
+  };
 
   // Per-stream state. Mutated by the event listeners and read on completion.
   const state = {
@@ -166,40 +177,7 @@ export async function streamChat({
       const { request_id, line } = event.payload || {};
       if (request_id !== state.requestId) return;
       if (!line) return;
-
-      const text = line?.message?.content;
-      if (typeof text === "string" && text.length > 0) {
-        state.content += text;
-        if (!signal?.aborted) onToken?.(text, state.content);
-      }
-
-      // When `think: true`, Ollama streams the model's reasoning in a separate
-      // `thinking` field, distinct from the final-answer `content`.
-      const thinking = line?.message?.thinking;
-      if (typeof thinking === "string" && thinking.length > 0) {
-        state.thinking += thinking;
-        if (!signal?.aborted) onThinking?.(thinking, state.thinking);
-      }
-
-      // Only capture a non-empty tool_calls array. Some models/Ollama emit a
-      // trailing chunk with `tool_calls: []`, which would otherwise wipe the
-      // calls captured earlier in the round — ending the round with zero tool
-      // calls, so the loop finalizes early (Stop button flips to Send) and the
-      // tool never runs.
-      if (
-        Array.isArray(line?.message?.tool_calls) &&
-        line.message.tool_calls.length > 0
-      ) {
-        state.toolCalls = line.message.tool_calls.map((tc) => ({
-          function: {
-            name: tc.function?.name,
-            arguments:
-              typeof tc.function?.arguments === "string"
-                ? safeJsonParse(tc.function.arguments)
-                : tc.function?.arguments || {},
-          },
-        }));
-      }
+      applyStreamLine(line, state, { onToken, onThinking, signal });
     }),
   );
 
@@ -225,43 +203,19 @@ export async function streamChat({
     while (true) {
       if (signal?.aborted) throw new Error("aborted");
 
-      // Budget exhausted: make one final call with NO tools, but keep every
-      // tool result gathered so far so the model answers from what it actually
-      // found — not from training data. (Previously this re-prompted with a
-      // tool-free prompt and discarded the gathered context, producing "I
-      // don't have live access…" answers even after successful searches.)
+      // Budget / wrap-up / rate-limit policy. The force-final round also
+      // strips tools (see includeTools below) and ignores any tool calls
+      // the model still emits, finalizing with whatever text it produced.
       const forceFinal = hardCap !== null && round >= hardCap;
-
-      if (forceFinal) {
-        workingMessages.push({
-          role: "system",
-          content:
-            "You have reached the tool-use limit and can no longer call tools. Write your final answer now using only the information gathered from the tool results above. Do not claim you lack access to real-time or live data — base your answer on what was already retrieved.",
-        });
-      } else if (round === maxToolRounds) {
-        workingMessages.push({
-          role: "system",
-          content:
-            "You have done extensive research. Write your final answer now based on everything gathered above. You may make one more tool call if truly necessary, but aim to conclude.",
-        });
+      for (const msg of systemMessagesForRound(round, limits)) {
+        workingMessages.push(msg);
       }
 
-      if (!forceFinal && round === WEB_SEARCH_NUDGE_AT) {
-        workingMessages.push({
-          role: "system",
-          content:
-            "You have made many web searches. The search provider (DuckDuckGo) rate-limits heavy use, so stop searching now and write your final answer from what you have already gathered. Do not call web_search or web_fetch again.",
-        });
-      }
-
-      const body = {
-        model,
-        messages: workingMessages,
-        stream: true,
-        options: { temperature: 0.7, num_ctx: 8192 },
-      };
-      if (!forceFinal && tools && tools.length > 0) body.tools = tools;
-      if (think !== undefined) body.think = think;
+      const body = buildRequestBody(model, workingMessages, {
+        tools,
+        think,
+        includeTools: !forceFinal,
+      });
 
       // Reset per-round state
       state.requestId = nextRequestId();
@@ -291,9 +245,7 @@ export async function streamChat({
       if (signal?.aborted) throw new Error("aborted");
 
       // Strip leaked tool_call XML some models emit in the text content
-      const content = state.finalContent
-        .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "")
-        .trim();
+      const content = stripLeakedToolCallXml(state.finalContent);
 
       // On the forced-final round we ignore any tool calls the model still
       // emitted and finalize with whatever text it produced.
@@ -309,48 +261,23 @@ export async function streamChat({
         tool_calls: toolCalls,
       });
 
-      let allFailed = true;
-      let quotaError = false;
-      for (const call of toolCalls) {
-        const name = call.function.name;
-        const args = call.function.arguments || {};
-        onToolCall?.(name, args);
+      const { allFailed, quotaError } = await runToolCalls(
+        toolCalls,
+        executeTool,
+        workingMessages,
+        { onToolCall, onToolResult },
+      );
 
-        let result;
-        try {
-          result = executeTool
-            ? await executeTool(name, args)
-            : "Error: no tool executor registered";
-        } catch (err) {
-          result = `Error executing ${name}: ${err.message || err}`;
-        }
-        if (typeof result !== "string" || !result.startsWith("Error")) {
-          allFailed = false;
-        }
-        // A QUOTA/auth failure (bad or exhausted Ollama key) won't recover on
-        // retry — every further web call fails too. Stop the whole stream
-        // rather than re-prompting for a final answer; the UI banner explains.
-        if (typeof result === "string" && result.startsWith("Error: QUOTA:")) {
-          quotaError = true;
-        }
-        onToolResult?.(name, result);
-        workingMessages.push({
-          role: "tool",
-          content: typeof result === "string" ? result : JSON.stringify(result),
-        });
-      }
-
+      // A QUOTA/auth failure (bad or exhausted Ollama key) won't recover on
+      // retry — every further web call fails too. Stop the whole stream
+      // rather than re-prompting for a final answer; the UI banner explains.
       if (quotaError) {
         onDone?.(content);
         return;
       }
 
       if (allFailed && round < maxToolRounds) {
-        workingMessages.push({
-          role: "system",
-          content:
-            "All tool calls in the last round failed. Write your final answer now based on everything gathered so far.",
-        });
+        workingMessages.push({ role: "system", content: ALL_FAILED_MSG });
         round = maxToolRounds;
       }
       round++;
@@ -361,13 +288,5 @@ export async function streamChat({
         un();
       } catch {}
     }
-  }
-}
-
-function safeJsonParse(s) {
-  try {
-    return JSON.parse(s);
-  } catch {
-    return {};
   }
 }
