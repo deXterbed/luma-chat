@@ -4,6 +4,13 @@ use std::time::Duration;
 
 use super::html::{html_to_readable_text, USER_AGENT};
 
+/// Cap on how many bytes of a page body we download. The extracted content is
+/// truncated to 8000 chars anyway, so multi-megabyte pages only waste memory
+/// and time in the HTML parser (and, before this cap, `res.text()` buffered
+/// the entire body unbounded). 2 MB of HTML is far more than enough source
+/// material for an 8000-char extract.
+const MAX_HTML_BYTES: usize = 2 * 1024 * 1024;
+
 #[derive(Debug, Serialize)]
 struct FetchResult {
     #[serde(rename = "httpStatus")]
@@ -41,7 +48,7 @@ pub async fn fetch_page(url: &str) -> String {
         .build()
         .unwrap();
 
-    let res = match client
+    let mut res = match client
         .get(url)
         .header("User-Agent", USER_AGENT)
         .header(
@@ -88,10 +95,30 @@ pub async fn fetch_page(url: &str) -> String {
         return format!("Error: not an HTML page (content-type: {})", content_type);
     }
 
-    let html_text = match res.text().await {
-        Ok(h) => h,
-        Err(e) => return format!("Error: failed to read response ({})", e),
-    };
+    // Stream the body with a hard size cap instead of `res.text()`, which
+    // buffers the entire response unbounded — a huge page (or a hostile
+    // endpoint that streams forever) would balloon memory long before the
+    // 8000-char content truncation below. Once the cap is hit we stop
+    // reading and parse what we have; truncated HTML is fine for both
+    // Readability and the fallback extractor.
+    let mut body: Vec<u8> = Vec::new();
+    loop {
+        match res.chunk().await {
+            Ok(Some(chunk)) => {
+                let remaining = MAX_HTML_BYTES - body.len();
+                if chunk.len() >= remaining {
+                    body.extend_from_slice(&chunk[..remaining]);
+                    break;
+                }
+                body.extend_from_slice(&chunk);
+            }
+            Ok(None) => break,
+            Err(e) => return format!("Error: failed to read response ({})", e),
+        }
+    }
+    // A capped read can split a multibyte character at the boundary;
+    // from_utf8_lossy replaces the fragment instead of failing.
+    let html_text = String::from_utf8_lossy(&body).into_owned();
 
     // Try Readability first
     let (source_html, title) = {
@@ -180,22 +207,113 @@ pub async fn fetch_page(url: &str) -> String {
 }
 
 /// Crude fallback tag stripper for when Readability fails.
+///
+/// Linear scan over the input. The previous implementation rebuilt the
+/// entire remaining string (and lowercased it) once per character —
+/// O(n²) time and allocation, which could hang for seconds on a large
+/// page. This version lowercases once and works with byte offsets.
+/// `to_ascii_lowercase` (not `to_lowercase`) is required to keep byte
+/// offsets aligned with the original: Unicode lowercasing can change
+/// byte lengths (e.g. 'İ' → "i̇"), and the tag names we search for are
+/// ASCII anyway.
 fn strip_tags(html: &str, open: &str, close: &str) -> String {
+    let lower = html.to_ascii_lowercase();
     let mut result = String::with_capacity(html.len());
-    let chars: Vec<char> = html.chars().collect();
     let mut i = 0;
-    while i < chars.len() {
-        let remaining: String = chars[i..].iter().collect();
-        let remaining_lower = remaining.to_lowercase();
-        if remaining_lower.starts_with(open) {
-            // Find matching close
-            if let Some(end) = remaining_lower.find(close) {
-                i += end + close.len();
-                continue;
+    while i < html.len() {
+        match lower[i..].find(open) {
+            Some(rel) => {
+                let start = i + rel;
+                result.push_str(&html[i..start]);
+                if let Some(rel_close) = lower[start..].find(close) {
+                    // Skip the whole <tag …>…</tag> block.
+                    i = start + rel_close + close.len();
+                } else {
+                    // Unclosed tag: keep this character and continue
+                    // scanning after it (same output as the old
+                    // char-by-char version).
+                    let ch_len = html[start..]
+                        .chars()
+                        .next()
+                        .map(|c| c.len_utf8())
+                        .unwrap_or(1);
+                    result.push_str(&html[start..start + ch_len]);
+                    i = start + ch_len;
+                }
+            }
+            None => {
+                result.push_str(&html[i..]);
+                break;
             }
         }
-        result.push(chars[i]);
-        i += 1;
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::strip_tags;
+
+    #[test]
+    fn strips_simple_block() {
+        let html = "<p>a</p><script>var x = 1;</script><p>b</p>";
+        assert_eq!(
+            strip_tags(html, "<script", "</script>"),
+            "<p>a</p><p>b</p>"
+        );
+    }
+
+    #[test]
+    fn strips_multiple_blocks_and_attributes() {
+        let html = r#"x<script src="a.js"></script>y<script>b()</script>z"#;
+        assert_eq!(strip_tags(html, "<script", "</script>"), "xyz");
+    }
+
+    #[test]
+    fn is_case_insensitive() {
+        let html = "a<SCRIPT>x</ScRiPt>b";
+        assert_eq!(strip_tags(html, "<script", "</script>"), "ab");
+    }
+
+    #[test]
+    fn keeps_unclosed_tag() {
+        let html = "a<script>no close here";
+        assert_eq!(strip_tags(html, "<script", "</script>"), html);
+    }
+
+    #[test]
+    fn strips_pair_after_unclosed_open() {
+        // The first <script never closes before the pair; the close it finds
+        // belongs to the later block, so everything between is stripped —
+        // same behavior as the old implementation.
+        let html = "a<script>b<script>c</script>d";
+        assert_eq!(strip_tags(html, "<script", "</script>"), "ad");
+    }
+
+    #[test]
+    fn preserves_multibyte_content() {
+        let html = "héllo<style>.a{}</style>wörld — 日本語";
+        assert_eq!(
+            strip_tags(html, "<style", "</style>"),
+            "héllowörld — 日本語"
+        );
+    }
+
+    #[test]
+    fn no_match_returns_input() {
+        let html = "<p>nothing to strip</p>";
+        assert_eq!(strip_tags(html, "<script", "</script>"), html);
+    }
+
+    #[test]
+    fn large_input_completes_quickly() {
+        // ~1.6 MB with thousands of blocks: the old O(n²) version took
+        // minutes on this; the linear version must finish instantly.
+        let unit = "text before <script>var xxxxxxxxxxxxxxxxxxxx;</script> after\n";
+        let html = unit.repeat(25_000);
+        let out = strip_tags(&html, "<script", "</script>");
+        assert!(!out.contains("<script"));
+        assert!(out.contains("text before"));
+        assert_eq!(out.matches("after").count(), 25_000);
+    }
 }

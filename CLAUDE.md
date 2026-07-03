@@ -39,7 +39,7 @@ npm run test:all   # Both test suites sequentially
 | `tauri/src/db.rs` | SQLite schema, migrations, all CRUD operations |
 | `tauri/src/commands.rs` | Tauri `#[tauri::command]` handlers wrapping DB + web tools |
 | `tauri/src/tools/search.rs` | DuckDuckGo web search (HTTP → HTML parsing) |
-| `tauri/src/tools/fetch.rs` | Web page fetch + Readability extraction |
+| `tauri/src/tools/fetch.rs` | Web page fetch + Readability extraction. Body is streamed with a 2 MB cap (`MAX_HTML_BYTES`) — never revert to `res.text()`, which buffered unbounded. The fallback `strip_tags` is intentionally linear (one `to_ascii_lowercase` + byte-offset walk); use `to_ascii_lowercase` (not `to_lowercase`) so byte offsets stay aligned with the original for slicing.
 | `tauri/src/tools/ollama_search.rs` | Ollama cloud web search/fetch (key-gated); mirrors the DuckDuckGo output shape |
 | `tauri/src/tools/html.rs` | HTML → Markdown text conversion |
 | `tauri/src/tools/mod.rs` | Module re-exports |
