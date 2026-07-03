@@ -5,6 +5,7 @@ mod commands;
 mod db;
 mod tools;
 
+use commands::CancelRegistry;
 use db::Database;
 use tauri::Manager;
 
@@ -25,6 +26,7 @@ pub fn run() {
             // opening, so existing chats survive the path move.
             db::migrate_legacy_db(&dir);
             app.manage(Database::new(dir));
+            app.manage(CancelRegistry::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -48,6 +50,7 @@ pub fn run() {
             commands::ollama_reachable,
             commands::ollama_list_models,
             commands::ollama_chat_stream,
+            commands::ollama_cancel,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

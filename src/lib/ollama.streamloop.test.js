@@ -21,7 +21,9 @@ function installStreamHarness(rounds) {
     // Emit chunks, then done — asynchronously, like real events.
     await Promise.resolve();
     for (const line of script.chunks) {
-      handlers["ollama://chunk"]?.({ payload: { request_id: requestId, line } });
+      handlers["ollama://chunk"]?.({
+        payload: { request_id: requestId, line },
+      });
     }
     handlers["ollama://done"]?.({
       payload: { request_id: requestId, content: script.content },
@@ -273,9 +275,128 @@ describe("streamChat tool-loop onDone timing", () => {
     // The round-1 request must carry the "all tool calls failed" nudge.
     const round1Messages = streamCalls[1][1].body.messages;
     expect(
-      round1Messages.some((m) =>
-        m.role === "system" && /all tool calls.*failed/i.test(m.content),
+      round1Messages.some(
+        (m) => m.role === "system" && /all tool calls.*failed/i.test(m.content),
       ),
     ).toBe(true);
+  });
+});
+
+describe("streamChat abort -> ollama_cancel contract", () => {
+  beforeEach(() => {
+    invoke.mockReset();
+    listen.mockReset();
+  });
+
+  // Drain the microtask queue so an un-awaited streamChat can run its sync
+  // prefix (register listeners, set state.requestId, reach the first
+  // `await invoke("ollama_chat_stream")`) up to a pending state.
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  it("invokes ollama_cancel with the active requestId when the abort signal fires", async () => {
+    const handlers = {};
+    listen.mockImplementation((name, cb) => {
+      handlers[name] = cb;
+      return Promise.resolve(() => {});
+    });
+
+    // Hold the stream open: emit a chunk, then block on a gate the test
+    // releases. This mirrors a real mid-generation abort where Rust hasn't
+    // emitted ollama://done yet.
+    let releaseDone;
+    const doneGate = new Promise((r) => {
+      releaseDone = r;
+    });
+    invoke.mockImplementation(async (cmd, args) => {
+      if (cmd === "ollama_cancel") return true;
+      if (cmd !== "ollama_chat_stream") return undefined;
+      const { requestId } = args;
+      handlers["ollama://chunk"]?.({
+        payload: {
+          request_id: requestId,
+          line: { message: { content: "partial" } },
+        },
+      });
+      await doneGate;
+      handlers["ollama://done"]?.({
+        payload: { request_id: requestId, content: "partial" },
+      });
+      return undefined;
+    });
+
+    const ctrl = new AbortController();
+    const onDone = vi.fn();
+    const onToken = vi.fn();
+    const streamPromise = streamChat({
+      model: "m",
+      messages: [{ role: "user", content: "q" }],
+      onToken,
+      onDone,
+      signal: ctrl.signal,
+    });
+
+    // Let streamChat reach the pending `await invoke("ollama_chat_stream")`.
+    await flush();
+
+    // Stop — should fire ollama_cancel on the Rust side for the active id.
+    ctrl.abort();
+    await flush();
+
+    // Release the Rust side; it emits done with the partial, the loop's
+    // signal?.aborted check then throws and streamChat rejects.
+    releaseDone();
+    await expect(streamPromise).rejects.toThrow("aborted");
+
+    const cancelCalls = invoke.mock.calls.filter(
+      (c) => c[0] === "ollama_cancel",
+    );
+    expect(cancelCalls).toHaveLength(1);
+    expect(cancelCalls[0][1]).toMatchObject({ requestId: expect.any(String) });
+    // The canceled requestId must match the one passed to ollama_chat_stream.
+    const streamCall = invoke.mock.calls.find(
+      (c) => c[0] === "ollama_chat_stream",
+    );
+    expect(cancelCalls[0][1].requestId).toBe(streamCall[1].requestId);
+    // Aborted before finalize, so onDone must not fire.
+    expect(onDone).not.toHaveBeenCalled();
+  });
+
+  it("does not invoke ollama_cancel after the round completes (requestId nulled in the done listener)", async () => {
+    const handlers = {};
+    listen.mockImplementation((name, cb) => {
+      handlers[name] = cb;
+      return Promise.resolve(() => {});
+    });
+
+    invoke.mockImplementation(async (cmd, args) => {
+      if (cmd === "ollama_cancel") return true;
+      if (cmd !== "ollama_chat_stream") return undefined;
+      const { requestId } = args;
+      await Promise.resolve();
+      handlers["ollama://done"]?.({
+        payload: { request_id: requestId, content: "final answer" },
+      });
+      return undefined;
+    });
+
+    const ctrl = new AbortController();
+    const onDone = vi.fn();
+    await streamChat({
+      model: "m",
+      messages: [{ role: "user", content: "q" }],
+      onDone,
+      signal: ctrl.signal,
+    });
+
+    // Now abort AFTER the stream finished. The done listener nulled
+    // state.requestId, so onAbort's `if (id)` guard skips the cancel invoke —
+    // no tombstone is inserted for the dead id.
+    ctrl.abort();
+    await flush();
+
+    const cancelCalls = invoke.mock.calls.filter(
+      (c) => c[0] === "ollama_cancel",
+    );
+    expect(cancelCalls).toHaveLength(0);
   });
 });

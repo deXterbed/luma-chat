@@ -172,6 +172,27 @@ export async function streamChat({
 
   const unlisteners = [];
 
+  // When the UI aborts (Stop button), tell the Rust stream to stop reading
+  // from Ollama too. Without this, the Rust task keeps draining the Ollama
+  // connection (burning GPU / cloud quota) until the round finishes, while
+  // we're stuck awaiting `completionPromise`. The Rust command emits
+  // `ollama://done` with the partial content, which resolves the promise and
+  // lets the loop throw on the `signal.aborted` check below.
+  let onAbort = null;
+  if (signal) {
+    onAbort = () => {
+      const id = state.requestId;
+      if (id) {
+        invoke("ollama_cancel", { requestId: id }).catch(() => {});
+      }
+    };
+    // No pre-check for signal.aborted here: at setup time state.requestId is
+    // null, so there is no Rust stream to cancel yet. An already-aborted
+    // signal is caught by the signal?.aborted check at the top of the loop
+    // below, which throws before any round starts.
+    signal.addEventListener("abort", onAbort);
+  }
+
   unlisteners.push(
     await listen("ollama://chunk", (event) => {
       const { request_id, line } = event.payload || {};
@@ -187,6 +208,11 @@ export async function streamChat({
       if (request_id !== state.requestId) return;
       state.finalContent = content ?? state.content;
       state.resolve?.({ ok: true });
+      // Null the id so a Stop that lands right as the round completes
+      // (Rust emitted done, CancelGuard removed the slot, but abort fires
+      // before the loop clears state.requestId) doesn't insert a tombstone
+      // for a dead id in ollama_cancel — those never get removed.
+      state.requestId = null;
     }),
   );
 
@@ -196,6 +222,8 @@ export async function streamChat({
       if (request_id !== state.requestId) return;
       state.error = error || "Ollama stream error";
       state.resolve?.({ ok: false, error: state.error });
+      // Null the id: same tombstone-leak mitigation as the done listener.
+      state.requestId = null;
     }),
   );
 
@@ -286,6 +314,11 @@ export async function streamChat({
     for (const un of unlisteners) {
       try {
         un();
+      } catch {}
+    }
+    if (onAbort && signal) {
+      try {
+        signal.removeEventListener("abort", onAbort);
       } catch {}
     }
   }
