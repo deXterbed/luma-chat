@@ -238,7 +238,13 @@ describe("sessionStore", () => {
     it("seeds the chat store model immediately", () => {
       store.setState({
         chatSessions: [
-          { id: "sess-1", title: "Test", model: "m", sideChats: [], updated_at: 1000 },
+          {
+            id: "sess-1",
+            title: "Test",
+            model: "m",
+            sideChats: [],
+            updated_at: 1000,
+          },
         ],
       });
 
@@ -248,11 +254,20 @@ describe("sessionStore", () => {
     });
 
     it("falls back to settingsStore defaultModel when no model passed", () => {
-      useSettingsStore.setState({ defaultModel: "default-model", hydrated: true });
+      useSettingsStore.setState({
+        defaultModel: "default-model",
+        hydrated: true,
+      });
 
       store.setState({
         chatSessions: [
-          { id: "sess-1", title: "Test", model: "m", sideChats: [], updated_at: 1000 },
+          {
+            id: "sess-1",
+            title: "Test",
+            model: "m",
+            sideChats: [],
+            updated_at: 1000,
+          },
         ],
       });
 
@@ -326,6 +341,15 @@ describe("sessionStore", () => {
   });
 
   describe("removeSideChat", () => {
+    let mockBumpFocus;
+
+    beforeEach(() => {
+      mockBumpFocus = vi.fn();
+      getSideChatStore.mockReturnValue({
+        getState: () => ({ bumpFocus: mockBumpFocus }),
+      });
+    });
+
     it("removes side chat and updates active if needed", () => {
       store.setState({
         chatSessions: [
@@ -347,6 +371,8 @@ describe("sessionStore", () => {
       expect(session.activeSideChatId).toBe("sc2");
       expect(db.deleteSideChat).toHaveBeenCalledWith("sc1");
       expect(deleteSideChatStore).toHaveBeenCalledWith("sc1");
+      expect(mockBumpFocus).toHaveBeenCalledWith();
+      expect(getSideChatStore).toHaveBeenCalledWith("sc2");
     });
 
     it("falls back to the parent side chat when deleting an active branch", () => {
@@ -370,6 +396,8 @@ describe("sessionStore", () => {
 
       const session = store.getState().chatSessions[0];
       expect(session.activeSideChatId).toBe("sc1");
+      expect(getSideChatStore).toHaveBeenCalledWith("sc1");
+      expect(mockBumpFocus).toHaveBeenCalledWith();
     });
 
     it("falls back to the most recently created tab when there is no parent", () => {
@@ -389,6 +417,8 @@ describe("sessionStore", () => {
 
       const session = store.getState().chatSessions[0];
       expect(session.activeSideChatId).toBe("sc3");
+      expect(getSideChatStore).toHaveBeenCalledWith("sc3");
+      expect(mockBumpFocus).toHaveBeenCalledWith();
     });
 
     it("clears activeSideChatId when removing last side chat", () => {
@@ -409,6 +439,8 @@ describe("sessionStore", () => {
       const session = store.getState().chatSessions[0];
       expect(session.sideChats).toHaveLength(0);
       expect(session.activeSideChatId).toBeNull();
+      // No tab became active, so focus should not be bumped.
+      expect(mockBumpFocus).not.toHaveBeenCalled();
     });
   });
 });

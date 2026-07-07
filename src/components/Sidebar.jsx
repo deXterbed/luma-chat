@@ -36,10 +36,14 @@ export default function Sidebar() {
     setActiveChatId(session.id);
     if (session.messages.length > 0) {
       loadMessages(session.messages, session.model);
-      return;
+    } else {
+      const data = await hydrateSession(session.id);
+      loadMessages(data.messages, session.model);
     }
-    const data = await hydrateSession(session.id);
-    loadMessages(data.messages, session.model);
+    // Focus the main input on chat switch (loadMessages bumps chatNonce but
+    // not focusNonce; bumping here keeps boot hydration — which calls
+    // loadMessages directly — from stealing focus on app start).
+    useMainChat.getState().bumpFocus();
   };
 
   const handleDeleteSession = (session, e) => {

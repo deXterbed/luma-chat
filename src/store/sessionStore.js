@@ -182,6 +182,7 @@ export const useSessionStore = create((set, get) => ({
   removeSideChat: (sessionId, sideChatId) => {
     db.deleteSideChat(sideChatId);
     deleteSideChatStore(sideChatId);
+    let nextActiveId = null;
     set((s) => ({
       chatSessions: s.chatSessions.map((sess) => {
         if (sess.id !== sessionId) return sess;
@@ -199,12 +200,17 @@ export const useSessionStore = create((set, get) => ({
         const fallbackId = parentStillExists
           ? parentId
           : remaining[remaining.length - 1].id;
+        const newActive = wasActive ? fallbackId : sess.activeSideChatId;
+        nextActiveId = newActive;
         return {
           ...sess,
           sideChats: remaining,
-          activeSideChatId: wasActive ? fallbackId : sess.activeSideChatId,
+          activeSideChatId: newActive,
         };
       }),
     }));
+    // Focus the newly-active tab's input when the deleted tab was active.
+    if (nextActiveId && nextActiveId !== sideChatId)
+      getSideChatStore(nextActiveId).getState().bumpFocus();
   },
 }));

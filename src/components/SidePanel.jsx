@@ -55,7 +55,8 @@ export default function SidePanel() {
     useSessionStore();
   const mainChatHasMessages = useMainChat((s) => s.messages.length > 0);
 
-  const currentSession = chatSessions.find((s) => s.id === activeChatId) ?? null;
+  const currentSession =
+    chatSessions.find((s) => s.id === activeChatId) ?? null;
   const sessionSideChats = currentSession?.sideChats ?? [];
   const activeSideChatId = currentSession?.activeSideChatId ?? null;
   const { ordered: orderedSideChats, labels: sideChatLabels } =
@@ -78,7 +79,9 @@ export default function SidePanel() {
     const onMouseMove = (e) => {
       if (!isDragging.current) return;
       const delta = dragStartX.current - e.clientX;
-      setSideWidth(Math.max(320, Math.min(800, dragStartWidth.current + delta)));
+      setSideWidth(
+        Math.max(320, Math.min(800, dragStartWidth.current + delta)),
+      );
     };
     const onMouseUp = () => {
       isDragging.current = false;
@@ -108,7 +111,9 @@ export default function SidePanel() {
       sideChats.forEach((sc) => {
         const tabStore = getSideChatStore(sc.id);
         if (!tabStore.getState().isStreaming)
-          tabStore.getState().loadMessages(sc.messages ?? [], sc.model ?? "minimax-m3:cloud");
+          tabStore
+            .getState()
+            .loadMessages(sc.messages ?? [], sc.model ?? "minimax-m3:cloud");
       });
       if (!sess.activeSideChatId)
         setActiveSideChatId(activeChatId, sideChats[0].id);
@@ -128,6 +133,10 @@ export default function SidePanel() {
   const handleSwitchTab = (id) => {
     if (id === activeSideChatId) return;
     setActiveSideChatId(activeChatId, id);
+    // Focus the newly-active tab's input. Done here (not in setActiveSideChatId)
+    // so main-session switching — which sets a side chat active in the
+    // [activeChatId] effect below — doesn't steal focus from the main input.
+    getSideChatStore(id).getState().bumpFocus();
   };
 
   // Branch a new side chat off of an existing one — the new tab's context
@@ -144,7 +153,11 @@ export default function SidePanel() {
 
       <div
         className={styles.panel}
-        style={{ width: `${sideWidth}px`, minWidth: "320px", maxWidth: "800px" }}
+        style={{
+          width: `${sideWidth}px`,
+          minWidth: "320px",
+          maxWidth: "800px",
+        }}
       >
         <div className={styles.tabBar}>
           {orderedSideChats.map((sc) => (
