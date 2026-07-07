@@ -14,6 +14,7 @@ export default function InputArea({
   autoScrollEnabled,
   onToggleAutoScroll,
   focusNonce,
+  autoFocus = false,
 }) {
   const [input, setInput] = useState("");
   const [attachedImages, setAttachedImages] = useState([]);
@@ -43,17 +44,21 @@ export default function InputArea({
   }, [prefill]);
 
   // Focus the textarea when the parent bumps focusNonce (e.g. on a new
-  // main/side chat). Skip the initial mount so we don't steal focus on
-  // app boot — only respond to subsequent bumps.
+  // main chat). The main pane skips the initial mount so it doesn't steal
+  // focus on app boot; side chats pass autoFocus so their input focuses on
+  // mount (a side chat's InputArea only mounts when the tab is created —
+  // exactly when focus is wanted — and bumpFocus runs in addSideChat
+  // *before* mount, so the skip-initial guard would otherwise swallow it).
   const hasSeenFocusBump = useRef(false);
   useEffect(() => {
     if (!textareaRef.current) return;
-    if (!hasSeenFocusBump.current) {
+    if (!autoFocus && !hasSeenFocusBump.current) {
       hasSeenFocusBump.current = true;
       return;
     }
+    hasSeenFocusBump.current = true;
     textareaRef.current.focus();
-  }, [focusNonce]);
+  }, [focusNonce, autoFocus]);
 
   const doSend = useCallback(() => {
     const text = input.trim();

@@ -319,6 +319,7 @@ export default function ChatPane({
         autoScrollEnabled={autoScrollEnabled}
         onToggleAutoScroll={toggleAutoScroll}
         focusNonce={focusNonce}
+        autoFocus={isSideChat}
       />
     </div>
   );
