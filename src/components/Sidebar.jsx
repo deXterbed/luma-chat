@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Check,
   Plus,
@@ -25,6 +25,11 @@ export default function Sidebar() {
   const { ollamaConnected, setSideChatOpen } = useUiStore();
   const clearMain = useMainChat((s) => s.clearMessages);
   const loadMessages = useMainChat((s) => s.loadMessages);
+
+  const [sidebarWidth, setSidebarWidth] = useState(220);
+  const isDragging = useRef(false);
+  const dragStartX = useRef(0);
+  const dragStartWidth = useRef(0);
 
   const handleNewChat = () => {
     clearMain();
@@ -55,8 +60,44 @@ export default function Sidebar() {
     }
   };
 
+  const onMouseDown = (e) => {
+    isDragging.current = true;
+    dragStartX.current = e.clientX;
+    dragStartWidth.current = sidebarWidth;
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+  };
+
+  useEffect(() => {
+    const onMouseMove = (e) => {
+      if (!isDragging.current) return;
+      const delta = e.clientX - dragStartX.current;
+      setSidebarWidth(
+        Math.max(180, Math.min(400, dragStartWidth.current + delta)),
+      );
+    };
+    const onMouseUp = () => {
+      isDragging.current = false;
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+    };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
+
   return (
-    <div className={styles.sidebar}>
+    <div
+      className={styles.sidebar}
+      style={{
+        width: `${sidebarWidth}px`,
+        minWidth: "180px",
+        maxWidth: "400px",
+      }}
+    >
       <div className={styles.newChatArea}>
         <button onClick={handleNewChat} className={styles.newChatBtn}>
           <Plus size={13} />
@@ -97,13 +138,18 @@ export default function Sidebar() {
           {ollamaConnected ? "Ollama connected" : "Ollama offline"}
         </span>
       </div>
+
+      <div onMouseDown={onMouseDown} className={styles.resizeHandle} />
     </div>
   );
 }
 
 function SessionRow({ session, isActive, onLoad, onDelete }) {
   const [hovered, setHovered] = useState(false);
+  const [titleHovered, setTitleHovered] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const titleRef = useRef(null);
+  const tooltipRef = useRef(null);
 
   useEffect(() => {
     if (!confirming) return;
@@ -129,6 +175,15 @@ function SessionRow({ session, isActive, onLoad, onDelete }) {
     .filter(Boolean)
     .join(" ");
 
+  // Position tooltip when it's shown
+  useEffect(() => {
+    if (titleHovered && titleRef.current && tooltipRef.current) {
+      const rect = titleRef.current.getBoundingClientRect();
+      tooltipRef.current.style.left = `${rect.left}px`;
+      tooltipRef.current.style.top = `${rect.top}px`;
+    }
+  }, [titleHovered]);
+
   return (
     <div
       onClick={onLoad}
@@ -136,6 +191,7 @@ function SessionRow({ session, isActive, onLoad, onDelete }) {
       onMouseLeave={() => {
         setHovered(false);
         setConfirming(false);
+        setTitleHovered(false);
       }}
       className={rowClass}
     >
@@ -165,7 +221,22 @@ function SessionRow({ session, isActive, onLoad, onDelete }) {
       ) : (
         <>
           <MessageSquare size={12} style={{ flexShrink: 0, opacity: 0.6 }} />
-          <span className={styles.rowTitle}>{session.title}</span>
+          <span
+            className={styles.rowTitle}
+            ref={titleRef}
+            onMouseEnter={(e) => {
+              // Check if text is truncated
+              if (
+                titleRef.current &&
+                titleRef.current.scrollWidth > titleRef.current.clientWidth
+              ) {
+                setTitleHovered(true);
+              }
+            }}
+            onMouseLeave={() => setTitleHovered(false)}
+          >
+            {session.title}
+          </span>
           <button
             onClick={handleTrashClick}
             aria-label={`Delete ${session.title}`}
@@ -175,6 +246,11 @@ function SessionRow({ session, isActive, onLoad, onDelete }) {
             <Trash2 size={11} />
           </button>
         </>
+      )}
+      {titleHovered && (
+        <div ref={tooltipRef} className={styles.rowTitleTooltip}>
+          {session.title}
+        </div>
       )}
     </div>
   );
