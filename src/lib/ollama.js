@@ -6,9 +6,17 @@
 // Cloud models (e.g. `minimax-m3:cloud`) route via Ollama Pro subscription;
 // they're just model tags as far as the proxy is concerned.
 
-import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useSettingsStore } from "../store/settingsStore";
+
+let _invoke;
+async function getInvoke() {
+  if (!_invoke) {
+    const tauri = await import("@tauri-apps/api/core");
+    _invoke = tauri.invoke;
+  }
+  return _invoke;
+}
 import {
   applyStreamLine,
   buildRequestBody,
@@ -23,6 +31,7 @@ import {
  */
 export async function isOllamaReachable() {
   try {
+    const invoke = await getInvoke();
     const { ollamaUrl, ollamaApiKey } = useSettingsStore.getState();
     return await invoke("ollama_reachable", {
       ollamaUrl: ollamaUrl || null,
@@ -40,6 +49,7 @@ export async function isOllamaReachable() {
  */
 export async function listLocalModels() {
   try {
+    const invoke = await getInvoke();
     const { ollamaUrl, ollamaApiKey } = useSettingsStore.getState();
     const names = await invoke("ollama_list_models", {
       ollamaUrl: ollamaUrl || null,
@@ -180,9 +190,10 @@ export async function streamChat({
   // lets the loop throw on the `signal.aborted` check below.
   let onAbort = null;
   if (signal) {
-    onAbort = () => {
+    onAbort = async () => {
       const id = state.requestId;
       if (id) {
+        const invoke = await getInvoke();
         invoke("ollama_cancel", { requestId: id }).catch(() => {});
       }
     };
@@ -257,6 +268,7 @@ export async function streamChat({
       });
 
       try {
+        const invoke = await getInvoke();
         const { ollamaUrl, ollamaApiKey } = useSettingsStore.getState();
         await invoke("ollama_chat_stream", {
           requestId: state.requestId,
