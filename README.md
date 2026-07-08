@@ -150,7 +150,7 @@ State lives in four independent Zustand stores. None of them persist to `localSt
 - **rusqlite** — synchronous local persistence in the Rust backend
 - **CSS Modules** — scoped per-component stylesheets
 - **Ollama API** — local and cloud model inference
-- **react-markdown + remark-gfm + remark-math + rehype-katex** — message rendering
+- **react-markdown + remark-gfm + remark-math + temml** — message rendering (math via Temml, not KaTeX/MathJax)
 - **reqwest + scraper + readability** — web search and article extraction in the Rust backend
 - **lucide-react** — icons
 

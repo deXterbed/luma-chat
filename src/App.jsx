@@ -3,8 +3,6 @@ import { PanelRight, PanelRightClose, X } from "lucide-react";
 import TitleBar from "./components/TitleBar";
 import Sidebar from "./components/Sidebar";
 import ChatPane from "./components/ChatPane";
-import SidePanel from "./components/SidePanel";
-import SettingsPage from "./components/SettingsPage";
 import { useUiStore } from "./store/uiStore";
 import { useMainChat } from "./store/chatStore";
 import { isOllamaReachable, listLocalModels } from "./lib/ollama";
@@ -12,6 +10,11 @@ import { db } from "./lib/db";
 import { useDbInit } from "./hooks/useDbInit";
 import styles from "./App.module.css";
 import "./index.css";
+
+// Lazy load components that are not always needed
+import { lazy, Suspense } from "react";
+const SidePanel = lazy(() => import("./components/SidePanel"));
+const SettingsPage = lazy(() => import("./components/SettingsPage"));
 
 export default function App() {
   const {
@@ -44,6 +47,16 @@ export default function App() {
       .catch(() => {});
   }, [setCustomModels]);
 
+  // Warm the Temml module cache on idle so the first math-containing message
+  // doesn't have to wait for the chunk to download — `MathSpan`'s own
+  // `import()` call resolves instantly once this has already run.
+  useEffect(() => {
+    const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 1));
+    const cancelIdle = window.cancelIdleCallback || clearTimeout;
+    const id = idle(() => import("temml/dist/temml.mjs"));
+    return () => cancelIdle(id);
+  }, []);
+
   const quotaBanner = webSearchNotice ? (
     <div className={styles.quotaBanner} role="alert">
       <span className={styles.quotaBannerText}>{webSearchNotice}</span>
@@ -73,7 +86,9 @@ export default function App() {
       <div className={styles.app}>
         <TitleBar />
         {quotaBanner}
-        <SettingsPage />
+        <Suspense fallback={<div className={styles.loading}>Loading...</div>}>
+          <SettingsPage />
+        </Suspense>
       </div>
     );
   }
@@ -105,7 +120,9 @@ export default function App() {
           </div>
 
           <div className={styles.chatArea}>
-            <div className={`${styles.mainPane} ${sideChatOpen ? styles.mainPaneSplit : ""}`}>
+            <div
+              className={`${styles.mainPane} ${sideChatOpen ? styles.mainPaneSplit : ""}`}
+            >
               <ChatPane
                 store={useMainChat}
                 placeholder="Ask anything…"
@@ -113,7 +130,13 @@ export default function App() {
                 compact={sideChatOpen}
               />
             </div>
-            {sideChatOpen && <SidePanel />}
+            {sideChatOpen && (
+              <Suspense
+                fallback={<div className={styles.loading}>Loading...</div>}
+              >
+                <SidePanel />
+              </Suspense>
+            )}
           </div>
         </div>
       </div>

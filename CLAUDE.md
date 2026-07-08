@@ -52,7 +52,7 @@ Commands are registered in `main.rs` via `tauri::generate_handler![]`. When addi
 |---|---|
 | `src/App.jsx` | Layout: TitleBar, Sidebar, main ChatPane, optional SidePanel, SettingsPage |
 | `src/components/MessageBubble.jsx` | One chat bubble: edit mode, selection→"Ask in side chat" popup, thinking block, streaming cursor. Markdown rendering is delegated to `MarkdownBody` |
-| `src/components/MarkdownBody.jsx` | Owns the `<ReactMarkdown>` instance + plugins (GFM, math, KaTeX) + the per-tag `components` overrides that style each markdown element with theme tokens. Exported `buildMarkdownComponents(theme)` is unit-tested in isolation. Extracted from `MessageBubble` so markdown element styling is a localized, open-for-extension concern |
+| `src/components/MarkdownBody.jsx` | Owns the `<ReactMarkdown>` instance + plugins (GFM, math via `remark-math`) + the per-tag `components` overrides that style each markdown element with theme tokens. Exported `buildMarkdownComponents(theme)` is unit-tested in isolation. Extracted from `MessageBubble` so markdown element styling is a localized, open-for-extension concern |
 | `src/components/InputArea.jsx` | Textarea, image attachments, send/stop. Single source of truth for the input box. |
 | `src/components/Sidebar.jsx` | Recent chats list, "New Chat" button, Ollama status |
 | `src/components/SidePanel.jsx` | Side-chat tabs + `+` button to add a new tab |
@@ -117,6 +117,22 @@ Web search has a global default in `useSettingsStore`; the per-pane web toggle i
 
 **All markdown element styling lives in the `components` prop of `<ReactMarkdown>` in `MarkdownBody.jsx` (inline styles), not in CSS.** The `.markdown-body …` block in `index.css` (headings, `strong`, `a`, `blockquote`, `table`) is **dead**: the component applies the CSS-module class `styles.markdownBody` (a hashed name), so the literal global `.markdown-body` selector never matches. Elements without a `components` override (previously the headings, and `table`/`th`/`td`) fall back to browser defaults — which is why h1/h2/h3 were oversized until `h1`/`h2`/`h3` overrides were added, and why tables rendered squished (auto column sizing shrank a column to near-zero, and the bubble's inherited `word-break: break-word` then split words letter-by-letter to fit). The fix: `table` uses `table-layout: fixed` + `width: 100%` so columns split evenly within the bubble, and `th`/`td` override back to `word-break: normal` / `overflow-wrap: normal`. `theme.js` already had `mdThBg`/`mdThText`/`mdTdBorder` tokens defined for this — they were dead until the `table`/`th`/`td` overrides were added. To style a markdown tag, add/edit its entry in the `components` prop in `MarkdownBody.jsx`; don't edit the dead `.markdown-body` rules.
 
+### Math rendering
+
+Math uses `remark-math` + `MathSpan` (`src/components/MathSpan.jsx`) + `temml` — not KaTeX/MathJax. `remark-math` only recognizes `$...$`/`$$...$$`; it does **not** support the `\( \)`/`\[ \]` delimiters most models actually emit, because CommonMark's own backslash-escape handling strips the backslash from `\(`/`\[` before any renderer ever sees it (verified in a real browser — a DOM-post-render delimiter scan, like MathJax's `typesetPromise` or a hand-rolled regex, cannot recover from this since the character is already gone by the time markdown finishes parsing). `src/lib/mathDelimiters.js`'s `normalizeMathDelimiters()` rewrites `\( \)`/`\[ \]` to `$`/`$$` *before* the string reaches `remark`, skipping fenced code blocks so literal backslash-parens in code (regex, shell) aren't touched. `remark-math` turns math into `language-math`/`math-inline`/`math-display` code nodes, which `MarkdownBody`'s `code` component override routes to `MathSpan` for rendering via `temml.renderToString` (dynamically imported).
+
+`temml/dist/temml.mjs` has **only a default export** (no named exports) — import as `const { default: temml } = await import(...)`. Its bundled `renderMathInElement` (unused here, but relevant if ever adopted for DOM-scanning) internally calls the *global* `window.temml.render(...)` instead of its own module scope (to avoid a circular import), so it throws `ReferenceError: temml is not defined` unless `window.temml` is set first — `MathSpan` avoids this entirely by calling `temml.renderToString()` directly instead.
+
+`src/App.jsx` preloads the Temml chunk via `requestIdleCallback` (falls back to `setTimeout` — WKWebView didn't support `requestIdleCallback` until relatively recently) right after mount, so the first math-containing message doesn't pay the ~200KB chunk's download/parse cost; `MathSpan`'s own `import()` of the same specifier then resolves from cache.
+
+### Code splitting / lazy loading
+
+`SidePanel` and `SettingsPage` are `React.lazy()`-wrapped, each declared once at module scope (not inside a render function) — this matters because `React.lazy` caches the resolved module on that one lazy-component reference, so every mount *after* the first renders immediately with no Suspense fallback flash. Both are safe to lazy-load because they only ever mount in response to an explicit user action (opening the side panel / settings) — never during initial app boot.
+
+`ToolActivity` (in `MessageBubble.jsx`) was tried as a `React.lazy()` import and **reverted** — unlike SidePanel/SettingsPage, it isn't gated behind a user action: a restored session's message history is hydrated from SQLite immediately at launch, and any past message with tool calls mounts `ToolActivity` as part of that very first render. Lazy-loading it meant every historical tool-call bubble flashed from a "Loading tools…" Suspense fallback to the real content the instant the chunk resolved — a visible flicker on launch for any chat with prior tool activity, not a deferred load at all. The lesson generalizes: before lazy-loading a component, check whether it can appear in the *initial* render (e.g. via restored/hydrated state), not just whether it's conditionally rendered — "conditional" and "deferred until user action" aren't the same thing.
+
+Don't lazy-load components that are needed on every render of a hot path (e.g. `MarkdownBody`, `ReactMarkdown`, `remark-gfm`) — they were tried as lazy imports and reverted, since a plugin/library value (not a component) can't be meaningfully wrapped in `React.lazy` anyway, and a component that's needed immediately just gains a Suspense-flash for no benefit. Likewise, `App` itself should **not** be lazy-loaded from `main.jsx` — it's always needed immediately on every launch (no conditional), and since this is a local Tauri bundle rather than a public multi-visit website, there's no cross-session caching win to justify the extra async hop before first paint.
+
 Theme persistence lives in the `settings` SQLite table via `useSettingsStore` (no `localStorage`). To prevent a flash of the wrong theme on launch, an inline `<script>` at the top of `<head>` in `index.html` reads a legacy `localStorage['luma:theme']` value (if any), falls back to `prefers-color-scheme`, and sets `data-theme` on `<html>` synchronously before React mounts. `useSettingsStore.hydrate()` then re-applies the authoritative SQLite value (and migrates a legacy `localStorage` entry into SQLite on first run).
 
 ## Common tasks
@@ -145,6 +161,11 @@ Concrete entry points for changes that come up often. Skim this list before grep
 ## Keeping docs in sync
 
 - **Skim `README.md` whenever you touch stack, persistence, or architecture — and fix any drift you find.** README drift is silent (no tests catch it), so the only way to keep it honest is a deliberate check. If a section describes something that no longer matches the code, correct it in the same commit as the code change. Sections most prone to drift: Stack, Persistence/Migrations, Architecture/State stores, and the project layout file tree.
+
+## Vite Dynamic Import Warning Fix
+
+- **Mixed static and dynamic imports of `@tauri-apps/api/core` were causing Vite optimization warnings.** The solution was to standardize on dynamic imports using a lazy-loading pattern with caching in `src/lib/ollama.js`. This eliminated the warning while maintaining all functionality and graceful fallback behavior in browser/dev environments.
+
 
 ## Tauri / WebView pitfalls
 

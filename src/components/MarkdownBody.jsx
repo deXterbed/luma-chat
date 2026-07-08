@@ -1,9 +1,18 @@
 // Markdown rendering concern for chat message bubbles.
 //
-// Owns the `<ReactMarkdown>` instance, its plugins (GFM, math, KaTeX), and the
-// per-tag `components` overrides that style each markdown element with theme
+// Owns the `<ReactMarkdown>` instance, its plugins (GFM), and the per-tag
+// `components` overrides that style each markdown element with theme
 // tokens. Extracted from `MessageBubble.jsx` so element styling is a localized,
 // open-for-extension concern instead of ~150 inline lines inside the bubble.
+//
+// Math (`$...$`, `$$...$$`, and the `\( \)` / `\[ \]` forms many models
+// default to — normalized to `$`/`$$` by `normalizeMathDelimiters` before
+// remark ever sees them, since backslash forms don't survive CommonMark's
+// own escape handling) is parsed by `remark-math` into `language-math` /
+// `math-inline` / `math-display` code nodes, which the `code` override below
+// routes to `MathSpan` for rendering via a dynamically-imported Temml
+// (LaTeX -> native MathML, no bundled font files) — this avoids pulling in a
+// full TeX engine like MathJax/KaTeX for chats that never use math.
 //
 // Per CLAUDE.md: all markdown element styling lives here (inline styles on the
 // `components` overrides), NOT in `index.css` — the global `.markdown-body …`
@@ -12,8 +21,8 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
-import rehypeKatex from "rehype-katex";
-import "katex/dist/katex.min.css";
+import MathSpan from "./MathSpan";
+import { normalizeMathDelimiters } from "../lib/mathDelimiters";
 import { open } from "@tauri-apps/plugin-shell";
 
 const MONO = "'JetBrains Mono', monospace";
@@ -32,6 +41,15 @@ const MONO = "'JetBrains Mono', monospace";
 export function buildMarkdownComponents(t) {
   return {
     code({ className, children, ...props }) {
+      const classes = (className || "").split(" ");
+      if (classes.includes("language-math")) {
+        return (
+          <MathSpan
+            tex={String(children)}
+            display={classes.includes("math-display")}
+          />
+        );
+      }
       const isBlock = String(children).includes("\n") || !!className;
       return isBlock ? (
         <pre
@@ -182,10 +200,9 @@ export default function MarkdownBody({ content, theme }) {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm, remarkMath]}
-      rehypePlugins={[rehypeKatex]}
       components={buildMarkdownComponents(theme)}
     >
-      {content}
+      {normalizeMathDelimiters(content)}
     </ReactMarkdown>
   );
 }

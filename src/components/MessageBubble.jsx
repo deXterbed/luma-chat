@@ -11,8 +11,8 @@ import { useSettingsStore } from "../store/settingsStore";
 import { useSessionStore } from "../store/sessionStore";
 import { useMainChat, getSideChatStore } from "../store/chatStore";
 import { getTheme } from "../theme";
-import ToolActivity from "./ToolActivity";
 import MarkdownBody from "./MarkdownBody";
+import ToolActivity from "./ToolActivity";
 import styles from "./MessageBubble.module.css";
 
 function StreamingCursor() {
