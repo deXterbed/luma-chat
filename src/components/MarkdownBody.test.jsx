@@ -132,9 +132,15 @@ describe("MarkdownBody", () => {
   });
 
   it("renders math via remark-math/rehype-katex without throwing", () => {
-    const c = renderMd("Inline $E=mc^2$ and block:\n\n$$E=mc^2$$");
+    const c = renderMd("Inline $$E=mc^2$$ and block:\n\n$$E=mc^2$$");
     // KaTeX renders into .katex elements; just assert no crash + content present
     expect(c.textContent).toContain("E=mc^2");
+  });
+
+  it("does not treat currency dollar signs as math delimiters", () => {
+    const c = renderMd("**$40 per 100GB** ($0.40/GB)");
+    expect(c.textContent).toContain("$40 per 100GB");
+    expect(c.textContent).toContain("$0.40/GB");
   });
 });
 

@@ -11,7 +11,7 @@ const FENCE_REGEX = /(```[\s\S]*?```|~~~[\s\S]*?~~~)/g;
 function convertSegment(text) {
   return text
     .replace(/\\\[([\s\S]+?)\\\]/g, (_, expr) => `$$${expr}$$`)
-    .replace(/\\\(([^\n]+?)\\\)/g, (_, expr) => `$${expr}$`);
+    .replace(/\\\(([^\n]+?)\\\)/g, (_, expr) => `$$${expr}$$`);
 }
 
 export function normalizeMathDelimiters(content) {

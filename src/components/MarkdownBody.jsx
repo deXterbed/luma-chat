@@ -5,14 +5,19 @@
 // tokens. Extracted from `MessageBubble.jsx` so element styling is a localized,
 // open-for-extension concern instead of ~150 inline lines inside the bubble.
 //
-// Math (`$...$`, `$$...$$`, and the `\( \)` / `\[ \]` forms many models
-// default to — normalized to `$`/`$$` by `normalizeMathDelimiters` before
-// remark ever sees them, since backslash forms don't survive CommonMark's
-// own escape handling) is parsed by `remark-math` into `language-math` /
-// `math-inline` / `math-display` code nodes, which the `code` override below
-// routes to `MathSpan` for rendering via a dynamically-imported Temml
-// (LaTeX -> native MathML, no bundled font files) — this avoids pulling in a
-// full TeX engine like MathJax/KaTeX for chats that never use math.
+// Math (`$$...$$`, and the `\( \)` / `\[ \]` forms many models default to —
+// normalized to `$$...$$` by `normalizeMathDelimiters` before remark ever
+// sees them, since backslash forms don't survive CommonMark's own escape
+// handling) is parsed by `remark-math` into `language-math` / `math-inline` /
+// `math-display` code nodes, which the `code` override below routes to
+// `MathSpan` for rendering via a dynamically-imported Temml (LaTeX -> native
+// MathML, no bundled font files) — this avoids pulling in a full TeX engine
+// like MathJax/KaTeX for chats that never use math. Single-`$` inline math is
+// disabled (`singleDollarTextMath: false`) because chat text routinely
+// contains literal currency dollar signs (e.g. "$40 per 100GB ($0.40/GB)"),
+// which remark-math would otherwise pair up as inline-math delimiters and
+// mangle the text between them — `normalizeMathDelimiters` always emits
+// `$$...$$` (for both inline and block math), so real math still renders.
 //
 // Per CLAUDE.md: all markdown element styling lives here (inline styles on the
 // `components` overrides), NOT in `index.css` — the global `.markdown-body …`
@@ -199,7 +204,10 @@ export function buildMarkdownComponents(t) {
 export default function MarkdownBody({ content, theme }) {
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm, remarkMath]}
+      remarkPlugins={[
+        remarkGfm,
+        [remarkMath, { singleDollarTextMath: false }],
+      ]}
       components={buildMarkdownComponents(theme)}
     >
       {normalizeMathDelimiters(content)}
