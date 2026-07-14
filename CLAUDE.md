@@ -167,7 +167,7 @@ Concrete entry points for changes that come up often. Skim this list before grep
 ## Releasing
 
 - **Version is tracked in three files that must be bumped together**: `package.json`, `tauri/tauri.conf.json`, and `tauri/Cargo.toml`. `tauri/Cargo.lock`'s own `luma` package entry then needs to match `Cargo.toml`'s version — it isn't hand-edited but gets rewritten by any `cargo` invocation (e.g. `cargo check`/`cargo build`, including ones a background tool or hook runs) that touches the workspace, so verify it with `git diff tauri/Cargo.lock` rather than assuming it's stale.
-- The GitHub release itself is CI-driven: `.github/workflows/release.yml` builds and publishes a draft release whenever a `v*` tag is pushed — there's no separate manual release step once the tag is pushed.
+- The GitHub release itself is CI-driven: `.github/workflows/release.yml` builds and publishes a draft release whenever a `v*` tag is pushed — there's no separate manual release step once the tag is pushed. Git tags aren't attached to a branch, so the workflow can't restrict itself to "push to main" via the `on:` trigger alone; instead a `check-main` job runs first and fails the workflow (via `git merge-base --is-ancestor`) if the tagged commit isn't reachable from `origin/main`, and `release` depends on it. Release tags should be cut from `main` (merge `develop` into `main` first) so this check passes.
 - `CHANGELOG.md` is hand-maintained (not auto-generated); update it in the same commit as the version bump, sourcing entries from `git log <prev-tag>..HEAD --oneline`.
 
 ## Vite Dynamic Import Warning Fix
