@@ -164,6 +164,12 @@ Concrete entry points for changes that come up often. Skim this list before grep
 
 - **Skim `README.md` whenever you touch stack, persistence, or architecture — and fix any drift you find.** README drift is silent (no tests catch it), so the only way to keep it honest is a deliberate check. If a section describes something that no longer matches the code, correct it in the same commit as the code change. Sections most prone to drift: Stack, Persistence/Migrations, Architecture/State stores, and the project layout file tree.
 
+## Releasing
+
+- **Version is tracked in three files that must be bumped together**: `package.json`, `tauri/tauri.conf.json`, and `tauri/Cargo.toml`. `tauri/Cargo.lock`'s own `luma` package entry then needs to match `Cargo.toml`'s version — it isn't hand-edited but gets rewritten by any `cargo` invocation (e.g. `cargo check`/`cargo build`, including ones a background tool or hook runs) that touches the workspace, so verify it with `git diff tauri/Cargo.lock` rather than assuming it's stale.
+- The GitHub release itself is CI-driven: `.github/workflows/release.yml` builds and publishes a draft release whenever a `v*` tag is pushed — there's no separate manual release step once the tag is pushed.
+- `CHANGELOG.md` is hand-maintained (not auto-generated); update it in the same commit as the version bump, sourcing entries from `git log <prev-tag>..HEAD --oneline`.
+
 ## Vite Dynamic Import Warning Fix
 
 - **Mixed static and dynamic imports of `@tauri-apps/api/core` were causing Vite optimization warnings.** The solution was to standardize on dynamic imports using a lazy-loading pattern with caching in `src/lib/ollama.js`. This eliminated the warning while maintaining all functionality and graceful fallback behavior in browser/dev environments.
