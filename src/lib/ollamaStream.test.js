@@ -39,11 +39,12 @@ describe("normalizeToolCalls", () => {
       { function: { name: "t", arguments: { q: "x" } } },
     ]);
   });
-  it("falls back to {} when string arguments are invalid JSON", () => {
+  it("falls back to {} and sets parseError when string arguments are invalid JSON", () => {
     const calls = [{ function: { name: "t", arguments: "broken" } }];
-    expect(normalizeToolCalls(calls)).toEqual([
-      { function: { name: "t", arguments: {} } },
-    ]);
+    const result = normalizeToolCalls(calls);
+    expect(result[0].function).toEqual({ name: "t", arguments: {} });
+    expect(typeof result[0].parseError).toBe("string");
+    expect(result[0].parseError.length).toBeGreaterThan(0);
   });
   it("falls back to {} when arguments are missing", () => {
     const calls = [{ function: { name: "t" } }];
@@ -52,6 +53,9 @@ describe("normalizeToolCalls", () => {
     ]);
   });
 
+  // Captured from a real Ollama stream (ornith:9b): tool_calls carry extra
+  // `id` and `function.index` fields and arguments is an OBJECT, not a JSON
+  // string. We must drop the extras and keep name + arguments only.
   // Captured from a real Ollama stream (ornith:9b): tool_calls carry extra
   // `id` and `function.index` fields and arguments is an OBJECT, not a JSON
   // string. We must drop the extras and keep name + arguments only.
@@ -65,6 +69,12 @@ describe("normalizeToolCalls", () => {
     expect(normalizeToolCalls(calls)).toEqual([
       { function: { name: "get_current_time", arguments: {} } },
     ]);
+  });
+
+  it("does not set parseError for valid object arguments", () => {
+    const calls = [{ function: { name: "t", arguments: { q: "x" } } }];
+    const result = normalizeToolCalls(calls);
+    expect(result[0].parseError).toBeUndefined();
   });
 });
 
@@ -329,6 +339,24 @@ describe("stripLeakedToolCallXml", () => {
 });
 
 describe("runToolCalls", () => {
+  it("short-circuits to a descriptive error result when a call has parseError, without invoking executeTool", async () => {
+    const workingMessages = [];
+    const toolCalls = [
+      { function: { name: "web_search", arguments: {} }, parseError: "Unexpected token b" },
+    ];
+    let executed = false;
+    const executeTool = async () => {
+      executed = true;
+      return "should-not-happen";
+    };
+    const { allFailed } = await runToolCalls(toolCalls, executeTool, workingMessages, {});
+    expect(executed).toBe(false);
+    expect(allFailed).toBe(true);
+    expect(workingMessages[0].role).toBe("tool");
+    expect(workingMessages[0].content).toMatch(/could not parse arguments for web_search/);
+    expect(workingMessages[0].content).toMatch(/Unexpected token b/);
+  });
+
   it("executes each call, fires onToolCall/onToolResult, and appends tool messages", async () => {
     const workingMessages = [];
     const events = [];

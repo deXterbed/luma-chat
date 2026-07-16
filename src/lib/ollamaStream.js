@@ -24,16 +24,27 @@ export function safeJsonParse(s) {
 // Map a raw Ollama `tool_calls` array into the normalized shape we keep in
 // state: { function: { name, arguments: object } }. String arguments are
 // parsed as JSON (Ollama sends them as a JSON string), with a {} fallback.
+// When a string fails to parse, `parseError` is set with the JSON.parse error
+// message so `runToolCalls` can feed it back to the model instead of silently
+// running the tool with empty args.
 export function normalizeToolCalls(toolCalls) {
-  return toolCalls.map((tc) => ({
-    function: {
-      name: tc.function?.name,
-      arguments:
-        typeof tc.function?.arguments === "string"
-          ? safeJsonParse(tc.function.arguments)
-          : tc.function?.arguments || {},
-    },
-  }));
+  return toolCalls.map((tc) => {
+    const raw = tc.function?.arguments;
+    let args = {};
+    let parseError;
+    if (typeof raw === "string") {
+      try {
+        args = JSON.parse(raw);
+      } catch (e) {
+        parseError = e?.message || String(e);
+      }
+    } else if (raw && typeof raw === "object") {
+      args = raw;
+    }
+    const entry = { function: { name: tc.function?.name, arguments: args } };
+    if (parseError) entry.parseError = parseError;
+    return entry;
+  });
 }
 
 // -----------------------------------------------------------------------------
@@ -175,12 +186,19 @@ export async function runToolCalls(toolCalls, executeTool, workingMessages, { on
     onToolCall?.(name, args);
 
     let result;
-    try {
-      result = executeTool
-        ? await executeTool(name, args)
-        : NO_EXECUTOR_MSG;
-    } catch (err) {
-      result = `Error executing ${name}: ${err.message || err}`;
+    if (call.parseError) {
+      // The model emitted malformed JSON arguments. Tell it so, instead of
+      // silently running the tool with empty args (which yields a confusing
+      // "empty query" result the model can't recover from).
+      result = `Error: could not parse arguments for ${name} (${call.parseError}). Please retry the tool call with valid JSON arguments.`;
+    } else {
+      try {
+        result = executeTool
+          ? await executeTool(name, args)
+          : NO_EXECUTOR_MSG;
+      } catch (err) {
+        result = `Error executing ${name}: ${err.message || err}`;
+      }
     }
 
     if (typeof result !== "string" || !result.startsWith("Error")) {
