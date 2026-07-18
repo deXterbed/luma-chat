@@ -170,7 +170,7 @@ export function buildMarkdownComponents(t) {
             padding: "6px 10px",
             textAlign: "left",
             wordBreak: "normal",
-            overflowWrap: "normal",
+            overflowWrap: "break-word",
           }}
         >
           {children}
@@ -184,7 +184,7 @@ export function buildMarkdownComponents(t) {
             border: "1px solid " + t.mdTdBorder,
             padding: "6px 10px",
             wordBreak: "normal",
-            overflowWrap: "normal",
+            overflowWrap: "break-word",
           }}
         >
           {children}
