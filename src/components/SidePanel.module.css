@@ -21,12 +21,22 @@
 
 .tabBar {
     display: flex;
-    align-items: center;
+    flex-direction: column;
     border-bottom: 1px solid var(--border);
     background: var(--bg-alt);
     flex-shrink: 0;
     overflow-x: auto;
     scrollbar-width: none;
+}
+
+.tabRow {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.tabRow:not(:first-child) {
+    border-top: 1px solid var(--border);
 }
 
 .tab {
