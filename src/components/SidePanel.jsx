@@ -6,10 +6,20 @@ import styles from "./SidePanel.module.css";
 
 function TabButton({ sc, label, parentLabel, isActive, onClick }) {
   const isStreaming = getSideChatStore(sc.id)((s) => s.isStreaming);
+  const firstQuestion = getSideChatStore(sc.id)((s) =>
+    s.messages.find((m) => m.role === "user")?.content,
+  );
+  const tooltip = firstQuestion
+    ? firstQuestion.length > 200
+      ? `${firstQuestion.slice(0, 200)}…`
+      : firstQuestion
+    : parentLabel
+      ? `Branched from ${parentLabel}`
+      : undefined;
   return (
     <button
       onClick={onClick}
-      title={parentLabel ? `Branched from ${parentLabel}` : undefined}
+      title={tooltip}
       className={`${styles.tab} ${isActive ? styles.tabActive : ""}`}
     >
       {label}
