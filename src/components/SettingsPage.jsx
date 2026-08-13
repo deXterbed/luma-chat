@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, RotateCcw, ChevronDown, Check } from "lucide-react";
+import { ArrowLeft, RotateCcw, ChevronDown, Check, Download, Upload } from "lucide-react";
+import { save as saveDialog, open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useUiStore } from "../store/uiStore";
 import { useSettingsStore, SETTINGS_DEFAULTS } from "../store/settingsStore";
+import { useSessionStore } from "../store/sessionStore";
+import { db } from "../lib/db";
 import styles from "./SettingsPage.module.css";
 
 // Minimal settings page (scope A). Three sections: appearance, default model,
@@ -26,6 +29,11 @@ export default function SettingsPage() {
   const toolCallLimit = useSettingsStore((s) => s.toolCallLimit);
   const setToolCallLimit = useSettingsStore((s) => s.setToolCallLimit);
   const resetToDefaults = useSettingsStore((s) => s.resetToDefaults);
+  const setSessionsFromDb = useSessionStore((s) => s.setSessionsFromDb);
+
+  // Backup / restore
+  const [backupStatus, setBackupStatus] = useState(null); // { kind: "success" | "error", text }
+  const [backupBusy, setBackupBusy] = useState(false);
 
   // Model picker state
   const [modelOpen, setModelOpen] = useState(false);
@@ -83,6 +91,58 @@ export default function SettingsPage() {
     setModelOpen(false);
     setModelSaved(true);
     setTimeout(() => setModelSaved(false), 1200);
+  };
+
+  const handleExport = async () => {
+    setBackupStatus(null);
+    setBackupBusy(true);
+    try {
+      const path = await saveDialog({
+        title: "Export chats",
+        defaultPath: `luma-chats-${new Date().toISOString().slice(0, 10)}.lumabackup`,
+        filters: [{ name: "Luma backup", extensions: ["lumabackup"] }],
+      });
+      if (!path) return;
+      const count = await db.exportChats(path);
+      setBackupStatus({
+        kind: "success",
+        text: `Exported ${count} chat${count === 1 ? "" : "s"}.`,
+      });
+    } catch (err) {
+      setBackupStatus({ kind: "error", text: `Export failed: ${err}` });
+    } finally {
+      setBackupBusy(false);
+    }
+  };
+
+  const handleImport = async () => {
+    setBackupStatus(null);
+    const path = await openDialog({
+      title: "Import chats",
+      multiple: false,
+      filters: [{ name: "Luma backup", extensions: ["lumabackup"] }],
+    });
+    if (!path) return;
+    if (
+      !window.confirm(
+        "Import chats from this backup? Chats already on this machine with matching IDs will be overwritten.",
+      )
+    )
+      return;
+    setBackupBusy(true);
+    try {
+      const count = await db.importChats(path);
+      const sessions = await db.loadSessions();
+      setSessionsFromDb(sessions);
+      setBackupStatus({
+        kind: "success",
+        text: `Imported ${count} chat${count === 1 ? "" : "s"}.`,
+      });
+    } catch (err) {
+      setBackupStatus({ kind: "error", text: `Import failed: ${err}` });
+    } finally {
+      setBackupBusy(false);
+    }
   };
 
   const handleReset = () => {
@@ -364,6 +424,54 @@ export default function SettingsPage() {
                 : `${toolCallLimit} round${toolCallLimit === 1 ? "" : "s"}`}
             </span>
           </div>
+        </section>
+
+        {/* ── Backup & restore ── */}
+        <section className={`${styles.section} ${styles.sectionFull}`}>
+          <div className={styles.sectionHeader}>
+            <h2 className={styles.sectionTitle}>Backup & restore</h2>
+            <p className={styles.sectionHint}>
+              Export all chats (including side chats) to a compressed{" "}
+              <code>.lumabackup</code> file, or import one to restore chats on
+              this machine. Only chat data is included — settings and API
+              keys are not exported.
+            </p>
+          </div>
+
+          <div className={styles.backupRow}>
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={backupBusy}
+              className={styles.resetBtn}
+            >
+              <Download size={11} />
+              Export chats
+            </button>
+            <button
+              type="button"
+              onClick={handleImport}
+              disabled={backupBusy}
+              className={styles.resetBtn}
+            >
+              <Upload size={11} />
+              Import chats
+            </button>
+          </div>
+
+          {backupStatus && (
+            <p
+              className={styles.sectionHint}
+              style={{
+                color:
+                  backupStatus.kind === "error"
+                    ? "var(--status-err)"
+                    : "var(--status-ok)",
+              }}
+            >
+              {backupStatus.text}
+            </p>
+          )}
         </section>
 
         {/* ── Reset ── */}

@@ -161,6 +161,77 @@ pub fn delete_side_chat(db: State<Database>, id: String) {
     db.delete_side_chat(&id);
 }
 
+// ── Backup / restore ──
+//
+// Export/import work against a file path chosen by the frontend via the
+// dialog plugin's native save/open pickers, so this file I/O stays in Rust
+// (no need for the fs plugin just to read/write one file).
+//
+// The backup file is a small custom container (not plain JSON) so a large
+// chat history doesn't produce a huge file and the format is recognizably
+// Luma's own: a 4-byte magic (`LMBK`) + 1-byte format version, followed by
+// gzip-compressed compact (non-pretty) JSON. `flate2` is already pulled in
+// transitively (reqwest's gzip feature), so this adds no new dependency.
+const BACKUP_MAGIC: &[u8; 4] = b"LMBK";
+const BACKUP_FORMAT_VERSION: u8 = 1;
+
+/// Encodes sessions into the on-disk backup container: magic + version
+/// header followed by gzip-compressed compact JSON. Pure/no I/O so it's
+/// unit-testable without a Tauri `State`.
+fn encode_backup(sessions: &[Session]) -> Result<Vec<u8>, String> {
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use std::io::Write;
+
+    let json = serde_json::to_vec(sessions).map_err(|e| e.to_string())?;
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(&json).map_err(|e| e.to_string())?;
+    let compressed = encoder.finish().map_err(|e| e.to_string())?;
+
+    let mut out = Vec::with_capacity(5 + compressed.len());
+    out.extend_from_slice(BACKUP_MAGIC);
+    out.push(BACKUP_FORMAT_VERSION);
+    out.extend_from_slice(&compressed);
+    Ok(out)
+}
+
+/// Inverse of `encode_backup`. Rejects files missing the magic header or
+/// carrying a newer format version than this build understands.
+fn decode_backup(bytes: &[u8]) -> Result<Vec<Session>, String> {
+    use flate2::read::GzDecoder;
+    use std::io::Read;
+
+    if bytes.len() < 5 || &bytes[0..4] != BACKUP_MAGIC {
+        return Err("Not a Luma backup file".to_string());
+    }
+    let version = bytes[4];
+    if version != BACKUP_FORMAT_VERSION {
+        return Err(format!("Unsupported backup format version {version}"));
+    }
+
+    let mut json = String::new();
+    GzDecoder::new(&bytes[5..])
+        .read_to_string(&mut json)
+        .map_err(|e| e.to_string())?;
+    serde_json::from_str(&json).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn export_chats(db: State<Database>, path: String) -> Result<usize, String> {
+    let sessions = db.export_all();
+    let count = sessions.len();
+    let out = encode_backup(&sessions)?;
+    std::fs::write(&path, out).map_err(|e| e.to_string())?;
+    Ok(count)
+}
+
+#[tauri::command]
+pub fn import_chats(db: State<Database>, path: String) -> Result<usize, String> {
+    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    let sessions = decode_backup(&bytes)?;
+    Ok(db.import_all(&sessions))
+}
+
 // ── Custom model commands ──
 
 #[tauri::command]
@@ -577,5 +648,81 @@ mod tests {
             };
         }
         assert!(!registry.inner.lock().unwrap().contains_key(&id));
+    }
+
+    // ── backup format ──
+
+    fn sample_sessions() -> Vec<Session> {
+        vec![Session {
+            id: "s1".to_string(),
+            title: "Title".to_string(),
+            model: "llama3".to_string(),
+            messages: vec![Message {
+                id: "m1".to_string(),
+                role: "user".to_string(),
+                content: "hi".to_string(),
+                images: vec![],
+                tool_calls: vec![],
+                position: 0,
+                is_streaming: false,
+            }],
+            side_chats: vec![],
+            active_side_chat_id: None,
+            created_at: 1,
+            updated_at: 2,
+        }]
+    }
+
+    #[test]
+    fn backup_round_trip_preserves_sessions() {
+        let sessions = sample_sessions();
+        let encoded = encode_backup(&sessions).unwrap();
+        let decoded = decode_backup(&encoded).unwrap();
+        assert_eq!(decoded.len(), 1);
+        assert_eq!(decoded[0].id, "s1");
+        assert_eq!(decoded[0].messages[0].content, "hi");
+    }
+
+    #[test]
+    fn backup_is_smaller_than_pretty_json_for_repetitive_content() {
+        // The whole point of the custom container is to avoid huge files for
+        // chat histories, which are highly repetitive text — gzip should
+        // easily beat pretty-printed JSON here.
+        let mut sessions = sample_sessions();
+        sessions[0].messages = (0..200)
+            .map(|i| Message {
+                id: format!("m{i}"),
+                role: "assistant".to_string(),
+                content: "the quick brown fox jumps over the lazy dog ".repeat(20),
+                images: vec![],
+                tool_calls: vec![],
+                position: i,
+                is_streaming: false,
+            })
+            .collect();
+
+        let pretty_json = serde_json::to_vec_pretty(&sessions).unwrap();
+        let encoded = encode_backup(&sessions).unwrap();
+        assert!(
+            encoded.len() < pretty_json.len() / 2,
+            "expected compressed backup ({}) to be well under half the pretty JSON size ({})",
+            encoded.len(),
+            pretty_json.len()
+        );
+    }
+
+    #[test]
+    fn decode_backup_rejects_missing_magic() {
+        let err = decode_backup(b"not a luma backup").unwrap_err();
+        assert!(err.contains("Not a Luma backup file"));
+    }
+
+    #[test]
+    fn decode_backup_rejects_future_format_version() {
+        let sessions = sample_sessions();
+        let mut encoded = encode_backup(&sessions).unwrap();
+        encoded[4] = BACKUP_FORMAT_VERSION + 1;
+        let err = decode_backup(&encoded).unwrap_err();
+        assert!(err.contains("Unsupported backup format version"));
     }
 }

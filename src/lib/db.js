@@ -51,4 +51,6 @@ export const db = {
   loadSettings: () => invoke("load_settings").then((r) => r ?? {}),
   saveSetting: (key, value) =>
     invoke("save_setting", { key, value }).catch(noop),
+  exportChats: (path) => invoke("export_chats", { path }),
+  importChats: (path) => invoke("import_chats", { path }),
 };

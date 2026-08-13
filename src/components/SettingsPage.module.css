@@ -381,6 +381,12 @@
     color: var(--text-muted);
 }
 
+/* ── Backup & restore ── */
+.backupRow {
+    display: flex;
+    gap: 8px;
+}
+
 /* ── Reset ── */
 .resetRow {
     grid-column: 1 / -1;

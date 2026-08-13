@@ -384,6 +384,54 @@ impl Database {
         }
     }
 
+    /// Full backup: every session with its messages and side chats (with
+    /// their messages) populated. Built from the existing `load_sessions` /
+    /// `load_session_messages` primitives rather than new SQL.
+    pub fn export_all(&self) -> Vec<Session> {
+        self.load_sessions()
+            .into_iter()
+            .map(|mut s| {
+                let data = self.load_session_messages(&s.id);
+                s.messages = data.messages;
+                s.side_chats = data.side_chats;
+                s
+            })
+            .collect()
+    }
+
+    /// Restores a backup produced by `export_all`. Upserts by id (existing
+    /// sessions/messages/side chats with matching ids are overwritten to
+    /// match the backup exactly, via the same upsert primitives used for
+    /// normal saves) and preserves the original `created_at`/`updated_at`
+    /// timestamps instead of stamping "now" like `save_session` does.
+    /// Returns the number of sessions imported.
+    pub fn import_all(&self, sessions: &[Session]) -> usize {
+        for s in sessions {
+            {
+                let conn = self.conn.lock().unwrap();
+                conn.execute(
+                    "INSERT INTO sessions (id, title, model, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)
+                     ON CONFLICT(id) DO UPDATE SET title = excluded.title, model = excluded.model, created_at = excluded.created_at, updated_at = excluded.updated_at",
+                    params![s.id, s.title, s.model, s.created_at, s.updated_at],
+                )
+                .ok();
+            }
+            self.save_messages(&s.id, &s.messages);
+            for (i, sc) in s.side_chats.iter().enumerate() {
+                self.upsert_side_chat(
+                    &s.id,
+                    &sc.id,
+                    &sc.model,
+                    i as i64,
+                    sc.parent_side_chat_id.as_deref(),
+                );
+                self.save_side_chat_messages(&sc.id, &sc.messages);
+            }
+            self.set_active_side_chat(&s.id, s.active_side_chat_id.as_deref());
+        }
+        sessions.len()
+    }
+
     pub fn save_session(&self, id: &str, title: &str, model: &str) {
         let conn = self.conn.lock().unwrap();
         let now = chrono_now();
@@ -846,5 +894,48 @@ mod tests {
 
         eprintln!("Serialization test passed. Full output (truncated):");
         eprintln!("{}", &json[..json.len().min(500)]);
+    }
+
+    // ── export_all / import_all ──
+
+    #[test]
+    fn export_import_round_trip_preserves_data() {
+        let dir1 = std::env::temp_dir().join(format!("luma_export_test_{}", std::process::id()));
+        let db1 = Database::new(dir1.clone());
+
+        db1.save_session("s1", "Title", "llama3");
+        db1.save_messages("s1", &[msg("m1", "user", "hi"), msg("m2", "assistant", "hello")]);
+        db1.upsert_side_chat("s1", "sc1", "llama3", 0, None);
+        db1.save_side_chat_messages("sc1", &[msg("sm1", "user", "side question")]);
+        db1.set_active_side_chat("s1", Some("sc1"));
+
+        let exported = db1.export_all();
+        assert_eq!(exported.len(), 1);
+        assert_eq!(exported[0].messages.len(), 2);
+        assert_eq!(exported[0].side_chats.len(), 1);
+        assert_eq!(exported[0].side_chats[0].messages.len(), 1);
+        assert_eq!(exported[0].active_side_chat_id.as_deref(), Some("sc1"));
+
+        // Import into a fresh, separate DB (simulates restoring on another machine).
+        let dir2 = std::env::temp_dir().join(format!("luma_import_test_{}", std::process::id()));
+        let db2 = Database::new(dir2.clone());
+        let count = db2.import_all(&exported);
+        assert_eq!(count, 1);
+
+        let sessions2 = db2.load_sessions();
+        assert_eq!(sessions2.len(), 1);
+        assert_eq!(sessions2[0].id, "s1");
+        assert_eq!(sessions2[0].title, "Title");
+        assert_eq!(sessions2[0].created_at, exported[0].created_at);
+        assert_eq!(sessions2[0].active_side_chat_id.as_deref(), Some("sc1"));
+
+        let msgs2 = db2.load_session_messages("s1");
+        assert_eq!(msgs2.messages.len(), 2);
+        assert_eq!(msgs2.side_chats.len(), 1);
+        assert_eq!(msgs2.side_chats[0].messages.len(), 1);
+        assert_eq!(msgs2.side_chats[0].messages[0].content, "side question");
+
+        std::fs::remove_dir_all(&dir1).ok();
+        std::fs::remove_dir_all(&dir2).ok();
     }
 }

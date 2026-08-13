@@ -13,6 +13,7 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // Resolve the OS-correct app data dir via Tauri (works on Windows
             // where `HOME` is typically unset; the old `dirs_next()` env-var
@@ -45,6 +46,8 @@ pub fn run() {
             commands::remove_custom_model,
             commands::load_settings,
             commands::save_setting,
+            commands::export_chats,
+            commands::import_chats,
             commands::web_search,
             commands::web_fetch,
             commands::ollama_reachable,
