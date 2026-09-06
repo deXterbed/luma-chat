@@ -168,6 +168,7 @@ Concrete entry points for changes that come up often. Skim this list before grep
 ## Keeping docs in sync
 
 - **Skim `README.md` whenever you touch stack, persistence, or architecture, and fix any drift.** No test catches README drift, so this is a deliberate check. Prone sections: Stack, Persistence/Migrations, Architecture/State stores, project layout tree.
+- **`ROADMAP.md` drifts the same way** — after the Electron→Tauri migration it still described the app as Electron throughout (phases, architecture decisions, status table, open-question paths like `electron/tools/search.js`). When you change the stack or move files, grep `ROADMAP.md` for stale references too. Its Status table's per-phase notes (e.g. `maxToolRounds` value, "In progress" markers) also go stale — verify against the code.
 
 ## Releasing
 

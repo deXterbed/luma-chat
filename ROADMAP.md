@@ -22,72 +22,30 @@ Not a general-purpose chatbot, not a coding agent, not a multi-tool assistant. C
 2. The model responds, and as it surfaces claims, sources, or subtopics, the user opens side chats to **drill into each one independently** — without disturbing the main thread.
 3. Each side chat can search the web, fetch and read sources, and synthesize findings.
 4. Findings from side chats can be promoted back to the main chat's context, so the spine of the research accumulates verified knowledge.
-5. Sessions persist locally (already implemented via SQLite in `electron/db.js`).
+5. Sessions persist locally (SQLite via the Tauri Rust backend, `tauri/src/db.rs`).
 
 ---
 
 ## Phased build plan
 
-### Phase 0 — Foundation (✅ done)
-
-- Electron + React + Vite scaffold
-- Ollama API client with streaming (`src/lib/ollama.js`)
-- Main chat + side chat with isolated stores (`src/store/chatStore.js`)
-- Session persistence (SQLite via Electron main process)
-- Geist font, dark/light theme, polished message bubbles
-
-### Phase 1 — Live web research (the core capability)
-
-**Goal:** make every chat, main and side, capable of searching the web and reading sources, with full visibility into the research process.
-
-#### 1a. Tool-calling infrastructure
-
-- Refactor `streamChat` in `src/lib/ollama.js` to support the tool-call loop:
-  - Accept a `tools` array in the request
-  - Detect `tool_calls` in the streamed response
-  - Pause the stream, execute the tool, append the result as a `role: "tool"` message
-  - Re-call the model with the augmented history, stream the final answer
-- Cap tool rounds at 8 per response to prevent runaway loops
-- Default `num_ctx` to 32K for tool-using models
-- Support any tool format (Ollama, OpenAI-compatible) — define an internal `Tool` interface and adapt
-
-#### 1b. Web search and fetch tools
-
-- **`web_search(query, max_results)`**
-  - Provider: DuckDuckGo HTML scraping (no API key, no rate limits worth mentioning)
-  - Returns: `[{ title, url, snippet }]`
-  - Strip ads, sponsored results, "people also ask" noise
-- **`web_fetch(url)`**
-  - Raw HTTP GET, extract readable content
-  - Use `@mozilla/readability` + `cheerio` for clean markdown output
-  - Return title, content (markdown), canonical URL
-- Both tools run in the **Electron main process** (so the renderer doesn't hit CORS or expose network code) and are exposed via IPC.
+### Phase 1 — Live web research (remaining)
 
 #### 1c. Research-aware UI
 
 The research process must be **visible and auditable**, not hidden. The user is using the LLM to amplify their own critical thinking, so they need to see what the model looked at.
 
-- **Tool call indicators** in the message stream: `🔍 Searching for "..."` → `📖 Reading article...` → `✓ Used 3 sources`
-- **Inline citations**: when the model uses information from a fetched page, render the URL/title as a clickable footnote-style link in the markdown output
-- **Sources panel** per message (collapsible): list of all sources the model consulted for that response, with title, URL, and a 1–2 sentence excerpt
-- **Search activity log** in side chats: a chronological list of every search and fetch the model performed in that branch, so the user can see the research trail
+Still open:
+- **Search activity log** in side chats: a chronological list of every search and fetch the model performed in that branch, so the user can see the research trail.
 
-> **Status:** tool call indicators and the collapsible per-response summary are shipped in `src/components/ToolActivity.jsx`. Inline citations, the per-message sources panel, and the side-chat search log are still open (see Open Question #1 for the citation format).
-
-#### 1d. Settings for search behavior
-
-- Toggle: enable/disable web search per-chat (some sessions don't need it)
-- Toggle: default to search (proactive) vs. search on demand (model decides)
-- Provider: DuckDuckGo for v1, designed so Tavily/Brave/Ollama hosted search can be added later
+> Shipped: tool call indicators and the collapsible per-response summary in `src/components/ToolActivity.jsx`. Inline citations and the per-message sources panel have been dropped as out of scope.
 
 ### Phase 2 — Side chats as first-class research branches
 
 **Goal:** sharpen the branching model so side chats aren't just "another chat," they're "a research subtopic with explicit context."
 
-- **Pre-filled system prompt** when opening a side chat from a main message: "This is a deep-dive branch of the main chat about [topic]. The main chat is researching [parent question]. Your job is to investigate [specific aspect] thoroughly. Cite all sources."
-- **"Promote to main chat"** button on a side chat: synthesizes the side chat's findings into a context message appended to the main chat's history, with citations preserved
-- **Cross-chat research view**: all sources discovered across the main chat and all side chats in a session, deduplicated, with links to where each source was used
-- **Topic context propagation**: when a side chat's main chat updates (e.g. the user continues the main chat), the side chat's system prompt updates to reflect the new state
+- **Topic context propagation**: when a side chat's main chat updates (e.g. the user continues the main chat), the side chat's system prompt updates to reflect the new state.
+
+> Shipped: pre-filled prompts when opening a side chat from a main message. "Promote to main chat" and the cross-chat sources view have been dropped as out of scope.
 
 ### Phase 3 — Research artifacts (optional)
 
@@ -101,7 +59,6 @@ The research process must be **visible and auditable**, not hidden. The user is 
 ### Phase 4 — Polish
 
 - Per-server / per-tool toggles
-- Multi-round tool calls (model can fetch → read → search → fetch again)
 - Error recovery (tool failed → model sees the error and adapts)
 - Tool usage analytics (optional, local-only)
 - Custom system prompt templates (e.g. "Socratic tutor", "Primary source skeptic")
@@ -112,8 +69,8 @@ A dedicated settings page, opened from a gear icon in the title bar. Persistence
 
 Scope tiers, smallest to largest:
 
-- **(A) Minimal — 🟡 In progress** — theme, default model for new chats, default web-search toggle. Replaces the theme's `localStorage` block in `useUiStore` and the hardcoded `minimax-m3:cloud` default in `createChatStore` / `addSideChat`. The per-pane web-search button in `ChatPane` stays as a session override; the new setting just seeds its initial value.
-- **(B) Research-focused** — (A) plus generation parameters exposed to the user: `temperature` (currently hardcoded to `0.7` in `src/lib/ollama.js`), `maxToolRounds` (currently `10`, with a `HARD_CAP = 15` safety ceiling), and the side-chat context bridge constants in `useStreamingChat.js` (last 10 main-chat messages, truncated to 4000 chars). Includes a small note explaining the hard caps so users don't try to disable them.
+- **(A) Minimal — ✅ Done** — theme, default model for new chats, default web-search toggle.
+- **(B) Research-focused** — generation parameters exposed to the user: `temperature` (currently hardcoded to `0.7` in `src/lib/ollamaStream.js`), `num_ctx` (currently `8192`), `maxToolRounds` (currently `10`, with a `HARD_CAP = 15` safety ceiling), and the side-chat context bridge constants in `useStreamingChat.js` (last 10 main-chat messages, truncated to 4000 chars). Includes a small note explaining the hard caps so users don't try to disable them.
 - **(C) Full** — (B) plus data management (clear all sessions with confirmation, export the full research tree as Markdown/JSON, view DB path) and an About section (app version, Ollama connection status, links to README/ROADMAP).
 
 ---
@@ -132,6 +89,8 @@ These were considered and rejected because they don't serve the core research go
 - Codex-style project context (different tool category)
 - HTTP/SSE MCP transports (not needed for v1)
 - Image generation, multimodal outputs beyond vision input
+- Inline citations and per-message sources panel (dropped: added noise without enough value to justify the rendering complexity)
+- "Promote to main chat" and cross-chat sources view (dropped: side-chat isolation is the point; merging findings back undermines the branch model)
 
 If a future capability is proposed, the test is: **does this help a user research and deeply understand a topic?** If no, it doesn't ship.
 
@@ -141,11 +100,8 @@ If a future capability is proposed, the test is: **does this help a user researc
 
 These are decisions we deferred or haven't made yet. Each is tracked here so we don't lose them.
 
-1. **Citation format in markdown** — bracketed `[1]`, footnote-style, or inline links? Affects how readable the output is. Try a few and pick.
-2. **Model recommendations for research** — which Ollama models handle tool calling well and produce reliable citations? Need to test and document. Candidates: Qwen3, Llama 3.1+, GPT-OSS.
-3. ~~**Context length per chat**~~ — resolved: side chats inject the last 10 main-chat messages, hard-capped at 4000 chars. Keeps small local models from overflowing while still providing recent context.
-4. **DDG scraping reliability** — DDG can change their HTML and break scrapers. Fallback strategy? (Tavily free tier? SearXNG self-hosted?)
-5. ~~**Search result quality vs. speed**~~ — resolved: `searchWeb` defaults to `maxResults = 5` per call, hard-capped at 10 (`electron/tools/search.js`). The model can call `web_search` again if it needs more; no fixed "how many to read in full" rule — the model decides.
+1. **Model recommendations for research** — which Ollama models handle tool calling well and produce reliable citations? Need to test and document. Candidates: Qwen3, Llama 3.1+, GPT-OSS.
+2. **DDG scraping reliability** — DDG can change their HTML and break scrapers. Fallback strategy? (Tavily free tier? SearXNG self-hosted?)
 
 ---
 
@@ -156,9 +112,10 @@ These are the "we decided this, don't relitigate" notes.
 - **Tool calling > client-side injection.** The user (and model) need to see the research process; the model needs to choose what to search and what to read in full. Client-side auto-injection hides both.
 - **DuckDuckGo > Ollama hosted web search.** Self-hosted ethos, no API key, no rate limits, no vendor dependency. (Reconsidered: this is a research tool, not a general assistant — staying self-contained matters.)
 - **In-process MCP servers > stdio MCP servers, for now.** No node_modules bloat, no extra runtime, faster startup. The MCP client class will be designed so stdio servers can be added later as an opt-in "power user" feature. *(Not currently scheduled — see Out of scope; this decision is recorded in case we change our minds.)*
-- **Web tools in main process, not renderer.** Avoids CORS, keeps network code in one auditable place, lets us use Node-only libraries (cheerio, readability).
-- **Side chats stay isolated, with optional context bridge.** Implemented in `src/hooks/useStreamingChat.js`: when a side chat starts a stream, it pulls `getApiMessages()` from the supplied `contextStore` (a Zustand hook prop passed by `ChatPane`, typically `useMainChat`), takes the last 10 messages, and injects them as a system-prompt transcript truncated to 4000 chars. We'll extend the same channel for promoted findings and topic-context propagation.
-- **Persistence is local-first.** SQLite via Electron main process, no cloud sync. Sessions are the user's private research, not a collaborative product.
+- **Web tools in the Tauri Rust backend, not renderer.** Avoids CORS, keeps network code in one auditable place, lets us use Rust crates (`scraper`, `readability`).
+- **Side chats stay isolated, with optional context bridge.** Implemented in `src/hooks/useStreamingChat.js`: when a side chat starts a stream, it pulls `getApiMessages()` from the supplied `contextStore` (a Zustand hook prop passed by `ChatPane`, typically `useMainChat`), takes the last 10 messages, and injects them as a system-prompt transcript truncated to 4000 chars.
+- **`num_ctx` defaults to 8192, not 32K.** Larger context is a real VRAM cost on local LLMs, and many locally-run models can't use 32K at all. 8192 is large enough for tool rounds with fetched content while staying usable on modest hardware. Cloud models can raise it per-chat once `num_ctx` is exposed as a setting (Phase 4a-B).
+- **Persistence is local-first.** SQLite via the Tauri Rust backend (`tauri/src/db.rs`), no cloud sync. Sessions are the user's private research, not a collaborative product.
 
 ---
 
@@ -166,11 +123,7 @@ These are the "we decided this, don't relitigate" notes.
 
 | Phase | Status | Notes |
 |---|---|---|
-| Phase 0 — Foundation | ✅ Done | Electron + React + Ollama client + side chats + persistence |
-| Phase 1a — Tool calling | ✅ Done | `streamChat` tool-call loop in `src/lib/ollama.js`, default `maxToolRounds = 5`, `get_current_time` tool |
-| Phase 1b — Web tools | ✅ Done | DDG search (default 5 results, max 10) + HTTP fetch + Readability extraction via Electron main process |
-| Phase 1c — Research UI | 🟡 Partial | `ToolActivity` component — live tool indicators and collapsible per-response summary shipped. Inline citations, sources panel, and side-chat search log still pending. |
-| Phase 1d — Search settings | ✅ Done | Per-pane web search toggle in `uiStore`, filters tools before passing to `streamChat` |
-| Phase 2 — Side chat branches | ⏸ Waiting | Branch context, promote-to-main, cross-chat sources |
-| Phase 3 — Artifacts | ⏸ Future | Export, citation graph, saved notes |
-| Phase 4 — Polish | ⏸ Future | Multi-round tools, error recovery, prompt templates. **4a Settings page (A) 🟡 In progress.** |
+| Phase 1c — Research UI | 🟡 Partial | Tool indicators + collapsible summary shipped. Side-chat search log pending. Inline citations + sources panel dropped. |
+| Phase 2 — Side chat branches | ⏸ Waiting | Topic-context propagation pending. Pre-fill on open shipped; promote-to-main + cross-chat sources dropped. |
+| Phase 3 — Artifacts | ⏸ Future | Export, citation graph, saved notes, PDF reading |
+| Phase 4 — Polish | ⏸ Future | Toggles, error recovery, analytics, prompt templates. **4a(A) ✅ Done; 4a(B) research-focused settings next.** |
