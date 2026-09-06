@@ -23,6 +23,7 @@
 // `components` overrides), NOT in `index.css` — the global `.markdown-body …`
 // block there is dead because the component applies a hashed CSS-module class.
 
+import { useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -46,6 +47,7 @@ const MONO = "'JetBrains Mono', monospace";
 export function buildMarkdownComponents(t) {
   return {
     code({ className, children, ...props }) {
+      const [copied, setCopied] = useState(false);
       const classes = (className || "").split(" ");
       if (classes.includes("language-math")) {
         return (
@@ -56,31 +58,82 @@ export function buildMarkdownComponents(t) {
         );
       }
       const isBlock = String(children).includes("\n") || !!className;
+      const handleCopy = async () => {
+        const text = String(children).replace(/\n$/, "");
+        try {
+          await navigator.clipboard.writeText(text);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        } catch {
+          // ignore
+        }
+      };
       return isBlock ? (
-        <pre
+        <div
           style={{
-            background: t.preBg,
-            border: "1px solid " + t.preBorder,
-            borderRadius: "6px",
-            padding: "12px",
-            overflowX: "auto",
-            margin: "8px 0",
+            position: "relative",
             width: "fit-content",
             maxWidth: "100%",
           }}
         >
-          <code
+          <button
+            onClick={handleCopy}
+            aria-label={copied ? "Copied" : "Copy code"}
+            title={copied ? "Copied" : "Copy code"}
             style={{
-              fontSize: "12px",
-              color: t.preText,
-              fontFamily: MONO,
+              position: "absolute",
+              top: "6px",
+              right: "6px",
+              background: copied ? t.statusOk : t.surfaceHover,
+              color: copied ? "#fff" : t.textMuted,
+              border: "1px solid " + (copied ? t.statusOk : t.borderStrong),
+              borderRadius: "4px",
+              padding: "4px",
+              cursor: "pointer",
+              lineHeight: 0,
+              zIndex: 2,
+              opacity: 0.8,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
             }}
-            className={className}
-            {...props}
           >
-            {children}
-          </code>
-        </pre>
+            {copied ? (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+              </svg>
+            )}
+          </button>
+          <pre
+            style={{
+              background: t.preBg,
+              border: "1px solid " + t.preBorder,
+              borderRadius: "6px",
+              padding: "12px",
+              paddingRight: "36px",
+              overflowX: "auto",
+              margin: "8px 0",
+              width: "100%",
+            }}
+          >
+            <code
+              style={{
+                fontSize: "12px",
+                color: t.preText,
+                fontFamily: MONO,
+              }}
+              className={className}
+              {...props}
+            >
+              {children}
+            </code>
+          </pre>
+        </div>
       ) : (
         <code
           style={{
@@ -202,13 +255,17 @@ export function buildMarkdownComponents(t) {
  * @param {object} props.theme    - theme tokens (from `getTheme(name)`)
  */
 export default function MarkdownBody({ content, theme }) {
+  const components = useMemo(
+    () => buildMarkdownComponents(theme),
+    [theme],
+  );
   return (
     <ReactMarkdown
       remarkPlugins={[
         remarkGfm,
         [remarkMath, { singleDollarTextMath: false }],
       ]}
-      components={buildMarkdownComponents(theme)}
+      components={components}
     >
       {normalizeMathDelimiters(content)}
     </ReactMarkdown>
