@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, useCallback } from "react";
 import MessageBubble from "./MessageBubble";
 import ModelPicker from "./ModelPicker";
 import InputArea from "./InputArea";
@@ -145,10 +145,13 @@ export default function ChatPane({
     });
   };
 
-  const onSend = (text, images) => {
-    justSentRef.current = true;
-    handleSend(text, images);
-  };
+  const onSend = useCallback(
+    (text, images) => {
+      justSentRef.current = true;
+      handleSend(text, images);
+    },
+    [handleSend],
+  );
 
   return (
     <div className={styles.pane}>
@@ -302,6 +305,7 @@ export default function ChatPane({
             showAskInSideChat={true}
             parentSideChatId={isSideChat ? sideChatId : null}
             onResend={isStreaming ? null : resend}
+            onFollowUp={isStreaming ? null : onSend}
           />
         ))}
 

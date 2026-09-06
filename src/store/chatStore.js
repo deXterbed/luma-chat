@@ -37,6 +37,9 @@ export const createChatStore = (id) => {
         images,
         isStreaming: false,
         toolCalls: [],
+        // Transient follow-up suggestion chips (not persisted to SQLite —
+        // regenerate per answer, vanish on reload, like `thinking`).
+        subtopics: [],
       };
       set((s) => ({ messages: [...s.messages, msg] }));
       return msg.id;
@@ -51,6 +54,7 @@ export const createChatStore = (id) => {
         thinking: "",
         isStreaming: true,
         toolCalls: [],
+        subtopics: [],
       };
       set((s) => ({ messages: [...s.messages, msg], isStreaming: true }));
       return id;
@@ -122,6 +126,18 @@ export const createChatStore = (id) => {
         ),
         isStreaming: false,
         abortController: null,
+      }));
+    },
+
+    // Attach follow-up subtopic chips to a finished assistant message. Set by
+    // the dedicated follow-up call fired after `onDone` (see useStreamingChat).
+    // Transient — not persisted to SQLite, so cleared on reload.
+    setSubtopics: (id, subtopics) => {
+      if (!Array.isArray(subtopics) || subtopics.length === 0) return;
+      set((s) => ({
+        messages: s.messages.map((m) =>
+          m.id === id ? { ...m, subtopics } : m,
+        ),
       }));
     },
 

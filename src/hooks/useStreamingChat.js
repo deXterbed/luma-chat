@@ -5,6 +5,7 @@ import {
   buildMainChatSystemPrompt,
   buildSideChatSystemPrompt,
 } from "../lib/systemPrompt";
+import { buildFollowUpMessages, parseSubtopics } from "../lib/followups";
 import { useChatSession } from "./useChatSession";
 import { useSettingsStore } from "../store/settingsStore";
 
@@ -124,6 +125,36 @@ export function useStreamingChat({
               (t) => !["web_search", "web_fetch"].includes(t.function.name),
             );
 
+        // Best-effort follow-up subtopic generation, fired from onDone after
+        // the answer finalizes. Reads the recent conversation from the store,
+        // runs a focused one-shot call (no tools), parses the JSON, and attaches
+        // the chips to the finished message. Swallows all errors — chips are a
+        // progressive enhancement, never a hard failure.
+        const generateSubtopics = async (messageId) => {
+          try {
+            const recent = store.getState().getApiMessages().slice(-4);
+            if (recent.length === 0) return;
+            let raw = "";
+            await streamChat({
+              model,
+              messages: buildFollowUpMessages(recent),
+              tools: [],
+              think: false,
+              // Reuse the pane's abort signal so Stop / sending a new message
+              // cancels this follow-up call too — otherwise it keeps running
+              // (consuming quota/network) after the user has moved on.
+              signal: ctrl.signal,
+              onDone: (full) => {
+                raw = full;
+              },
+            });
+            const subs = parseSubtopics(raw);
+            if (subs.length > 0) store.getState().setSubtopics(messageId, subs);
+          } catch {
+            // follow-up generation is best-effort; never surface an error
+          }
+        };
+
         await streamChat({
           model,
           messages: [...systemMessages, ...apiMessages],
@@ -172,6 +203,13 @@ export function useStreamingChat({
             }
             store.getState().finalizeMessage(streamId, full);
             saveOnReply(streamId, full, model, currentSessionId);
+            // Fire-and-forget: generate clickable follow-up chips via a
+            // dedicated one-shot call after the answer finalizes. The model
+            // won't reliably call a side-effect "suggest" tool on follow-up
+            // turns, so we decouple it into its own focused inference. Best
+            // effort — never surfaces an error or blocks the UI. Subtopics are
+            // transient (not persisted), like `thinking`.
+            generateSubtopics(streamId);
           },
           signal: ctrl.signal,
         });

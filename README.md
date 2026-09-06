@@ -34,6 +34,7 @@ A research workbench for deep-dive topic exploration, built as a dual-pane deskt
 - **Auto-scroll toggle** — a control next to the send button keeps the view pinned to the newest tokens; off by default so you can read back without fighting the scroll
 - **Inline message editing** — edit one of your earlier messages in place and resend from that point
 - **Per-pane thinking toggle** — an icon next to the web-search button turns the model's internal reasoning step on or off for that pane. It defaults on for cloud models (which reason quickly) and off for local models (where the extra reasoning pass is slow), following the pane's model until you toggle it manually
+- **Follow-up subtopic chips** — after an answer finishes, 1–3 clickable follow-up questions appear beneath it. Clicking one sends it as your next message in the same pane, so you keep exploring without retyping. Suggestions come from a separate focused model call made after the answer (not a tool the main response calls) and are transient — they disappear on reload
 
 ### Vision
 - **Image attachments** — file picker or clipboard paste (Ctrl/Cmd+V) into either pane
@@ -45,7 +46,7 @@ The model can call tools as it responds, with full visibility into the process:
 - **`web_fetch(url)`** — fetch a URL and extract clean readable content (Mozilla Readability for DuckDuckGo; Ollama's extractor for the cloud provider)
 - **`get_current_time()`** — local time + timezone
 
-Web tools run in the Tauri Rust backend (no CORS, network code stays in one auditable place) and are exposed to the frontend via `@tauri-apps/api/core`. The tool-call loop is bounded by the **Tool call limit** setting (0 = unlimited); when the limit is reached the model makes one final pass with tools disabled but keeps everything it gathered, so it answers from its findings instead of erroring out. The `ToolActivity` component shows a live indicator (`🔍 Searching for "..."`, `📖 Reading article...`) plus a collapsible summary of every tool used for that response.
+Web tools run in the Tauri Rust backend (no CORS, network code stays in one auditable place) and are exposed to the frontend via `@tauri-apps/api/core`. The tool-call loop is bounded by the **Tool call limit** setting (0 = unlimited); when the limit is reached the model makes one final pass with tools disabled but keeps everything it gathered, so it answers from its findings instead of erroring out. When the model issues several searches in one round they run **in parallel** (capped at 3) so a batch completes in the time of the slowest call, not the sum; a per-response **search budget** (15 `web_search`/`web_fetch` calls, 0 = unlimited) bounds total web activity, after which the model answers from what it gathered. The `ToolActivity` component shows a live indicator (`🔍 Searching for "..."`, `📖 Reading article...`) plus a collapsible summary of every tool used for that response.
 
 ### Search controls
 - **Per-pane web search toggle** — disable web tools in either pane for sessions that don't need them. The renderer filters the tool list before passing it to the model.
@@ -124,7 +125,7 @@ npm run test:run
 npm run test:rust
 ```
 
-The frontend test suite covers Zustand store logic, tool definitions, Ollama utilities, and the DB command wrapper. The Rust test suite covers HTML-to-markdown conversion and DB serialization. No integration tests against a live Ollama instance are included.
+The frontend test suite covers Zustand store logic, tool definitions, Ollama streaming utilities, follow-up subtopic parsing, and the DB command wrapper. The Rust test suite covers HTML-to-markdown conversion and DB serialization. No integration tests against a live Ollama instance are included.
 
 ## Architecture
 
@@ -162,9 +163,9 @@ luma-chat/
 │   └── src/
 │       └── tools/         search.rs, fetch.rs, ollama_search.rs, html.rs (web tools)
 ├── src/                   React UI
-│   ├── components/        ChatPane, SidePanel, Sidebar, SettingsPage, InputArea, MessageBubble, ToolActivity…
+│   ├── components/        ChatPane, SidePanel, Sidebar, SettingsPage, InputArea, MessageBubble, ToolActivity, SubtopicChips…
 │   ├── hooks/             useStreamingChat, useDbInit, useChatSession
-│   ├── lib/               ollama.js, tools.js, db.js, systemPrompt.js
+│   ├── lib/               ollama.js, ollamaStream.js, tools.js, followups.js, db.js, systemPrompt.js
 │   │   └── *.test.js      Unit tests for lib modules
 │   ├── store/             chatStore, sessionStore, uiStore, settingsStore
 │   │   └── *.test.js      Unit tests for store logic

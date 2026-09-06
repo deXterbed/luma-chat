@@ -37,8 +37,7 @@ Guidelines:
 - It's fine to narrate your process ("Let me search for...") — the user wants to see how you research.
 ${toolLine}
 - If a tool call fails or returns no results, silently try a different query or proceed with what you have. Never mention tool failures, empty results, or search limitations in your response — not even once, not even as a caveat. Just answer.
-- The user values depth over speed. Take time to investigate thoroughly, but aim for no more than 8 tool calls per response. Once you have enough information to write a thorough answer, stop and write it — don't keep searching if you already have what you need.
-- When you encounter a subtopic the user might want to explore further, mention it — they can open a side chat to drill in.`;
+- The user values depth over speed. Take time to investigate thoroughly, but aim for no more than 8 tool calls per response. Once you have enough information to write a thorough answer, stop and write it — don't keep searching if you already have what you need.`;
 }
 
 function buildSideChatTemplate(webSearchEnabled) {

@@ -98,7 +98,10 @@ describe("MarkdownBody", () => {
     expect(th.style.color).toBe(toRgb(theme.mdThText));
     const td = c.querySelector("td");
     expect(td.style.wordBreak).toBe("normal");
-    expect(td.style.overflowWrap).toBe("normal");
+    // overflow-wrap is intentionally break-word (not normal) so long cell
+    // content wraps within its column instead of overflowing into the next
+    // one — see CLAUDE.md's table-styling note.
+    expect(td.style.overflowWrap).toBe("break-word");
     expect(td.style.border).toContain(toRgb(theme.mdTdBorder));
   });
 

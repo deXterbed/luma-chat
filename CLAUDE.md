@@ -51,7 +51,7 @@ New commands: add the function in `commands.rs` and register it in `main.rs`'s `
 | File | Purpose |
 |---|---|
 | `src/App.jsx` | Layout: TitleBar, Sidebar, main ChatPane, optional SidePanel, SettingsPage |
-| `src/components/MessageBubble.jsx` | One chat bubble: edit mode, selection→"Ask in side chat" popup, thinking block, streaming cursor. Markdown delegated to `MarkdownBody` |
+| `src/components/MessageBubble.jsx` | One chat bubble: edit mode, selection→"Ask in side chat" popup, thinking block, streaming cursor, follow-up subtopic chips (`SubtopicChips.jsx`). Markdown delegated to `MarkdownBody` |
 | `src/components/MarkdownBody.jsx` | `<ReactMarkdown>` instance + plugins (GFM, math via `remark-math`) + per-tag `components` overrides styled with theme tokens. `buildMarkdownComponents(theme)` is unit-tested in isolation |
 | `src/components/InputArea.jsx` | Textarea, image attachments, send/stop — single source of truth for the input box |
 | `src/components/Sidebar.jsx` | Recent chats list, "New Chat" button, Ollama status |
@@ -59,6 +59,7 @@ New commands: add the function in `commands.rs` and register it in `main.rs`'s `
 | `src/lib/ollama.js` | `streamChat()` coordinates the tool-calling loop. `toolCallLimit` setting (0 = unlimited) caps rounds; once hit, the final round runs tools-disabled but keeps gathered tool results so the model still answers from them |
 | `src/lib/ollamaStream.js` | Pure collaborators extracted from `streamChat`: `applyStreamLine` (parses one streamed JSON line), `normalizeToolCalls`, `systemMessagesForRound` (force-final/wrap-up/web-search-nudge policy), `buildRequestBody`, `stripLeakedToolCallXml`, `runToolCalls` (executes a batch, detects quota/all-failed) |
 | `src/lib/tools.js` | `TOOLS` (Ollama-format definitions) + `executeTool(name, args)` dispatcher |
+| `src/lib/followups.js` | Follow-up subtopic generation: `buildFollowUpMessages` (focused JSON-only prompt) + `parseSubtopics` (robust extraction of ```json fences / prose-wrapped JSON, caps at 3) |
 | `src/lib/db.js` | Thin `invoke()` wrappers for every Tauri DB command |
 | `src/hooks/useStreamingChat.js` | Wires `streamChat` callbacks to store actions; creates the session on first message |
 | `src/hooks/useDbInit.js` | Triggers initial SQLite → store hydration on app start |
@@ -92,6 +93,8 @@ The stream is cancellable mid-flight: `response.chunk()` races a `tokio::sync::N
 A `maxSearches` budget (default 15, 0 = unlimited; `streamChat` param) counts `web_search` + `web_fetch` calls across all rounds **including failures** (a failed call still cost a network request). Once hit, it sets `limits.budgetExhausted`, and the next round becomes a tools-disabled force-final — reusing the same `forceFinal`/`FORCE_FINAL_MSG` path as `toolCallLimit` rather than a separate short-circuit. The budget can overshoot by at most one round's batch (≤3 calls) since it's checked after each round, not per call. `allFailed` (every call in a round errored) still forces a wrap-up next round; this is pre-existing and somewhat aggressive for a research tool (a single transient DDG hiccup ends the session) but left as-is — a follow-up could allow one retry round before wrapping.
 
 `think: true` (per-pane thinking toggle) makes Ollama stream reasoning in a separate `message.thinking` field. `streamChat` accumulates it across all rounds (unlike `content`, not reset per round) via `onThinking`; `MessageBubble` renders it in a collapsible block. It's **transient** — not saved to SQLite, so it disappears on reload (persisting would need a `messages.thinking` migration).
+
+**Follow-up subtopic chips** (`SubtopicChips.jsx`, rendered by `MessageBubble`): after `onDone` finalizes an answer, `useStreamingChat` fires a best-effort dedicated `streamChat` call (no tools, `think: false`, the pane's `ctrl.signal`) whose only job is to suggest 1–3 follow-up questions as JSON; `src/lib/followups.js` builds the focused prompt and robustly parses the result, and `chatStore.setSubtopics` attaches the chips to the message. Clicking a chip sends its `prompt` as the next user message in the current pane via `ChatPane`'s `onFollowUp` (`isStreaming ? null : onSend`). **This is a dedicated call, NOT a `suggest_subtopics` tool** — verified against `deepseek-v4-flash` with real Ollama web search that the model won't reliably call a side-effect tool on follow-up turns (it skips it in favor of writing prose after web-search rounds, even with a strengthened nudge), but a focused single-purpose call produces 1–3 subtopics on every turn. Subtopics are **transient** (not persisted to SQLite, like `thinking`) — they vanish on reload. The call is fire-and-forget and swallows all errors (chips are progressive enhancement; a failed call just renders no chips).
 
 ### Tool execution
 

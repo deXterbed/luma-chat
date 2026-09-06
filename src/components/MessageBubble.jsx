@@ -13,6 +13,7 @@ import { useMainChat, getSideChatStore } from "../store/chatStore";
 import { getTheme } from "../theme";
 import MarkdownBody from "./MarkdownBody";
 import ToolActivity from "./ToolActivity";
+import SubtopicChips from "./SubtopicChips";
 import styles from "./MessageBubble.module.css";
 
 function StreamingCursor() {
@@ -26,6 +27,10 @@ const MessageBubble = memo(function MessageBubble({
   // created by "Ask in side chat" branches off of it instead of the main chat.
   parentSideChatId = null,
   onResend = null,
+  // Sends a follow-up prompt as the next user message in the current pane.
+  // Null while the pane is streaming (chips render disabled). Used by
+  // SubtopicChips for the model's suggest_subtopics follow-up suggestions.
+  onFollowUp = null,
 }) {
   const isUser = message.role === "user";
   const isStreaming = message.isStreaming;
@@ -262,6 +267,9 @@ const MessageBubble = memo(function MessageBubble({
             toolCalls={message.toolCalls}
             isStreaming={isStreaming}
           />
+        )}
+        {!isUser && (
+          <SubtopicChips subtopics={message.subtopics} onFollowUp={onFollowUp} />
         )}
       </div>
 

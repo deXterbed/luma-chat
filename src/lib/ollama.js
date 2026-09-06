@@ -232,7 +232,10 @@ export async function streamChat({
     await listen("ollama://done", (event) => {
       const { request_id, content } = event.payload || {};
       if (request_id !== state.requestId) return;
-      state.finalContent = content ?? state.content;
+      // Use the accumulated state.content if the done payload is empty or missing.
+      // Some models emit an empty content string in the final done event when the
+      // response ends with a tool call, which would otherwise wipe the accumulated answer.
+      state.finalContent = (content && content.length > 0) ? content : state.content;
       state.resolve?.({ ok: true });
       // Null the id so a Stop that lands right as the round completes
       // (Rust emitted done, CancelGuard removed the slot, but abort fires
