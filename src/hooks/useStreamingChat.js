@@ -53,7 +53,10 @@ export function useStreamingChat({
       saveNow(currentSessionId, model);
 
       const streamId = store.getState().addStreamingMessage();
-      let currentCallId = null;
+      // Parallel tool execution means multiple calls can be in flight at once,
+      // so track each call's id by its index in the round's tool_calls batch
+      // (the index onToolCall/onToolResult now carry) instead of a single id.
+      const pendingCallIds = new Map();
       const ctrl = new AbortController();
       store.getState().setAbortController(ctrl);
 
@@ -140,18 +143,22 @@ export function useStreamingChat({
               pendingThinking.rafId = requestAnimationFrame(flushThinking);
             }
           },
-          onToolCall: (name, args) => {
-            currentCallId = store.getState().addToolCall(streamId, name, args);
+          onToolCall: (name, args, index) => {
+            pendingCallIds.set(
+              index,
+              store.getState().addToolCall(streamId, name, args),
+            );
           },
-          onToolResult: (_, result) => {
-            if (currentCallId) {
+          onToolResult: (_, result, index) => {
+            const callId = pendingCallIds.get(index);
+            if (callId) {
               const isError =
                 typeof result === "string" && result.startsWith("Error:");
-              store.getState().completeToolCall(streamId, currentCallId, {
+              store.getState().completeToolCall(streamId, callId, {
                 result: isError ? null : result,
                 error: isError ? result : null,
               });
-              currentCallId = null;
+              pendingCallIds.delete(index);
             }
           },
           onDone: (full) => {

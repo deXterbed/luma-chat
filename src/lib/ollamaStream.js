@@ -104,8 +104,8 @@ const WEB_SEARCH_NUDGE_MSG =
 // `hardCap` is null for unlimited; otherwise once `round >= hardCap` the
 // force-final message is emitted (and tools are stripped for that round
 // by the orchestrator).
-export function systemMessagesForRound(round, { hardCap, maxToolRounds, webSearchNudgeAt }) {
-  const forceFinal = hardCap !== null && round >= hardCap;
+export function systemMessagesForRound(round, { hardCap, maxToolRounds, webSearchNudgeAt, budgetExhausted }) {
+  const forceFinal = (hardCap !== null && round >= hardCap) || budgetExhausted;
   const msgs = [];
   if (forceFinal) {
     msgs.push({ role: "system", content: FORCE_FINAL_MSG });
@@ -166,40 +166,76 @@ export function stripLeakedToolCallXml(content) {
 
 const NO_EXECUTOR_MSG = "Error: no tool executor registered";
 
+// ponytail: cap concurrent tool calls at 3. DuckDuckGo rate-limits heavy use
+// (see WEB_SEARCH_NUDGE_MSG), and firing many requests at once trips it faster
+// than the same number sequential. 3 is a balance between latency (a round of
+// N searches completes in ~max latency, not sum) and provider politeness. Raise
+// only if a provider proves tolerant; lower if rate-limit errors appear.
+const TOOL_CONCURRENCY = 3;
+
+// Run one tool call, returning its result. parseError calls short-circuit to a
+// descriptive error string without invoking executeTool (so the model can retry
+// with valid JSON instead of getting an empty-args result it can't recover from).
+async function runOne(call, executeTool) {
+  const name = call.function.name;
+  if (call.parseError) {
+    return `Error: could not parse arguments for ${name} (${call.parseError}). Please retry the tool call with valid JSON arguments.`;
+  }
+  if (!executeTool) return NO_EXECUTOR_MSG;
+  try {
+    return await executeTool(name, call.function.arguments || {});
+  } catch (err) {
+    return `Error executing ${name}: ${err.message || err}`;
+  }
+}
+
 // Execute a batch of tool calls, appending each result to `workingMessages`
 // as a `role: "tool"` message and firing the onToolCall/onToolResult
 // callbacks. Returns `{ allFailed, quotaError }` so the orchestrator can
 // decide whether to short-circuit.
+//
+// Calls in a round run **concurrently** (capped at TOOL_CONCURRENCY) so a
+// batch of N web searches completes in ~max latency rather than sum. To keep
+// the UI responsive, all `onToolCall` callbacks fire upfront in issue order
+// (so every "searching…" indicator appears immediately), then `onToolResult`
+// callbacks and `workingMessages` appends happen in issue order after the
+// batch settles — Ollama expects tool results in the same order as tool_calls.
 //
 // - `allFailed`: every result was an `Error: …` string (or the executor
 //   threw / was missing). The orchestrator uses this to force a wrap-up.
 // - `quotaError`: some result was an `Error: QUOTA: …` string. The
 //   orchestrator stops the whole stream — quota/auth failures won't recover
 //   on retry, so re-prompting for a final answer would just fail again.
+//
+// The optional `index` passed to onToolCall/onToolResult is the call's position
+// in `toolCalls`, letting the caller track multiple in-flight calls (the
+// serial single-callId pattern doesn't hold once calls overlap).
 export async function runToolCalls(toolCalls, executeTool, workingMessages, { onToolCall, onToolResult }) {
+  // Fire every onToolCall upfront in issue order so the UI shows all in-flight
+  // indicators before any result lands.
+  for (let i = 0; i < toolCalls.length; i++) {
+    onToolCall?.(toolCalls[i].function.name, toolCalls[i].function.arguments || {}, i);
+  }
+
+  // Run in concurrency-capped chunks; collect results indexed by call position
+  // so we can append to workingMessages in issue order regardless of completion
+  // order.
+  const results = new Array(toolCalls.length);
+  for (let start = 0; start < toolCalls.length; start += TOOL_CONCURRENCY) {
+    const chunk = toolCalls.slice(start, start + TOOL_CONCURRENCY);
+    const settled = await Promise.all(
+      chunk.map((call, offset) => runOne(call, executeTool)),
+    );
+    for (let i = 0; i < settled.length; i++) {
+      results[start + i] = settled[i];
+    }
+  }
+
   let allFailed = true;
   let quotaError = false;
-
-  for (const call of toolCalls) {
-    const name = call.function.name;
-    const args = call.function.arguments || {};
-    onToolCall?.(name, args);
-
-    let result;
-    if (call.parseError) {
-      // The model emitted malformed JSON arguments. Tell it so, instead of
-      // silently running the tool with empty args (which yields a confusing
-      // "empty query" result the model can't recover from).
-      result = `Error: could not parse arguments for ${name} (${call.parseError}). Please retry the tool call with valid JSON arguments.`;
-    } else {
-      try {
-        result = executeTool
-          ? await executeTool(name, args)
-          : NO_EXECUTOR_MSG;
-      } catch (err) {
-        result = `Error executing ${name}: ${err.message || err}`;
-      }
-    }
+  for (let i = 0; i < toolCalls.length; i++) {
+    const result = results[i];
+    const name = toolCalls[i].function.name;
 
     if (typeof result !== "string" || !result.startsWith("Error")) {
       allFailed = false;
@@ -208,7 +244,7 @@ export async function runToolCalls(toolCalls, executeTool, workingMessages, { on
       quotaError = true;
     }
 
-    onToolResult?.(name, result);
+    onToolResult?.(name, result, i);
     workingMessages.push({
       role: "tool",
       content: typeof result === "string" ? result : JSON.stringify(result),

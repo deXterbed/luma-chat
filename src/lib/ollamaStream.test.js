@@ -277,6 +277,30 @@ describe("systemMessagesForRound", () => {
     expect(msgs).toHaveLength(1);
     expect(msgs[0].content).toMatch(/tool-use limit/i);
   });
+
+  it("emits the force-final message when budgetExhausted is true (even with no hardCap)", () => {
+    const unlimited = {
+      hardCap: null,
+      maxToolRounds: 10,
+      webSearchNudgeAt: 15,
+      budgetExhausted: true,
+    };
+    const msgs = systemMessagesForRound(0, unlimited);
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].content).toMatch(/tool-use limit/i);
+  });
+
+  it("suppresses the web-search nudge when budgetExhausted", () => {
+    const at = {
+      hardCap: null,
+      maxToolRounds: 10,
+      webSearchNudgeAt: 15,
+      budgetExhausted: true,
+    };
+    const msgs = systemMessagesForRound(15, at);
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].content).toMatch(/tool-use limit/i);
+  });
 });
 
 describe("buildRequestBody", () => {
@@ -376,15 +400,77 @@ describe("runToolCalls", () => {
     );
     expect(allFailed).toBe(false);
     expect(quotaError).toBe(false);
+    // All onToolCall callbacks fire upfront in issue order (so every in-flight
+    // indicator shows immediately), then onToolResult + workingMessages append
+    // in issue order after the batch settles.
     expect(events).toEqual([
       ["call", "web_search", { query: "x" }],
-      ["result", "web_search", "result-for-web_search"],
       ["call", "get_current_time", {}],
+      ["result", "web_search", "result-for-web_search"],
       ["result", "get_current_time", "result-for-get_current_time"],
     ]);
     expect(workingMessages).toEqual([
       { role: "tool", content: "result-for-web_search" },
       { role: "tool", content: "result-for-get_current_time" },
+    ]);
+  });
+
+  it("runs a round's calls concurrently (latency ~max, not sum)", async () => {
+    const toolCalls = [
+      { function: { name: "web_search", arguments: {} } },
+      { function: { name: "web_search", arguments: {} } },
+      { function: { name: "web_search", arguments: {} } },
+    ];
+    const delay = 60; // ms per call
+    const executeTool = () =>
+      new Promise((resolve) => setTimeout(() => resolve("ok"), delay));
+    const start = Date.now();
+    await runToolCalls(toolCalls, executeTool, [], {});
+    const elapsed = Date.now() - start;
+    // Serial would take ~3*delay; parallel (cap 3) ~1*delay. Allow scheduler
+    // slack but stay well under the serial bound.
+    expect(elapsed).toBeLessThan(delay * 2);
+  });
+
+  it("appends results in issue order even when a later call resolves first", async () => {
+    const workingMessages = [];
+    const toolCalls = [
+      { function: { name: "slow", arguments: {} } },
+      { function: { name: "fast", arguments: {} } },
+    ];
+    // "slow" resolves after "fast", but results must append in issue order.
+    const executeTool = (name) =>
+      new Promise((resolve) =>
+        setTimeout(
+          () => resolve(name === "slow" ? "S" : "F"),
+          name === "slow" ? 40 : 5,
+        ),
+      );
+    await runToolCalls(toolCalls, executeTool, workingMessages, {});
+    expect(workingMessages).toEqual([
+      { role: "tool", content: "S" },
+      { role: "tool", content: "F" },
+    ]);
+  });
+
+  it("passes the call index to onToolCall and onToolResult", async () => {
+    const toolCalls = [
+      { function: { name: "a", arguments: {} } },
+      { function: { name: "b", arguments: {} } },
+    ];
+    const calls = [];
+    const results = [];
+    await runToolCalls(toolCalls, async (n) => "r-" + n, [], {
+      onToolCall: (n, a, i) => calls.push([n, i]),
+      onToolResult: (n, r, i) => results.push([n, i]),
+    });
+    expect(calls).toEqual([
+      ["a", 0],
+      ["b", 1],
+    ]);
+    expect(results).toEqual([
+      ["a", 0],
+      ["b", 1],
     ]);
   });
 

@@ -121,6 +121,13 @@ function nextRequestId() {
 
 const WEB_SEARCH_NUDGE_AT = 15;
 
+// ponytail: hard ceiling on total web_search + web_fetch calls across a whole
+// stream. Bounds the cost of the model repeatedly deciding "not enough, search
+// again"; 0 = unlimited. Overshoots by at most one round's batch (≤3 calls)
+// since it's checked after each round, not per call. Surface as a setting later.
+const DEFAULT_MAX_SEARCHES = 15;
+const WEB_TOOL_NAMES = new Set(["web_search", "web_fetch"]);
+
 const ALL_FAILED_MSG =
   "All tool calls in the last round failed. Write your final answer now based on everything gathered so far.";
 
@@ -139,6 +146,7 @@ const ALL_FAILED_MSG =
  * @param {function} [params.onDone]
  * @param {number}  [params.maxToolRounds=10]
  * @param {number}  [params.toolCallLimit=0]   - max tool rounds before a forced tools-disabled final answer; 0 = unlimited
+ * @param {number}  [params.maxSearches=15]    - max web_search + web_fetch calls across the whole stream before a forced final answer; 0 = unlimited
  * @param {AbortSignal} [params.signal]
  */
 export async function streamChat({
@@ -153,6 +161,7 @@ export async function streamChat({
   onDone,
   maxToolRounds = 10,
   toolCallLimit = 0,
+  maxSearches = DEFAULT_MAX_SEARCHES,
   signal,
   think,
 }) {
@@ -165,7 +174,13 @@ export async function streamChat({
     hardCap,
     maxToolRounds,
     webSearchNudgeAt: WEB_SEARCH_NUDGE_AT,
+    // Set to true once `searchCount` reaches `maxSearches`; the next round
+    // becomes a tools-disabled force-final (same path as the hardCap limit).
+    budgetExhausted: false,
   };
+  // Counts web_search + web_fetch calls across all rounds (success or fail —
+  // a failed call still cost a network request and a round).
+  let searchCount = 0;
 
   // Per-stream state. Mutated by the event listeners and read on completion.
   const state = {
@@ -243,9 +258,9 @@ export async function streamChat({
       if (signal?.aborted) throw new Error("aborted");
 
       // Budget / wrap-up / rate-limit policy. The force-final round also
-      // strips tools (see includeTools below) and ignores any tool calls
-      // the model still emits, finalizing with whatever text it produced.
-      const forceFinal = hardCap !== null && round >= hardCap;
+      // strips tools (see includeTools below) and ignores any tool calls the
+      // model still emits, finalizing with whatever text it produced.
+      const forceFinal = (hardCap !== null && round >= hardCap) || limits.budgetExhausted;
       for (const msg of systemMessagesForRound(round, limits)) {
         workingMessages.push(msg);
       }
@@ -307,6 +322,17 @@ export async function streamChat({
         workingMessages,
         { onToolCall, onToolResult },
       );
+
+      // Count this round's web calls against the search budget. Failed calls
+      // count too — they still cost a network request. Once the budget is hit,
+      // the next round becomes a tools-disabled force-final (limits.budgetExhausted
+      // is read by both the forceFinal check above and systemMessagesForRound).
+      if (maxSearches > 0) {
+        searchCount += toolCalls.filter(
+          (tc) => WEB_TOOL_NAMES.has(tc.function.name),
+        ).length;
+        if (searchCount >= maxSearches) limits.budgetExhausted = true;
+      }
 
       // A QUOTA/auth failure (bad or exhausted Ollama key) won't recover on
       // retry — every further web call fails too. Stop the whole stream

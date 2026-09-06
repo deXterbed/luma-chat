@@ -187,6 +187,67 @@ describe("streamChat tool-loop onDone timing", () => {
     expect(streamCalls[1][1].body).not.toHaveProperty("tools");
   });
 
+  it("forces a tools-disabled final round once maxSearches is reached, even with unlimited toolCallLimit", async () => {
+    installStreamHarness([
+      // Round 0: model requests two web searches in one round.
+      {
+        chunks: [
+          {
+            message: {
+              tool_calls: [
+                { function: { name: "web_search", arguments: { query: "a" } } },
+                { function: { name: "web_search", arguments: { query: "b" } } },
+              ],
+            },
+          },
+        ],
+        content: "",
+      },
+      // Round 1: budget exhausted (2 searches, maxSearches=2) → force-final,
+      // tools stripped. Model answers from gathered results.
+      {
+        chunks: [{ message: { content: "Here is what I found." } }],
+        content: "Here is what I found.",
+      },
+    ]);
+
+    const events = [];
+    let doneText = null;
+    await streamChat({
+      model: "m",
+      messages: [{ role: "user", content: "q" }],
+      tools: [{ type: "function", function: { name: "web_search" } }],
+      maxSearches: 2,
+      executeTool: async () => {
+        events.push("toolExec");
+        return "results";
+      },
+      onToolCall: () => events.push("toolCall"),
+      onDone: (full) => {
+        doneText = full;
+        events.push("done");
+      },
+    });
+
+    // Both searches ran in round 0; round 1 is the forced final answer.
+    expect(events).toEqual(["toolCall", "toolCall", "toolExec", "toolExec", "done"]);
+    expect(doneText).toBe("Here is what I found.");
+
+    const streamCalls = invoke.mock.calls.filter(
+      (c) => c[0] === "ollama_chat_stream",
+    );
+    expect(streamCalls).toHaveLength(2);
+    // The force-final round must not offer tools to the model.
+    expect(streamCalls[1][1].body).not.toHaveProperty("tools");
+    // And must carry the force-final system message.
+    const round1Messages = streamCalls[1][1].body.messages;
+    expect(
+      round1Messages.some(
+        (m) => m.role === "system" && /tool-use limit/i.test(m.content),
+      ),
+    ).toBe(true);
+  });
+
   it("stops the stream immediately on a QUOTA tool error, without a further round", async () => {
     installStreamHarness([
       {

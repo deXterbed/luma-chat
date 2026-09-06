@@ -84,7 +84,7 @@ These were considered and rejected because they don't serve the core research go
 - Code execution sandbox
 - GitHub / Postgres / database MCP servers
 - Voice I/O
-- Multi-agent orchestration
+- Multi-agent orchestration (revisit only if **model routing** — a cheap-fast model for search triage plus a strong model for synthesis — proves necessary; full planner/searcher/accumulator agents clash with the local-LLM VRAM constraint that drove the `num_ctx: 8192` decision and with the "research process must be visible and auditable" principle in Phase 1c. The single-model `streamChat` loop already fills the planner + accumulator roles; parallelize tool execution and add a search budget before considering separate agents.)
 - Custom personas (debatable — could fit a research tool)
 - Codex-style project context (different tool category)
 - HTTP/SSE MCP transports (not needed for v1)
