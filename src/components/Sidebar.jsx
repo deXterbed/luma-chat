@@ -8,10 +8,11 @@ import {
   WifiOff,
   X,
 } from "lucide-react";
-import { useMainChat } from "../store";
+import { useMainChat } from "../store/chatStore";
 import { db } from "../lib/db";
 import { useUiStore } from "../store/uiStore";
 import { useSessionStore } from "../store/sessionStore";
+import { useDragResize } from "../hooks/useDragResize";
 import styles from "./Sidebar.module.css";
 
 export default function Sidebar() {
@@ -26,10 +27,11 @@ export default function Sidebar() {
   const clearMain = useMainChat((s) => s.clearMessages);
   const loadMessages = useMainChat((s) => s.loadMessages);
 
-  const [sidebarWidth, setSidebarWidth] = useState(220);
-  const isDragging = useRef(false);
-  const dragStartX = useRef(0);
-  const dragStartWidth = useRef(0);
+  const { width: sidebarWidth, onMouseDown } = useDragResize({
+    initial: 220,
+    min: 180,
+    max: 400,
+  });
 
   const handleNewChat = () => {
     clearMain();
@@ -59,35 +61,6 @@ export default function Sidebar() {
       clearMain();
     }
   };
-
-  const onMouseDown = (e) => {
-    isDragging.current = true;
-    dragStartX.current = e.clientX;
-    dragStartWidth.current = sidebarWidth;
-    document.body.style.userSelect = "none";
-    document.body.style.cursor = "col-resize";
-  };
-
-  useEffect(() => {
-    const onMouseMove = (e) => {
-      if (!isDragging.current) return;
-      const delta = e.clientX - dragStartX.current;
-      setSidebarWidth(
-        Math.max(180, Math.min(400, dragStartWidth.current + delta)),
-      );
-    };
-    const onMouseUp = () => {
-      isDragging.current = false;
-      document.body.style.userSelect = "";
-      document.body.style.cursor = "";
-    };
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
-    };
-  }, []);
 
   return (
     <div

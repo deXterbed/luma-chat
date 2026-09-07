@@ -63,6 +63,7 @@ New commands: add the function in `commands.rs` and register it in `main.rs`'s `
 | `src/lib/db.js` | Thin `invoke()` wrappers for every Tauri DB command |
 | `src/hooks/useStreamingChat.js` | Wires `streamChat` callbacks to store actions; creates the session on first message |
 | `src/hooks/useDbInit.js` | Triggers initial SQLite → store hydration on app start |
+| `src/hooks/useDragResize.js` | Shared drag-to-resize for the sidebar + side-panel width handles (`invert` flips drag direction) |
 
 ### State management (Zustand)
 

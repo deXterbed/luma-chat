@@ -6,18 +6,6 @@
 // Tauri event listeners and the round loop.
 
 // -----------------------------------------------------------------------------
-// JSON helpers
-// -----------------------------------------------------------------------------
-
-export function safeJsonParse(s) {
-  try {
-    return JSON.parse(s);
-  } catch {
-    return {};
-  }
-}
-
-// -----------------------------------------------------------------------------
 // Tool-call normalization
 // -----------------------------------------------------------------------------
 
@@ -140,21 +128,7 @@ export function buildRequestBody(model, messages, { tools, think, includeTools }
 // Content post-processing
 // -----------------------------------------------------------------------------
 
-const LEAKED_TOOL_CALL_RE = buildLeakedToolCallRegex();
-
-// Some models echo their tool calls back as inline XML in the text content.
-// Strip those blocks so they never reach the rendered answer.
-function buildLeakedToolCallRegex() {
-  const open = String.fromCharCode(60) + "tool_call" + String.fromCharCode(62);
-  const close =
-    String.fromCharCode(60) + "/tool_call" + String.fromCharCode(62);
-  return new RegExp(
-    open.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") +
-      "[\\s\\S]*?" +
-      close.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-    "g",
-  );
-}
+const LEAKED_TOOL_CALL_RE = /<tool_call>[\s\S]*?<\/tool_call>/g;
 
 export function stripLeakedToolCallXml(content) {
   return content.replace(LEAKED_TOOL_CALL_RE, "").trim();

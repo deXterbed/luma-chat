@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import ChatPane from "./ChatPane";
 import { useSessionStore } from "../store/sessionStore";
 import { useMainChat, getSideChatStore } from "../store/chatStore";
+import { useDragResize } from "../hooks/useDragResize";
 import styles from "./SidePanel.module.css";
 
 function TabButton({ sc, label, parentLabel, isActive, onClick }) {
@@ -108,39 +109,12 @@ export default function SidePanel() {
     activeSideChatId,
   );
 
-  const [sideWidth, setSideWidth] = useState(600);
-  const isDragging = useRef(false);
-  const dragStartX = useRef(0);
-  const dragStartWidth = useRef(0);
-
-  const onMouseDown = (e) => {
-    isDragging.current = true;
-    dragStartX.current = e.clientX;
-    dragStartWidth.current = sideWidth;
-    document.body.style.userSelect = "none";
-    document.body.style.cursor = "col-resize";
-  };
-
-  useEffect(() => {
-    const onMouseMove = (e) => {
-      if (!isDragging.current) return;
-      const delta = dragStartX.current - e.clientX;
-      setSideWidth(
-        Math.max(320, Math.min(800, dragStartWidth.current + delta)),
-      );
-    };
-    const onMouseUp = () => {
-      isDragging.current = false;
-      document.body.style.userSelect = "";
-      document.body.style.cursor = "";
-    };
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
-    };
-  }, []);
+  const { width: sideWidth, onMouseDown } = useDragResize({
+    initial: 600,
+    min: 320,
+    max: 800,
+    invert: true,
+  });
 
   // On session switch: seed each tab's store from sessionStore (persisted messages).
   // New tabs get an auto-created empty store on first getSideChatStore(id) call.

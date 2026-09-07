@@ -71,27 +71,6 @@ export async function fileToBase64(file) {
   });
 }
 
-// Check if model supports vision
-export function isVisionModel(modelName) {
-  const visionModels = [
-    "minimax",
-    "qwen2.5vl",
-    "qwen2-vl",
-    "llava",
-    "llava-phi3",
-    "moondream",
-    "bakllava",
-    "minicpm-v",
-    "cogvlm",
-    "internvl",
-    "gemma3",
-    "phi3.5-vision",
-    "pixtral",
-  ];
-  const lower = modelName.toLowerCase();
-  return visionModels.some((v) => lower.includes(v));
-}
-
 // =============================================================================
 // Tool-calling streaming chat
 // =============================================================================

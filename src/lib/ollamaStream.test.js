@@ -6,7 +6,6 @@ import {
   buildRequestBody,
   stripLeakedToolCallXml,
   runToolCalls,
-  safeJsonParse,
 } from "./ollamaStream";
 
 // Build the leaked-tool-call XML marker via concatenation so the literal
@@ -16,15 +15,6 @@ const CLOSE = String.fromCharCode(60) + "/tool_call" + String.fromCharCode(62);
 function leaked(inner) {
   return OPEN + inner + CLOSE;
 }
-
-describe("safeJsonParse", () => {
-  it("parses valid JSON", () => {
-    expect(safeJsonParse('{"a":1}')).toEqual({ a: 1 });
-  });
-  it("returns empty object on invalid JSON", () => {
-    expect(safeJsonParse("not json")).toEqual({});
-  });
-});
 
 describe("normalizeToolCalls", () => {
   it("passes through object arguments unchanged", () => {
