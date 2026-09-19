@@ -14,6 +14,8 @@ The side-chat model is the **fundamental interaction pattern**, not a UX extra: 
 
 Not a general-purpose chatbot, not a coding agent, not a multi-tool assistant. Capabilities that don't directly serve "research a topic deeply" are out of scope, even if they're individually useful.
 
+**Reading a codebase to understand it is research**, though — so Codebase mode (a project root plus read-only file tools) is in scope. It stays read-only by design: no writes, no shell, no code execution, no task completion. That is what keeps "not a coding agent" true.
+
 ---
 
 ## Core interaction loop
@@ -79,18 +81,28 @@ Scope tiers, smallest to largest:
 
 These were considered and rejected because they don't serve the core research goal:
 
-- Filesystem MCP server (user can drag files in if needed)
+- Filesystem MCP server (user can drag files in if needed) — Codebase mode adds root-bounded read tools instead; see the reversal note below
 - Shell execution (too dangerous, not research)
 - Code execution sandbox
 - GitHub / Postgres / database MCP servers
 - Voice I/O
 - Multi-agent orchestration (revisit only if **model routing** — a cheap-fast model for search triage plus a strong model for synthesis — proves necessary; full planner/searcher/accumulator agents clash with the local-LLM VRAM constraint that drove the `num_ctx: 8192` decision and with the "research process must be visible and auditable" principle in Phase 1c. The single-model `streamChat` loop already fills the planner + accumulator roles; parallelize tool execution and add a search budget before considering separate agents.)
 - Custom personas (debatable — could fit a research tool)
-- Codex-style project context (different tool category)
 - HTTP/SSE MCP transports (not needed for v1)
 - Image generation, multimodal outputs beyond vision input
 - Inline citations and per-message sources panel (dropped: added noise without enough value to justify the rendering complexity)
 - "Promote to main chat" and cross-chat sources view (dropped: side-chat isolation is the point; merging findings back undermines the branch model)
+
+### Reversed: Codebase mode (read-only project research)
+
+Two cuts above were reversed, because they were rejected on "different tool category" grounds rather than by the research test:
+
+- **Codex-style project context** — a project root plus file tools is *comprehension*, not task completion. Reading a codebase to understand it is research, so it passes the test.
+- **Filesystem access** — the original cut was a broad *Filesystem MCP server*. Codebase instead adds three root-bounded read tools (`read_file`, `search_code`, `list_dir`) to the existing Tauri tool layer: a much narrower surface.
+
+It stays read-only by design: **no writes, no shell, no code execution, no task completion.** Shell execution, code execution, database tools, and MCP servers remain out of scope.
+
+Build plan: `plan.md`.
 
 If a future capability is proposed, the test is: **does this help a user research and deeply understand a topic?** If no, it doesn't ship.
 
