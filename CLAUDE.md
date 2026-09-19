@@ -35,7 +35,8 @@ npm run test:all   # Both test suites sequentially
 
 | File | Purpose |
 |---|---|
-| `tauri/src/main.rs` | App entry, window config, plugin + command registration |
+| `tauri/src/main.rs` | Binary entry point — six lines calling `luma_lib::run()` |
+| `tauri/src/lib.rs` | `run()`: Tauri `Builder` setup (resolves `app_data_dir`, `manage()`s `Database` + `CancelRegistry`), plugin init, and the `tauri::generate_handler![]` command registration |
 | `tauri/src/db.rs` | SQLite schema, migrations, all CRUD operations |
 | `tauri/src/commands.rs` | Tauri `#[tauri::command]` handlers wrapping DB + web tools |
 | `tauri/src/tools/search.rs` | DuckDuckGo web search (HTTP → HTML parsing) |
@@ -44,7 +45,7 @@ npm run test:all   # Both test suites sequentially
 | `tauri/src/tools/html.rs` | HTML → Markdown text conversion |
 | `tauri/src/tools/mod.rs` | Module re-exports |
 
-New commands: add the function in `commands.rs` and register it in `main.rs`'s `tauri::generate_handler![]`.
+New commands: add the function in `commands.rs` and register it in `lib.rs`'s `tauri::generate_handler![]` (not `main.rs` — that file only calls `luma_lib::run()`).
 
 ### Frontend structure
 
@@ -157,7 +158,7 @@ Concrete entry points for changes that come up often. Skim this list before grep
 - **Auto-scroll on new content** — `messages.length` watcher in `ChatPane.jsx`, using `prevMessagesCountRef` to distinguish new messages from in-place streaming updates. Needs `requestAnimationFrame` since the new message isn't mounted yet when the effect fires.
 - **Per-pane toggle (web search, thinking)** — local `useState` in `ChatPane`, re-derived from its default on `chatNonce` change, with a `*TouchedRef` (cleared per `chatNonce`) preserving manual overrides within a chat. Web search gates on settings `hydrated`; thinking derives from the model.
 - **Reset a chat's per-pane state** — bump `chatNonce` (`clearMessages`/`loadMessages` already do). Per-chat-default effects should watch `chatNonce`, not `model`.
-- **Add a new Tauri command** — add to `commands.rs`, register in `main.rs`, mirror a wrapper in `src/lib/db.js`/`src/lib/tools.js`. For long-running streams, follow the `ollama_chat_stream` event pattern (`ollama://chunk`/`done`/`error`, keyed by `request_id`).
+- **Add a new Tauri command** — add to `commands.rs`, register in `lib.rs`'s `generate_handler![]`, mirror a wrapper in `src/lib/db.js`/`src/lib/tools.js`. For long-running streams, follow the `ollama_chat_stream` event pattern (`ollama://chunk`/`done`/`error`, keyed by `request_id`).
 - **Add a new persisted setting** — add to `SETTING_KEYS` in `settingsStore.js`; write-through to SQLite is automatic. Schema changes: append a `MIGRATIONS` step in `db.rs` (never edit/reorder existing ones).
 - **Ollama server URL + API key** — `ollamaUrl`/`ollamaApiKey` in `useSettingsStore`, passed to `ollama_reachable`/`ollama_list_models`/`ollama_chat_stream` as `ollama_url`/`api_key` (fallback via `resolve_ollama_base()`). `ollamaApiKey` is unified across the remote-server bearer token and the web search API.
 - **Add a new tool the model can call** — schema in `TOOLS` (`src/lib/tools.js`) + a case in `executeTool`. Web tools must run as Tauri commands (CORS); local tools run in the renderer.
