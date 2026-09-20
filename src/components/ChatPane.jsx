@@ -6,12 +6,31 @@ import { useStreamingChat } from "../hooks/useStreamingChat";
 import { useUiStore } from "../store/uiStore";
 import { useSettingsStore } from "../store/settingsStore";
 import { useSessionStore } from "../store/sessionStore";
-import { Trash2, Check, X, GitBranch } from "lucide-react";
+import { db } from "../lib/db";
+import { isCloudModel, isModelUnavailable, loadModelWindow } from "../lib/modelContext";
+import { Trash2, Check, X, GitBranch, FolderOpen, FolderMinus } from "lucide-react";
 import styles from "./ChatPane.module.css";
 
-// Ollama cloud models carry a `cloud` tag suffix (e.g. `minimax-m3:cloud`,
-// `gpt-oss:120b-cloud`); local models don't.
-const isCloudModel = (m) => /(?::|-)cloud$/.test(m || "");
+// The folder's basename, for display. Never the absolute path — that leaks the
+// username into screenshots, and this app ships screenshots in its README.
+const folderName = (path) => (path || "").split(/[\\/]/).filter(Boolean).pop() || path;
+
+// An empty value or a loopback host means the model runs on this machine, so
+// nothing read from the project leaves it.
+function isLocalOllama(url) {
+  if (!url || !url.trim()) return true;
+  try {
+    const host = new URL(url.includes("://") ? url : `http://${url}`).hostname;
+    return (
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "::1" ||
+      host === "0.0.0.0"
+    );
+  } catch {
+    return false;
+  }
+}
 
 export default function ChatPane({
   store,
@@ -35,6 +54,20 @@ export default function ChatPane({
   const focusNonce = store((s) => s.focusNonce);
   const chatNonce = store((s) => s.chatNonce);
 
+  // ── Codebase mode: the attached project folder ──
+  //
+  // Mode is derived, not toggled: the roots *are* the switch, so attaching
+  // exposes the read-only file tools and detaching returns the pane to ordinary
+  // chat. The pane's own roots are the live value (a folder can be attached
+  // before the session row exists); a side chat never sets any of its own, so it
+  // reads its session's. This is the same derivation `useStreamingChat` makes,
+  // and it has to match — the web-search default below keys off it.
+  const projectRoots = store((s) => s.projectRoots);
+  const sessionRoots = useSessionStore(
+    (s) => s.chatSessions.find((c) => c.id === sessionId)?.projectRoots,
+  );
+  const codebase = projectRoots.length > 0 || (sessionRoots?.length ?? 0) > 0;
+
   // Seed the per-pane web search toggle from the user's default. Re-derives on
   // each new chat or loaded session (chatNonce bump) so the toggle doesn't
   // carry over from the previous chat; within a chat the user's manual toggle
@@ -44,15 +77,24 @@ export default function ChatPane({
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const webSearchTouchedRef = useRef(false);
   const prevWebNonceRef = useRef(chatNonce);
+  const prevCodebaseRef = useRef(codebase);
   useEffect(() => {
     if (chatNonce !== prevWebNonceRef.current) {
       prevWebNonceRef.current = chatNonce;
       webSearchTouchedRef.current = false;
     }
+    // Attaching a folder is the moment file reads and web access start sharing a
+    // context, which is Luma's egress pair: a fetched page can order a file read,
+    // and a file's contents can leave inside a URL. So off is the *default* in
+    // Codebase mode, and turning it back on there is a deliberate act.
+    if (codebase !== prevCodebaseRef.current) {
+      prevCodebaseRef.current = codebase;
+      webSearchTouchedRef.current = false;
+    }
     if (!settingsHydrated) return;
     if (webSearchTouchedRef.current) return;
-    setWebSearchEnabled(useSettingsStore.getState().webSearchDefault);
-  }, [settingsHydrated, chatNonce]);
+    setWebSearchEnabled(codebase ? false : useSettingsStore.getState().webSearchDefault);
+  }, [settingsHydrated, chatNonce, codebase]);
 
   // Thinking defaults on for cloud models (which reason quickly) and off for
   // local models (where the extra reasoning pass is slow). Each new chat or
@@ -82,6 +124,98 @@ export default function ChatPane({
 
   const { sideChatPrefill, clearSideChatPrefill } = useUiStore();
   const removeSideChat = useSessionStore((s) => s.removeSideChat);
+
+  // A model can vanish from the server (renamed, retired, or never pulled) while
+  // a saved session still points at it — and since the picker lists only what
+  // the server reports, it would be absent from the menu with nothing to explain
+  // why. Warn rather than auto-switch; see `isModelUnavailable`.
+  const availableModels = useUiStore((s) => s.availableModels);
+  const customModels = useUiStore((s) => s.customModels);
+  const ollamaConnected = useUiStore((s) => s.ollamaConnected);
+  const modelUnavailable = isModelUnavailable({
+    model,
+    available: availableModels,
+    custom: customModels,
+    connected: ollamaConnected,
+  });
+
+  // Attach/detach and the remote-server notice. The derived roots live above,
+  // because the web-search default keys off them. Side chats have no control of
+  // their own — they inherit the session's roots.
+  const setPaneProjectRoots = store((s) => s.setProjectRoots);
+  const setSessionProjectRoots = useSessionStore((s) => s.setProjectRoots);
+  const projectRemoteNoticeAck = useSettingsStore(
+    (s) => s.projectRemoteNoticeAck,
+  );
+  const [projectNotice, setProjectNotice] = useState(null);
+  const [attachError, setAttachError] = useState(null);
+  // A root restored from a backup may point at a folder that isn't on this
+  // machine. The same command that gates attaching answers "does it exist", so
+  // the chip can say so without a second existence check that could disagree.
+  const [rootMissing, setRootMissing] = useState(false);
+
+  useEffect(() => {
+    const root = projectRoots[0];
+    if (!root) {
+      setRootMissing(false);
+      return;
+    }
+    let cancelled = false;
+    db.validateProjectRoot(root)
+      .then(() => {
+        if (!cancelled) setRootMissing(false);
+      })
+      .catch(() => {
+        if (!cancelled) setRootMissing(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectRoots]);
+
+  const handleAttachProject = async () => {
+    setAttachError(null);
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const picked = await open({ directory: true, multiple: false });
+      if (!picked) return;
+      // Rust owns the validation (exists, is a directory, not `/`, not $HOME,
+      // not Luma's own data dir) and returns the canonical path to store.
+      const canonical = await db.validateProjectRoot(picked);
+      if (!canonical) {
+        setAttachError("Attaching a folder needs the desktop app.");
+        return;
+      }
+      const roots = [canonical];
+      setPaneProjectRoots(roots);
+      if (sessionId) setSessionProjectRoots(sessionId, roots);
+      const { ollamaUrl } = useSettingsStore.getState();
+      if (!isLocalOllama(ollamaUrl) && !projectRemoteNoticeAck) {
+        setProjectNotice(
+          "Files Luma reads go to your Ollama server, not just to this machine. Read-only, but not private.",
+        );
+        useSettingsStore.getState().ackProjectRemoteNotice();
+      }
+    } catch (err) {
+      setAttachError(err?.message || String(err));
+    }
+  };
+
+  const handleDetachProject = () => {
+    setAttachError(null);
+    setProjectNotice(null);
+    setPaneProjectRoots([]);
+    if (sessionId) setSessionProjectRoots(sessionId, []);
+  };
+
+  // Codebase mode needs the model's real context window to size itself, and
+  // reading it is a round trip — so warm it here, on attach and on model change,
+  // rather than making the first message wait. `useStreamingChat` reads the
+  // cached value synchronously and falls back to the setting until it lands.
+  useEffect(() => {
+    if (projectRoots.length === 0 || !model) return;
+    loadModelWindow(model);
+  }, [projectRoots, model]);
 
   // Two-step delete confirm for side chats (mirrors the Sidebar row pattern).
   const [deleteConfirming, setDeleteConfirming] = useState(false);
@@ -208,6 +342,40 @@ export default function ChatPane({
             ))}
         </div>
         <div className={styles.headerActions}>
+          {!isSideChat &&
+            (projectRoots.length > 0 ? (
+              <span
+                className={`${styles.projectChip} ${rootMissing ? styles.projectChipMissing : ""}`}
+                title={
+                  rootMissing
+                    ? `${projectRoots[0]} — this folder is no longer there`
+                    : `${projectRoots[0]} (read-only)`
+                }
+              >
+                <FolderOpen size={11} />
+                <span className={styles.projectName}>
+                  {folderName(projectRoots[0])}
+                  {rootMissing ? " (missing)" : ""}
+                </span>
+                <button
+                  onClick={handleDetachProject}
+                  aria-label="Detach project folder"
+                  title="Detach project folder"
+                  className={styles.projectDetach}
+                >
+                  <FolderMinus size={11} />
+                </button>
+              </span>
+            ) : (
+              <button
+                onClick={handleAttachProject}
+                aria-label="Attach a project folder"
+                title="Attach a project folder (read-only)"
+                className={`${styles.headerBtn} ${compact ? styles.headerBtnCompact : ""}`}
+              >
+                <FolderOpen size={11} />
+              </button>
+            ))}
           <button
             onClick={() => {
               // Block turning web search on when the Ollama backend is
@@ -275,6 +443,42 @@ export default function ChatPane({
           <ModelPicker model={model} setModel={setModel} compact={compact} />
         </div>
       </div>
+
+      {/* Codebase mode notice + attach errors. Both are per-pane and transient:
+          the notice is acknowledged once (settings), so it doesn't nag. */}
+      {modelUnavailable && (
+        <div className={`${styles.paneNotice} ${styles.paneNoticeWarn}`}>
+          <span>
+            <strong>{model}</strong> isn't available on this Ollama server — it
+            may have been renamed or removed. Pick another model to continue;
+            this chat's history is unaffected.
+          </span>
+        </div>
+      )}
+      {projectNotice && (
+        <div className={styles.paneNotice}>
+          <span>{projectNotice}</span>
+          <button
+            onClick={() => setProjectNotice(null)}
+            aria-label="Dismiss notice"
+            className={styles.paneNoticeDismiss}
+          >
+            <X size={12} />
+          </button>
+        </div>
+      )}
+      {attachError && (
+        <div className={styles.paneNotice}>
+          <span>{attachError}</span>
+          <button
+            onClick={() => setAttachError(null)}
+            aria-label="Dismiss"
+            className={styles.paneNoticeDismiss}
+          >
+            <X size={12} />
+          </button>
+        </div>
+      )}
 
       {/* Messages */}
       <div

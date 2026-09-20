@@ -16,11 +16,14 @@ export function useChatSession({ sideChatId, sessionId, store }) {
   const createSession = useCallback(
     (text, model) => {
       const id = uuidv4();
-      addChatSession({ id, title: text.slice(0, 60), model });
+      // The pane's attached folder(s), if any, belong to the new session — this
+      // is the only moment they get written (the row doesn't exist before it).
+      const projectRoots = store.getState().projectRoots ?? [];
+      addChatSession({ id, title: text.slice(0, 60), model, projectRoots });
       setActiveChatId(id);
       return id;
     },
-    [addChatSession, setActiveChatId],
+    [addChatSession, setActiveChatId, store],
   );
 
   // Persist whatever messages are currently in the store. Used to save the

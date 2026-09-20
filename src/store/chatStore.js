@@ -13,6 +13,12 @@ export const createChatStore = (id) => {
     // which would always return the in-memory default before the DB is open.
     model: "",
     messages: [], // { id, role, content, images?, isStreaming? }
+    // Attached project folder(s) for Codebase mode; the first is the primary
+    // root. Empty means an ordinary chat session — the mode is *derived* from
+    // this rather than stored, so attaching a folder is the only switch. Side
+    // chat panes never set it: they inherit the session's roots (see
+    // useStreamingChat's fallback).
+    projectRoots: [],
     isStreaming: false,
     abortController: null,
     error: null,
@@ -28,6 +34,9 @@ export const createChatStore = (id) => {
     focusNonce: 0,
 
     setModel: (model) => set({ model }),
+
+    setProjectRoots: (roots) =>
+      set({ projectRoots: Array.isArray(roots) ? roots : [] }),
 
     addMessage: (role, content, images = []) => {
       const msg = {
@@ -167,6 +176,9 @@ export const createChatStore = (id) => {
       set((s) => ({
         messages: [],
         error: null,
+        // A new chat is not attached to anything; the previous project does
+        // not follow the user into it.
+        projectRoots: [],
         model: useSettingsStore.getState().defaultModel || "",
         chatNonce: s.chatNonce + 1,
         focusNonce: s.focusNonce + 1,
@@ -187,10 +199,15 @@ export const createChatStore = (id) => {
         return { messages: s.messages.slice(0, idx + 1) };
       }),
 
-    loadMessages: (messages, model) =>
+    // `projectRoots` is the loaded session's attached folder(s) — passing it
+    // here (rather than leaving the pane's previous value in place) is what
+    // stops one codebase session's roots leaking into the next session the
+    // user opens. Side chat tabs omit it; they inherit the session's roots.
+    loadMessages: (messages, model, projectRoots = []) =>
       set((s) => ({
         messages,
         model,
+        projectRoots,
         error: null,
         isStreaming: false,
         abortController: null,

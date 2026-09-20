@@ -74,6 +74,24 @@ export const useSessionStore = create((set, get) => ({
       title: session.title,
       model: session.model,
     });
+    // Roots have their own column and their own command, so editing a title or
+    // model can never clobber an attached project (see `set_project_roots`).
+    if (session.projectRoots?.length) {
+      db.setProjectRoots(session.id, session.projectRoots);
+    }
+  },
+
+  // Attach/detach the Codebase mode project folder(s) for a session. The pane
+  // keeps its own live copy for the pre-session case (see chatStore); this is
+  // the persisted, session-level one that side chats inherit.
+  setProjectRoots: (sessionId, roots) => {
+    if (!sessionId) return;
+    set((s) => ({
+      chatSessions: s.chatSessions.map((c) =>
+        c.id === sessionId ? { ...c, projectRoots: roots } : c,
+      ),
+    }));
+    db.setProjectRoots(sessionId, roots);
   },
 
   updateChatSession: (id, updates) => {

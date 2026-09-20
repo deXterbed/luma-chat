@@ -13,6 +13,14 @@ export const SETTING_KEYS = {
   searchProvider: "searchProvider",
   ollamaApiKey: "ollamaApiKey",
   ollamaUrl: "ollamaUrl",
+  numCtx: "numCtx",
+  temperature: "temperature",
+  // Set once the user has seen the "your project files go to the model's
+  // server" notice, so it doesn't reappear on every attach.
+  projectRemoteNoticeAck: "projectRemoteNoticeAck",
+  // Opt-in structured log of the agent loop (tool calls, policy decisions,
+  // failures) for tuning the harness. Off by default: it records file contents.
+  agentLogEnabled: "agentLogEnabled",
 };
 
 // Web search backends. "duckduckgo" scrapes DDG locally (no key); "ollama"
@@ -42,6 +50,12 @@ const DEFAULTS = {
   searchProvider: "duckduckgo",
   ollamaApiKey: "",
   ollamaUrl: "",
+  // Ollama request options. 8192 is Ollama's own default but far too small to
+  // hold a source file; Codebase mode wants 32768 or more.
+  numCtx: 8192,
+  temperature: 0.7,
+  projectRemoteNoticeAck: false,
+  agentLogEnabled: false,
 };
 
 export const useSettingsStore = create((set, get) => ({
@@ -56,6 +70,10 @@ export const useSettingsStore = create((set, get) => ({
   searchProvider: DEFAULTS.searchProvider,
   ollamaApiKey: DEFAULTS.ollamaApiKey,
   ollamaUrl: DEFAULTS.ollamaUrl,
+  numCtx: DEFAULTS.numCtx,
+  temperature: DEFAULTS.temperature,
+  projectRemoteNoticeAck: DEFAULTS.projectRemoteNoticeAck,
+  agentLogEnabled: DEFAULTS.agentLogEnabled,
 
   // Called from useDbInit. Loads from DB and applies the theme to <html>.
   // Unknown keys are ignored; missing keys keep their default. On the very
@@ -92,6 +110,10 @@ export const useSettingsStore = create((set, get) => ({
           : DEFAULTS.defaultModel,
       webSearchDefault: stored[SETTING_KEYS.webSearchDefault] === "true",
       toolCallLimit: parseToolCallLimit(stored[SETTING_KEYS.toolCallLimit]),
+      numCtx: parseNumCtx(stored[SETTING_KEYS.numCtx]),
+      temperature: parseTemperature(stored[SETTING_KEYS.temperature]),
+      projectRemoteNoticeAck: stored[SETTING_KEYS.projectRemoteNoticeAck] === "true",
+      agentLogEnabled: stored[SETTING_KEYS.agentLogEnabled] === "true",
       searchProvider: SEARCH_PROVIDERS.includes(stored[SETTING_KEYS.searchProvider])
         ? stored[SETTING_KEYS.searchProvider]
         : DEFAULTS.searchProvider,
@@ -158,6 +180,29 @@ export const useSettingsStore = create((set, get) => ({
     db.saveSetting(SETTING_KEYS.ollamaUrl, v);
   },
 
+  setNumCtx: (n) => {
+    const v = parseNumCtx(n);
+    set({ numCtx: v });
+    db.saveSetting(SETTING_KEYS.numCtx, String(v));
+  },
+
+  setTemperature: (t) => {
+    const v = parseTemperature(t);
+    set({ temperature: v });
+    db.saveSetting(SETTING_KEYS.temperature, String(v));
+  },
+
+  ackProjectRemoteNotice: () => {
+    set({ projectRemoteNoticeAck: true });
+    db.saveSetting(SETTING_KEYS.projectRemoteNoticeAck, "true");
+  },
+
+  setAgentLogEnabled: (enabled) => {
+    const v = !!enabled;
+    set({ agentLogEnabled: v });
+    db.saveSetting(SETTING_KEYS.agentLogEnabled, v ? "true" : "false");
+  },
+
   // Reset every well-known key back to its hardcoded default and persist.
   // Used by the settings page's "Reset to defaults" link.
   resetToDefaults: () => {
@@ -170,6 +215,8 @@ export const useSettingsStore = create((set, get) => ({
       searchProvider: DEFAULTS.searchProvider,
       ollamaApiKey: DEFAULTS.ollamaApiKey,
       ollamaUrl: DEFAULTS.ollamaUrl,
+      numCtx: DEFAULTS.numCtx,
+      temperature: DEFAULTS.temperature,
     });
     db.saveSetting(SETTING_KEYS.theme, DEFAULTS.theme);
     db.saveSetting(SETTING_KEYS.defaultModel, DEFAULTS.defaultModel);
@@ -189,6 +236,20 @@ export const useSettingsStore = create((set, get) => ({
 function parseToolCallLimit(raw) {
   const n = parseInt(raw, 10);
   return Number.isFinite(n) && n >= 0 ? n : DEFAULTS.toolCallLimit;
+}
+
+// Context window, in tokens. Clamped to a sane range: below 2048 nothing
+// useful fits, and beyond 131072 Ollama would reject or thrash.
+function parseNumCtx(raw) {
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n)) return DEFAULTS.numCtx;
+  return Math.min(131072, Math.max(2048, n));
+}
+
+function parseTemperature(raw) {
+  const n = parseFloat(raw);
+  if (!Number.isFinite(n)) return DEFAULTS.temperature;
+  return Math.min(2, Math.max(0, n));
 }
 
 export const SETTINGS_DEFAULTS = DEFAULTS;

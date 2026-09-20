@@ -112,12 +112,21 @@ export function systemMessagesForRound(round, { hardCap, maxToolRounds, webSearc
 
 // Build the Ollama `/api/chat` request body for one round. `includeTools`
 // is false on the forced-final round (and when no tools are configured).
-export function buildRequestBody(model, messages, { tools, think, includeTools }) {
+// `numCtx`/`temperature` come from Settings (both were hardcoded here, and 8192
+// is too small to hold a source file, let alone read one).
+export function buildRequestBody(
+  model,
+  messages,
+  { tools, think, includeTools, numCtx, temperature },
+) {
   const body = {
     model,
     messages,
     stream: true,
-    options: { temperature: 0.7, num_ctx: 8192 },
+    options: {
+      temperature: temperature ?? 0.7,
+      num_ctx: numCtx ?? 8192,
+    },
   };
   if (includeTools && tools && tools.length > 0) body.tools = tools;
   if (think !== undefined) body.think = think;
@@ -163,10 +172,30 @@ async function runOne(call, executeTool) {
   }
 }
 
+// Classify a tool result the same way the loop does. `Error: QUOTA:` is called
+// out separately because the orchestrator ends the whole stream on it rather
+// than re-prompting. Exported so the agent log reports the same verdict the
+// harness acted on, instead of a second opinion that could drift.
+export function classifyToolResult(result) {
+  if (typeof result !== "string") return "non-string";
+  if (result.startsWith("Error: QUOTA:")) return "quota";
+  if (result.startsWith("Error")) return "error";
+  return "ok";
+}
+
+/** Names an injected policy message, for the log — identity, not re-matching. */
+export function messageKind(content) {
+  if (content === FORCE_FINAL_MSG) return "FORCE_FINAL";
+  if (content === WRAP_UP_MSG) return "WRAP_UP";
+  if (content === WEB_SEARCH_NUDGE_MSG) return "WEB_SEARCH_NUDGE";
+  return "OTHER";
+}
+
 // Execute a batch of tool calls, appending each result to `workingMessages`
 // as a `role: "tool"` message and firing the onToolCall/onToolResult
-// callbacks. Returns `{ allFailed, quotaError }` so the orchestrator can
-// decide whether to short-circuit.
+// callbacks. Returns `{ allFailed, quotaError, results, timings }` so the
+// orchestrator can decide whether to short-circuit (and the agent log can
+// report what each call cost and returned).
 //
 // Calls in a round run **concurrently** (capped at TOOL_CONCURRENCY) so a
 // batch of N web searches completes in ~max latency rather than sum. To keep
@@ -193,12 +222,19 @@ export async function runToolCalls(toolCalls, executeTool, workingMessages, { on
 
   // Run in concurrency-capped chunks; collect results indexed by call position
   // so we can append to workingMessages in issue order regardless of completion
-  // order.
+  // order. Per-call wall time is kept too: with calls running concurrently, the
+  // batch's latency is the max, and the slow one is what the log needs to name.
   const results = new Array(toolCalls.length);
+  const timings = new Array(toolCalls.length);
   for (let start = 0; start < toolCalls.length; start += TOOL_CONCURRENCY) {
     const chunk = toolCalls.slice(start, start + TOOL_CONCURRENCY);
     const settled = await Promise.all(
-      chunk.map((call, offset) => runOne(call, executeTool)),
+      chunk.map(async (call, offset) => {
+        const began = Date.now();
+        const result = await runOne(call, executeTool);
+        timings[start + offset] = Date.now() - began;
+        return result;
+      }),
     );
     for (let i = 0; i < settled.length; i++) {
       results[start + i] = settled[i];
@@ -225,5 +261,5 @@ export async function runToolCalls(toolCalls, executeTool, workingMessages, { on
     });
   }
 
-  return { allFailed, quotaError };
+  return { allFailed, quotaError, results, timings };
 }

@@ -53,4 +53,16 @@ export const db = {
     invoke("save_setting", { key, value }).catch(noop),
   exportChats: (path) => invoke("export_chats", { path }),
   importChats: (path) => invoke("import_chats", { path }),
+  // Codebase mode. `validateProjectRoot` deliberately does NOT swallow its
+  // rejection — the attach flow needs the reason (not a folder, `/`, `$HOME`,
+  // Luma's own data dir). It resolves to the canonical path to store, or null
+  // outside Tauri (browser dev).
+  validateProjectRoot: (path) => invoke("validate_project_root", { path }),
+  setProjectRoots: (sid, roots) =>
+    invoke("set_project_roots", { sessionId: sid, roots }).catch(noop),
+  // Agent log. `appendAgentLog` never rejects: logging is best-effort and must
+  // not be able to fail a chat turn.
+  appendAgentLog: (lines) => invoke("append_agent_log", { lines }).catch(noop),
+  agentLogPath: () => invoke("agent_log_path").catch(() => null),
+  clearAgentLog: () => invoke("clear_agent_log").catch(noop),
 };

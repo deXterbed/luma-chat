@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: tauri -> tauri/target
+
+      # `cargo check` still runs the tauri/wry build scripts, which probe for the
+      # Linux webkit stack.
+      - name: Install Linux system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install frontend deps
+        run: npm ci
+
+      # fmt + clippy (`-D warnings`) + the JS suite + `cargo check --all-targets`,
+      # which is the step that catches a name that doesn't exist — the class of
+      # error `tauri dev` only surfaces if its watcher happens to rebuild.
+      - name: Check
+        run: npm run check
+
+      # The three skipped tests read a developer's legacy Electron DB and assert
+      # it has rows, so they fail on any machine that doesn't have one —
+      # environment-dependent, not a signal (see CLAUDE.md).
+      - name: Rust tests
+        run: |
+          cd tauri
+          cargo test -- \
+            --skip test_load_sessions_from_existing_db \
+            --skip test_session_serialization \
+            --skip test_serialization_matches_frontend

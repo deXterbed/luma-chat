@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useEffect } from "react";
 import { ChevronDown, RefreshCw, X } from "lucide-react";
 import { useUiStore } from "../store/uiStore";
 import { listLocalModels } from "../lib/ollama";
+import { isModelUnavailable } from "../lib/modelContext";
 import styles from "./ModelPicker.module.css";
 
 export default function ModelPicker({ model, setModel, compact }) {
@@ -65,10 +66,29 @@ export default function ModelPicker({ model, setModel, compact }) {
     setOpen(false);
   };
 
+  // The trigger is where the user looks to fix this, so mark it here too — the
+  // dropdown itself can't list a model the server doesn't report.
+  const unavailable = isModelUnavailable({
+    model,
+    available: availableModels,
+    custom: customModels,
+    connected: ollamaConnected,
+  });
+
   return (
     <div ref={rootRef} className={styles.root}>
-      <button onClick={handleToggle} className={styles.trigger}>
-        <span className={`${styles.modelName} ${compact ? styles.modelNameCompact : ""}`}>
+      <button
+        onClick={handleToggle}
+        className={styles.trigger}
+        title={
+          unavailable
+            ? `${model} — not available on this Ollama server. Pick another model.`
+            : undefined
+        }
+      >
+        <span
+          className={`${styles.modelName} ${compact ? styles.modelNameCompact : ""} ${unavailable ? styles.modelNameUnavailable : ""}`}
+        >
           {model}
         </span>
         <ChevronDown size={9} />

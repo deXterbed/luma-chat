@@ -11,7 +11,7 @@
 // directly. This is the same approach Claude.ai, Cursor, and other well-
 // designed AI products take.
 //
-// Both prompts are intentionally short (~150-200 tokens) so they don't
+// Both prompts are intentionally short (~150-250 tokens) so they don't
 // eat into the model's effective context window on every call. We don't
 // hardcode a model name here — Luma should work with any compatible
 // model, and the model knows its own identity better than we do.
@@ -22,12 +22,60 @@
 // question, and (worse) it relies on its training-data date as a proxy
 // for "current" when formulating search queries. Injecting the real date
 // removes both problems.
+//
+// ## Codebase mode
+//
+// When a project root is attached (`codebase: true`) two of the clauses below
+// are *replaced*, not supplemented — the chat-mode wording actively fights
+// repository exploration:
+//
+//   - "never mention tool failures… not even once" is right for web search but
+//     wrong for a wrong path, which the model must visibly correct.
+//   - "no more than 8 tool calls" caps exactly the loop that reading a repo
+//     needs.
+//
+// Both side and main templates take the flag: a side chat inherits its
+// session's attached folder, so it needs the same guidance.
 
-function buildMainChatTemplate(webSearchEnabled) {
-  const toolLine = webSearchEnabled
+import { FILE_TOOL_NAMES } from "./tools";
+
+/**
+ * @param {object} options
+ * @param {boolean} [options.webSearchEnabled=true]
+ * @param {boolean} [options.codebase=false] - a project folder is attached
+ * @param {Date} [options.now=new Date()]
+ */
+
+function webToolLine(webSearchEnabled, codebase) {
+  if (codebase) {
+    return webSearchEnabled
+      ? "- Web search is also available if the question needs something outside the project. It is rate-limited — never make more than 15 web_search calls in a single response."
+      : "- Web search is disabled in this chat. Do not call web_search or web_fetch under any circumstances; everything you need is in the attached project folder.";
+  }
+  return webSearchEnabled
     ? "- If the user asks about something time-sensitive, recent, or verifiable, use your tools (get_current_time, web_search, web_fetch) rather than guessing. Web search is rate-limited — never make more than 15 web_search calls in a single response; if you approach that, stop and answer with what you have."
     : "- Web search is disabled. Do not call web_search or web_fetch under any circumstances. Only get_current_time is available. Answer from your training data and be upfront if information may be outdated.";
+}
 
+function fileToolLine() {
+  return `- You have read-only access to the project folder attached to this chat: ${FILE_TOOL_NAMES.join(", ")}. Paths are relative to the project root — never absolute, never containing '..'. Search to find where something lives, then read it before saying what it does. Nothing outside the attached folder is readable.`;
+}
+
+// Chat mode hides tool failures (they're noise for a research answer); codebase
+// mode must not, because the model has to correct its own wrong paths.
+function failureLine(codebase) {
+  return codebase
+    ? "If a path doesn't exist or a search finds nothing, say briefly what you were looking for and try a different path or query. Never claim a file said something you did not actually read."
+    : "If a tool call fails or returns no results, silently try a different query or proceed with what you have. Never mention tool failures, empty results, or search limitations in your response — not even once, not even as a caveat. Just answer.";
+}
+
+function budgetLine(codebase) {
+  return codebase
+    ? "Depth over speed. Search first to find the right files instead of guessing at paths, and read only the parts you need — your tool budget is finite, so spend it narrowing rather than re-reading. Once you can answer well, write the answer."
+    : "The user values depth over speed. Take time to investigate thoroughly, but aim for no more than 8 tool calls per response. Once you have enough information to write a thorough answer, stop and write it — don't keep searching if you already have what you need.";
+}
+
+function buildMainChatTemplate({ webSearchEnabled, codebase }) {
   return `You are Luma, the assistant inside a research workbench. Luma is your primary identity — the one that matters to the user.
 
 You are helping a user research a topic deeply in Luma, a research workbench. The user is on a journey of understanding, not just looking for a quick answer.
@@ -35,16 +83,12 @@ You are helping a user research a topic deeply in Luma, a research workbench. Th
 Guidelines:
 - When you use information from a web source, cite it inline. Prefer real titles and URLs over vague references.
 - It's fine to narrate your process ("Let me search for...") — the user wants to see how you research.
-${toolLine}
-- If a tool call fails or returns no results, silently try a different query or proceed with what you have. Never mention tool failures, empty results, or search limitations in your response — not even once, not even as a caveat. Just answer.
-- The user values depth over speed. Take time to investigate thoroughly, but aim for no more than 8 tool calls per response. Once you have enough information to write a thorough answer, stop and write it — don't keep searching if you already have what you need.`;
+${webToolLine(webSearchEnabled, codebase)}${codebase ? `\n${fileToolLine()}` : ""}
+- ${failureLine(codebase)}
+- ${budgetLine(codebase)}`;
 }
 
-function buildSideChatTemplate(webSearchEnabled) {
-  const toolLine = webSearchEnabled
-    ? "- If the user asks about something time-sensitive, recent, or verifiable, use your tools rather than guessing. Web search is rate-limited — never make more than 15 web_search calls in a single response; if you approach that, stop and answer with what you have."
-    : "- Web search is disabled. Do not call web_search or web_fetch under any circumstances. Only get_current_time is available. Answer from your training data and be upfront if information may be outdated.";
-
+function buildSideChatTemplate({ webSearchEnabled, codebase }) {
   return `You are Luma, the assistant inside a research workbench. Luma is your primary identity — the one that matters to the user.
 
 You are in a side chat of Luma, a research workbench. Side chats are focused sub-investigations: the user opened this branch to drill into a specific aspect of a larger research question they are pursuing in the main chat.
@@ -55,9 +99,9 @@ Guidelines:
 - Stay focused on the subtopic. If the user pulls you back to the broader question, follow their lead.
 - Cite sources inline when you use web information. Prefer real titles and URLs.
 - It's fine to narrate your process ("Let me search for...") — the user wants to see how you research.
-${toolLine}
-- If a tool call fails or returns no results, silently try a different query or proceed with what you have. Never mention tool failures, empty results, or search limitations in your response — not even once, not even as a caveat. Just answer. Don't invent sources or facts.
-- Depth over speed. This is a focused investigation; thoroughness matters more than brevity. Aim for no more than 8 tool calls per response — once you have enough to write a thorough answer, stop and write it.`;
+${webToolLine(webSearchEnabled, codebase)}${codebase ? `\n${fileToolLine()}` : ""}
+- ${failureLine(codebase)}
+- This is a focused investigation; thoroughness matters more than brevity. ${budgetLine(codebase)} Don't invent sources or facts.`;
 }
 
 /**
@@ -84,10 +128,26 @@ function buildContextHeader(now = new Date()) {
   return `Current date: ${date}\nUser's local timezone: ${tz}\n`;
 }
 
-export function buildMainChatSystemPrompt(webSearchEnabled = true, now = new Date()) {
-  return buildContextHeader(now) + "\n" + buildMainChatTemplate(webSearchEnabled);
+export function buildMainChatSystemPrompt({
+  webSearchEnabled = true,
+  codebase = false,
+  now = new Date(),
+} = {}) {
+  return (
+    buildContextHeader(now) +
+    "\n" +
+    buildMainChatTemplate({ webSearchEnabled, codebase })
+  );
 }
 
-export function buildSideChatSystemPrompt(webSearchEnabled = true, now = new Date()) {
-  return buildContextHeader(now) + "\n" + buildSideChatTemplate(webSearchEnabled);
+export function buildSideChatSystemPrompt({
+  webSearchEnabled = true,
+  codebase = false,
+  now = new Date(),
+} = {}) {
+  return (
+    buildContextHeader(now) +
+    "\n" +
+    buildSideChatTemplate({ webSearchEnabled, codebase })
+  );
 }

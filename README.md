@@ -2,7 +2,7 @@
 
 ![Luma light mode](screenshots/light.png)
 
-A research workbench for deep-dive topic exploration, built as a dual-pane desktop app on top of local LLMs. The main chat is the spine of a research session, and side chats are branches for drilling into subtopics and sources — with live web search and fetch so the model can ground its answers.
+A research workbench for deep-dive topic exploration, built as a dual-pane desktop app on top of local LLMs. The main chat is the spine of a research session, and side chats are branches for drilling into subtopics and sources — with live web search and fetch so the model can ground its answers. Attach a project folder and the same loop becomes **Codebase mode**: read-only file tools, so you can ask how real code works and branch off any answer to keep drilling.
 
 - **Stack:** Tauri + React/Vite + SQLite + [Ollama](https://ollama.com)
 - **Not a general chatbot:** every capability exists to help a user research and deeply understand a topic. See `ROADMAP.md` for the long-term plan.
@@ -48,6 +48,38 @@ The model can call tools as it responds, with full visibility into the process:
 
 Web tools run in the Tauri Rust backend (no CORS, network code stays in one auditable place) and are exposed to the frontend via `@tauri-apps/api/core`. The tool-call loop is bounded by the **Tool call limit** setting (0 = unlimited); when the limit is reached the model makes one final pass with tools disabled but keeps everything it gathered, so it answers from its findings instead of erroring out. When the model issues several searches in one round they run **in parallel** (capped at 3) so a batch completes in the time of the slowest call, not the sum; a per-response **search budget** (15 `web_search`/`web_fetch` calls, 0 = unlimited) bounds total web activity, after which the model answers from what it gathered. The `ToolActivity` component shows a live indicator (`🔍 Searching for "..."`, `📖 Reading article...`) plus a collapsible summary of every tool used for that response.
 
+### Codebase mode (read-only project research)
+
+Attach a project folder from the pane header (the folder icon) and the model gains read-only access to that codebase — how Luma answers "how does this work?" about real code instead of about its training data.
+
+- **Three read-only tools** — `read_file` (line-numbered, paginated with `offset`/`limit`), `search_code` (ripgrep's own engine: literal by default with `regex` as an opt-in, respects `.gitignore`, and `files`/`count` outputs for triage before reading), and `list_dir`
+- **Nothing leaves the attached folder** — every path the model supplies is relative, resolved against the attached root and canonicalized *before* it's checked, so `../`, absolute paths, and symlinks pointing outside are all refused. There is no write, edit, or shell tool: Codebase mode reads code, it doesn't change it
+- **Side chats inherit it** — a side chat opened from a codebase answer keeps file access, so a question about the answer doesn't need a trip back to the main thread
+- **Web search defaults off while a folder is attached** — reading files and reaching the web from one context is the outbound pair (a fetched page can ask for a file, a file can leave inside a URL), so attaching a folder turns the pane's web-search toggle off whatever your global default says. Turn it back on in the header if you want docs lookup mid-codebase
+- **The attached folder *is* the mode switch** — detach it and the pane is an ordinary chat again; there's no separate toggle to keep in sync
+- **One folder per session** — the header attaches a single project folder. The storage and the path guard already handle a list, so multi-folder support is a UI change rather than a migration, but it isn't in this version
+- **Bounded by design** — per-call caps (2000 lines, ~150 KB per read, 20 matches per file) plus per-response budgets (40 file calls, ~150 KB) and a later wrap-up nudge, so reading a large repo can't run away with the context window
+- **Sizes its own context window** — attaching a folder raises `num_ctx` automatically for cloud models, capped by the window the model itself reports from Ollama (a 256k-window model ends up at 65536, not a guess). Local models keep your Settings value, since that memory is yours, and the agent log records the number each run used
+
+### Agent log (tuning the harness)
+
+An opt-in record of what the agent loop actually did, written as JSONL (one JSON object per line) to `<app data>/logs/agent.jsonl`, so the harness can be tuned from evidence rather than guesswork:
+
+- **The decisions** — the system prompt sent, which tools were offered, the resolved limits, and which policy message (wrap-up, force-final, rate-limit nudge) fired on which round
+- **The model's behaviour** — per-round content and thinking sizes, latency, and the model's stated plan for that round
+- **Every tool call** — name, arguments, verdict, timing, and the result's length plus head and tail (never the whole file)
+- **Why each run ended** — `final`, `quota`, `abort`, or `error`, always recorded, even on the paths that return or throw
+
+```bash
+# Is the model looping? repeated identical calls show up as counts > 1
+jq -r 'select(.t=="tool") | "\(.name) \(.args|tostring)"' agent.jsonl | sort | uniq -c | sort -rn
+
+# Did the runs finish, or did the harness cut them off?
+jq -c 'select(.t=="stream.end") | {reason, rounds, fileCalls, fileBytes}' agent.jsonl
+```
+
+Off by default (Settings → Agent log), because it contains the prompt and excerpts of whatever the model read. Batched at round boundaries, and it can never fail a chat turn.
+
 ### Search controls
 - **Per-pane web search toggle** — disable web tools in either pane for sessions that don't need them. The renderer filters the tool list before passing it to the model.
 - **Global web search default** — the per-pane toggle seeds from a setting you can change in the Settings page. The per-pane override itself isn't persisted.
@@ -60,11 +92,16 @@ A dedicated settings page (gear icon in the title bar) covers the most common kn
 - **Web search default** — global on/off for the per-pane web search toggle
 - **Search provider & Ollama API key** — pick DuckDuckGo or Ollama cloud search; the key is stored locally and only used for the Ollama provider
 - **Tool call limit** — max tool-calling rounds before the model is made to answer from what it has (0 = unlimited)
+- **Context window (`num_ctx`)** — how many tokens the model can hold at once (2048–131072). Raise it to 32768 or more before attaching a project folder
+- **Temperature** — sampling randomness, 0 (deterministic) to 2; lower suits reading code, higher suits brainstorming
+- **Agent log** — opt-in structured log of the agent loop (see Agent log above), for tuning how the model actually behaves
 
 ### Persistence
-- **SQLite via Tauri Rust backend** — sessions, messages, side chats, custom model aliases, and user settings are all stored locally (rusqlite) and restored on launch
+- **SQLite via Tauri Rust backend** — sessions, messages, side chats, custom model aliases, attached project folders, and user settings are all stored locally (rusqlite) and restored on launch
 - **Immediate writes** — messages are persisted as they arrive, so a session survives a crash, an aborted generation, or an error mid-stream
 - **No cloud sync** — research is the user's private work, not a collaborative product
+- **…unless you point Luma at a remote server** — an Ollama URL that isn't loopback means your prompts, and in Codebase mode the files the model reads, are sent there. Luma gives a one-time notice when you attach a folder in that setup; a local Ollama keeps everything on the machine
+- **Backup & restore** — export every chat to a compressed `.lumabackup` file and import it back (chat data only; settings and API keys are never included). Attached project folders travel with their session; one that doesn't exist on the new machine is marked missing rather than failing the import
 - **Migrations** — schema upgrades are tracked via SQLite's `PRAGMA user_version`, so each migration runs exactly once per database instead of being re-attempted on every launch; a one-time theme migration picks up a legacy `localStorage` value and writes it to SQLite
 
 ### Theming
@@ -123,25 +160,31 @@ npm run test:run
 
 # Rust backend only (cargo test)
 npm run test:rust
+
+# Formatting + clippy (the repo's lint; there is no JS linter)
+npm run lint
+
+# lint + frontend tests + `cargo check --all-targets` — the pre-push gate
+npm run check
 ```
 
-The frontend test suite covers Zustand store logic, tool definitions, Ollama streaming utilities, follow-up subtopic parsing, and the DB command wrapper. The Rust test suite covers HTML-to-markdown conversion and DB serialization. No integration tests against a live Ollama instance are included.
+The frontend test suite covers Zustand store logic, tool definitions and argument coercion, the agent log, system prompts, Ollama streaming utilities and loop policy, follow-up subtopic parsing, and the DB command wrapper. The Rust test suite covers HTML-to-markdown conversion, DB serialization and migrations, the backup container, and the Codebase file-tool guard (path escapes, symlink refusal, root validation). Three `cargo test` cases read a legacy Electron-era database and fail on a machine that doesn't have one — `CLAUDE.md` explains which and why, and `.github/workflows/ci.yml` skips them by name so the rest of the suite still runs on CI. No integration tests against a live Ollama instance are included.
 
 ## Architecture
 
 The app runs with a Rust backend and a React frontend:
 
-- **Rust backend** (`tauri/`) — owns the SQLite DB, window controls, and all outbound HTTP (web search/fetch via `reqwest` + `scraper` + `readability`). Exposed through Tauri commands.
+- **Rust backend** (`tauri/`) — owns the SQLite DB, window controls, all outbound HTTP (web search/fetch via `reqwest` + `scraper` + `readability`), and the read-only project file tools (ripgrep's `ignore`/`grep-*` crates, root-bounded). Also appends the opt-in agent log. Exposed through Tauri commands.
 - **Frontend** (`src/`) — React UI. Reaches the Rust backend through `@tauri-apps/api/core` → `invoke()` calls, wrapped in thin client modules (`src/lib/db.js`, `src/lib/tools.js`).
 
 State lives in four independent Zustand stores. None of them persist to `localStorage`; durability is the DB's job (settings included).
 
 | Store | File | Owns |
 |---|---|---|
-| `useMainChat` / `getSideChatStore(id)` | `src/store/chatStore.js` | Per-pane messages, streaming state, tool-call records (same factory; one store per side chat tab, keyed by id) |
-| `useSessionStore` | `src/store/sessionStore.js` | Session list, side-chat metadata (including parent/branch relationships) — the only store that writes chat data to SQLite |
+| `useMainChat` / `getSideChatStore(id)` | `src/store/chatStore.js` | Per-pane messages, streaming state, tool-call records, attached project folders (same factory; one store per side chat tab, keyed by id) |
+| `useSessionStore` | `src/store/sessionStore.js` | Session list, side-chat metadata (including parent/branch relationships), a session's attached project folders — the only store that writes chat data to SQLite |
 | `useUiStore` | `src/store/uiStore.js` | Transient view state: side-chat open/closed, Ollama connectivity, settings page open |
-| `useSettingsStore` | `src/store/settingsStore.js` | Persisted settings: theme, default model, web search default, tool call limit, search provider, Ollama API key — write-through to the `settings` SQLite table |
+| `useSettingsStore` | `src/store/settingsStore.js` | Persisted settings: theme, default model, web search default, tool call limit, context window, temperature, search provider, Ollama API key, agent log — write-through to the `settings` SQLite table |
 
 ## Stack
 
@@ -153,19 +196,20 @@ State lives in four independent Zustand stores. None of them persist to `localSt
 - **Ollama API** — local and cloud model inference
 - **react-markdown + remark-gfm + remark-math + temml** — message rendering (math via Temml, not KaTeX/MathJax)
 - **reqwest + scraper + readability** — web search and article extraction in the Rust backend
+- **ignore + grep-searcher + grep-regex** — ripgrep's own walking and searching libraries, for Codebase mode
 - **lucide-react** — icons
 
 ## Project layout
 
 ```
 luma-chat/
-├── tauri/                 Rust backend: DB, commands, web tools
+├── tauri/                 Rust backend: DB, commands, web tools, file tools
 │   └── src/
-│       └── tools/         search.rs, fetch.rs, ollama_search.rs, html.rs (web tools)
+│       └── tools/         search.rs, fetch.rs, ollama_search.rs, html.rs (web), fs.rs (codebase)
 ├── src/                   React UI
 │   ├── components/        ChatPane, SidePanel, Sidebar, SettingsPage, InputArea, MessageBubble, ToolActivity, SubtopicChips…
 │   ├── hooks/             useStreamingChat, useDbInit, useChatSession
-│   ├── lib/               ollama.js, ollamaStream.js, tools.js, followups.js, db.js, systemPrompt.js
+│   ├── lib/               ollama.js, ollamaStream.js, tools.js, followups.js, agentLog.js, db.js, systemPrompt.js
 │   │   └── *.test.js      Unit tests for lib modules
 │   ├── store/             chatStore, sessionStore, uiStore, settingsStore
 │   │   └── *.test.js      Unit tests for store logic

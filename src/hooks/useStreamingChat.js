@@ -1,6 +1,6 @@
 import { useCallback, useRef } from "react";
 import { streamChat } from "../lib/ollama";
-import { TOOLS, executeTool } from "../lib/tools";
+import { TOOLS, FILE_TOOL_NAMES, WEB_TOOL_NAMES, executeTool } from "../lib/tools";
 import {
   buildMainChatSystemPrompt,
   buildSideChatSystemPrompt,
@@ -8,6 +8,31 @@ import {
 import { buildFollowUpMessages, parseSubtopics } from "../lib/followups";
 import { useChatSession } from "./useChatSession";
 import { useSettingsStore } from "../store/settingsStore";
+import { useSessionStore } from "../store/sessionStore";
+import { createAgentLogger } from "../lib/agentLog";
+import {
+  cachedModelWindow,
+  loadModelWindow,
+  resolveNumCtx,
+} from "../lib/modelContext";
+
+// Stable identity for "no roots" — a fresh [] on every render would defeat the
+// store subscription (which compares by reference).
+const NO_ROOTS = [];
+
+// Codebase-mode loop policy (see plan.md). Chat mode keeps its existing numbers:
+// the wrap-up nudge at 10 rounds, no file budgets, the DuckDuckGo nudge live.
+const CODEBASE_MAX_TOOL_ROUNDS = 20;
+const CODEBASE_MAX_FILE_CALLS = 40;
+// Roughly one full context's worth of source. Per-call caps bound a single read;
+// nothing bounds thirty of them, and each round re-sends the whole transcript.
+const CODEBASE_MAX_FILE_BYTES = 150_000;
+
+// Project folders are logged by basename, never by absolute path: the log is a
+// file the user might share when reporting a problem, and a path carries their
+// username. The sessions table already holds the real paths.
+const folderLabel = (path) =>
+  (path || "").split(/[\\/]/).filter(Boolean).pop() || path;
 
 export function useStreamingChat({
   store,
@@ -22,6 +47,18 @@ export function useStreamingChat({
   const model = store((s) => s.model);
   const isStreaming = store((s) => s.isStreaming);
   const error = store((s) => s.error);
+  const paneRoots = store((s) => s.projectRoots);
+
+  // Codebase mode is derived: an attached project folder *is* the mode. The
+  // pane's own roots are the live value (a folder can be attached before the
+  // session row exists); a side chat never sets them, so it reads its parent
+  // session's — which is also how it inherits the mode without its own toggle.
+  const session = useSessionStore(
+    (s) => s.chatSessions.find((c) => c.id === sessionId) || null,
+  );
+  const roots =
+    paneRoots.length > 0 ? paneRoots : (session?.projectRoots ?? NO_ROOTS);
+  const codebase = roots.length > 0;
 
   const { activeChatId, createSession, saveNow, saveOnReply } = useChatSession({
     sideChatId,
@@ -91,8 +128,8 @@ export function useStreamingChat({
           .filter((m) => m.content !== "" || (m.images && m.images.length > 0));
 
         const appSystemPrompt = compact
-          ? buildSideChatSystemPrompt(webSearchEnabled)
-          : buildMainChatSystemPrompt(webSearchEnabled);
+          ? buildSideChatSystemPrompt({ webSearchEnabled, codebase })
+          : buildMainChatSystemPrompt({ webSearchEnabled, codebase });
 
         const systemMessages = [{ role: "system", content: appSystemPrompt }];
 
@@ -119,11 +156,29 @@ export function useStreamingChat({
           }
         }
 
-        const activeTools = webSearchEnabled
-          ? TOOLS
-          : TOOLS.filter(
-              (t) => !["web_search", "web_fetch"].includes(t.function.name),
-            );
+        // Withhold tools the mode can't use: web tools unless the user turned
+        // them on, file tools unless a project folder is attached.
+        const activeTools = TOOLS.filter((t) => {
+          const name = t.function.name;
+          if (WEB_TOOL_NAMES.includes(name)) return webSearchEnabled;
+          if (FILE_TOOL_NAMES.includes(name)) return codebase;
+          return true;
+        });
+
+        // The file tools need the roots the model can never supply itself.
+        const runTool = (name, args) => executeTool(name, args, { roots });
+
+        const loopPolicy = codebase
+          ? {
+              maxToolRounds: CODEBASE_MAX_TOOL_ROUNDS,
+              // `null` disables the DuckDuckGo nudge: it fires on the round
+              // number alone, so round 15 would otherwise tell the model to
+              // stop mid-exploration of a repo it may not have searched at all.
+              webSearchNudgeAt: null,
+              maxFileCalls: CODEBASE_MAX_FILE_CALLS,
+              maxFileBytes: CODEBASE_MAX_FILE_BYTES,
+            }
+          : {};
 
         // Best-effort follow-up subtopic generation, fired from onDone after
         // the answer finalizes. Reads the recent conversation from the store,
@@ -131,6 +186,7 @@ export function useStreamingChat({
         // the chips to the finished message. Swallows all errors — chips are a
         // progressive enhancement, never a hard failure.
         const generateSubtopics = async (messageId) => {
+          const began = Date.now();
           try {
             const recent = store.getState().getApiMessages().slice(-4);
             if (recent.length === 0) return;
@@ -150,18 +206,76 @@ export function useStreamingChat({
             });
             const subs = parseSubtopics(raw);
             if (subs.length > 0) store.getState().setSubtopics(messageId, subs);
-          } catch {
+            // A second inference the user is paying for and waiting on — track
+            // it separately from the answer's own rounds.
+            log.event("subtopics", { ok: true, count: subs.length, ms: Date.now() - began });
+          } catch (err) {
             // follow-up generation is best-effort; never surface an error
+            log.event("subtopics", {
+              ok: false,
+              ms: Date.now() - began,
+              message: err?.message || String(err),
+            });
           }
         };
+
+        // How much context this run gets. Codebase mode raises it for a cloud
+        // model, capped by the model's real window — read once per model and
+        // cached, but if it hasn't landed yet this message goes out on the
+        // setting and the lookup is kicked off for the next one.
+        const settings = useSettingsStore.getState();
+        const modelWindow = cachedModelWindow(model);
+        if (codebase && modelWindow === undefined) loadModelWindow(model);
+        const numCtx = resolveNumCtx({
+          codebase,
+          model,
+          setting: settings.numCtx,
+          modelWindow,
+        });
+
+        // The log records what the harness *chose* for this run as much as what
+        // the model did: the prompt text, which tools were offered, and which
+        // mode the loop was in. Without the inputs, a log of failures can't
+        // tell you whether the harness or the model was at fault.
+        const log = createAgentLogger({
+          enabled: settings.agentLogEnabled,
+        });
+        log.event("stream.start", {
+          sessionId,
+          sideChatId: sideChatId ?? null,
+          compact,
+          model,
+          codebase,
+          roots: roots.map(folderLabel),
+          tools: activeTools.map((t) => t.function.name),
+          webSearchEnabled,
+          thinking: thinkingEnabled,
+          // Why `numCtx` resolved the way it did: the model's own window, and
+          // the setting it was raised from (`null` setting value = defaults).
+          numCtx,
+          modelWindow: modelWindow ?? null,
+          numCtxSetting: settings.numCtx,
+          systemPrompt: appSystemPrompt,
+          // The injected parent-chat transcript is summarised rather than
+          // copied: it's derived from the main chat, which is recoverable.
+          contextBlocks: systemMessages.slice(1).map((m) => ({
+            chars: m.content.length,
+            head: m.content.slice(0, 200),
+          })),
+          userText: (text || "").slice(0, 300),
+        });
 
         await streamChat({
           model,
           messages: [...systemMessages, ...apiMessages],
           tools: activeTools,
-          executeTool,
+          executeTool: runTool,
+          log,
           think: thinkingEnabled,
-          toolCallLimit: useSettingsStore.getState().toolCallLimit,
+          toolCallLimit: settings.toolCallLimit,
+          numCtx,
+          temperature: settings.temperature,
+          ...loopPolicy,
           onToken: (_, full) => {
             pendingContent.current = full;
             if (pendingContent.rafId === null) {
@@ -237,10 +351,12 @@ export function useStreamingChat({
     },
     [
       activeChatId,
+      codebase,
       compact,
       contextStore,
       createSession,
       model,
+      roots,
       saveNow,
       saveOnReply,
       store,

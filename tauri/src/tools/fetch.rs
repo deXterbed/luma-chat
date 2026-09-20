@@ -63,7 +63,7 @@ pub async fn fetch_page(url: &str) -> String {
         Ok(r) => r,
         Err(e) => {
             if e.is_timeout() {
-                return format!("Error: fetch timed out after 15s");
+                return "Error: fetch timed out after 15s".to_string();
             }
             return format!("Error: fetch failed ({})", e);
         }
@@ -257,10 +257,7 @@ mod tests {
     #[test]
     fn strips_simple_block() {
         let html = "<p>a</p><script>var x = 1;</script><p>b</p>";
-        assert_eq!(
-            strip_tags(html, "<script", "</script>"),
-            "<p>a</p><p>b</p>"
-        );
+        assert_eq!(strip_tags(html, "<script", "</script>"), "<p>a</p><p>b</p>");
     }
 
     #[test]

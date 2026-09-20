@@ -41,11 +41,14 @@ export default function Sidebar() {
 
   const handleLoadSession = async (session) => {
     setActiveChatId(session.id);
+    // The session's attached folder(s) come along with its messages — a chat
+    // opened here that has none must not keep the previous session's project.
+    const roots = session.projectRoots ?? [];
     if (session.messages.length > 0) {
-      loadMessages(session.messages, session.model);
+      loadMessages(session.messages, session.model, roots);
     } else {
       const data = await hydrateSession(session.id);
-      loadMessages(data.messages, session.model);
+      loadMessages(data.messages, session.model, roots);
     }
     // Focus the main input on chat switch (loadMessages bumps chatNonce but
     // not focusNonce; bumping here keeps boot hydration — which calls

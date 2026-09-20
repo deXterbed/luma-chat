@@ -41,6 +41,56 @@
     border-color: var(--text-subtle);
 }
 
+/* Secondary action beside a read-only field (e.g. Copy / Open / Clear the agent log). */
+.secondaryBtn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid var(--border-strong);
+    border-radius: 5px;
+    padding: 6px 10px;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-family: 'Geist', sans-serif;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+
+.secondaryBtn:hover:not(:disabled) {
+    background: var(--surface-hover);
+    color: var(--text);
+    border-color: var(--text-subtle);
+}
+
+.secondaryBtn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+/* The agent log's location. Selectable text, never an editable field: the path
+   is owned by the Rust side, and a readOnly <input> that looks editable is a
+   dead control. `min-width: 0` + `flex: 1` is what lets a long path ellipsis
+   inside the flex row instead of being clipped to a fixed number-field width. */
+.logPath {
+    flex: 1;
+    min-width: 0;
+    padding: 7px 10px;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 5px;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+    line-height: 1.4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    user-select: text;
+    cursor: text;
+}
+
 .title {
     font-size: 13px;
     font-weight: 600;
@@ -306,6 +356,14 @@
 .serverRow {
     display: flex;
     gap: 8px;
+}
+
+/* A row that follows a toggle needs the same breathing room the section header
+   gets — a toggle has no margin of its own, so the control underneath would sit
+   flush against the label. Scoped to the adjacent pair so the toggle that ends
+   a section keeps its tight bottom edge. */
+.toggleRow + .serverRow {
+    margin-top: 12px;
 }
 
 .serverRow .textInput:first-child {

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::Notify;
 
 use crate::db::{Database, Message, Session, SessionMessages};
@@ -292,6 +292,167 @@ pub async fn web_fetch(url: String, provider: Option<String>, api_key: Option<St
     }
 }
 
+// ── Agent log commands ──
+//
+// A structured JSONL record of what the agent loop did (see
+// `src/lib/agentLog.js` for the events), for tuning the harness from evidence.
+// Lines arrive already serialized from the frontend — the format is owned there
+// — so there is no schema here to keep in sync: this only appends, rotates, and
+// reports its own path.
+
+/// Rotate past this size, so a log switched on and forgotten can't grow without
+/// bound. One rotated file is kept.
+const AGENT_LOG_MAX_BYTES: u64 = 5 * 1024 * 1024;
+
+fn agent_log_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("logs");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
+}
+
+#[tauri::command]
+pub fn append_agent_log(app: AppHandle, lines: Vec<String>) -> Result<(), String> {
+    use std::io::Write;
+
+    let path = agent_log_dir(&app)?.join("agent.jsonl");
+    rotate_agent_log_if_large(&path, AGENT_LOG_MAX_BYTES);
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|e| e.to_string())?;
+    for line in lines {
+        // One write per line so concurrent appends can't interleave mid-line.
+        file.write_all(line.as_bytes()).map_err(|e| e.to_string())?;
+        file.write_all(b"\n").map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn agent_log_path(app: AppHandle) -> Result<String, String> {
+    Ok(agent_log_dir(&app)?
+        .join("agent.jsonl")
+        .to_string_lossy()
+        .into_owned())
+}
+
+#[tauri::command]
+pub fn clear_agent_log(app: AppHandle) -> Result<(), String> {
+    let path = agent_log_dir(&app)?.join("agent.jsonl");
+    if path.exists() {
+        std::fs::remove_file(&path).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Rename `agent.jsonl` to `agent.1.jsonl` once it passes `max` bytes,
+/// discarding any previous rotation.
+fn rotate_agent_log_if_large(path: &std::path::Path, max: u64) {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return;
+    };
+    if meta.len() < max {
+        return;
+    }
+    let rotated = path.with_extension("1.jsonl");
+    std::fs::remove_file(&rotated).ok();
+    std::fs::rename(path, rotated).ok();
+}
+
+// ── Codebase (file) tool commands ──
+//
+// Read-only, root-bounded tools for Codebase mode (see plan.md). The roots come
+// from the renderer's session state, never from the model. Each one does a
+// blocking walk, so it runs through `spawn_blocking` rather than occupying an
+// async-runtime thread.
+
+#[tauri::command]
+pub async fn read_file(
+    app: AppHandle,
+    roots: Vec<String>,
+    path: String,
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> String {
+    let roots = roots_to_paths(&app, roots);
+    tauri::async_runtime::spawn_blocking(move || tools::read_file(&roots, &path, offset, limit))
+        .await
+        .unwrap_or_else(|e| format!("Error: file read failed ({})", e))
+}
+
+// The argument list is the `invoke()` payload shape the renderer sends — grouping
+// it into a struct would change the JS call sites for no gain.
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+pub async fn search_code(
+    app: AppHandle,
+    roots: Vec<String>,
+    query: String,
+    path: Option<String>,
+    glob: Option<String>,
+    output: Option<String>,
+    regex: Option<bool>,
+    no_ignore: Option<bool>,
+) -> String {
+    let roots = roots_to_paths(&app, roots);
+    tauri::async_runtime::spawn_blocking(move || {
+        tools::search_code(
+            &roots,
+            &query,
+            path.as_deref(),
+            glob.as_deref(),
+            output.as_deref(),
+            regex.unwrap_or(false),
+            no_ignore.unwrap_or(false),
+        )
+    })
+    .await
+    .unwrap_or_else(|e| format!("Error: search failed ({})", e))
+}
+
+#[tauri::command]
+pub async fn list_dir(app: AppHandle, roots: Vec<String>, path: Option<String>) -> String {
+    let roots = roots_to_paths(&app, roots);
+    tauri::async_runtime::spawn_blocking(move || tools::list_dir(&roots, path.as_deref()))
+        .await
+        .unwrap_or_else(|e| format!("Error: listing failed ({})", e))
+}
+
+/// Gate for attaching a folder: returns the canonical path to store, or the
+/// reason it was refused. Also re-used by the UI to mark a restored root as
+/// missing, so "exists" is answered in exactly one place.
+#[tauri::command]
+pub fn validate_project_root(app: AppHandle, path: String) -> Result<String, String> {
+    let app_data = app.path().app_data_dir().ok();
+    tools::validate_root(&path, app_data.as_deref())
+}
+
+#[tauri::command]
+pub fn set_project_roots(db: State<Database>, session_id: String, roots: Vec<String>) {
+    db.set_project_roots(&session_id, &roots);
+}
+
+/// The roots the file tools may read from: what the renderer sent, minus any
+/// path the attach flow refuses.
+///
+/// The DB is not a trusted source — `import_chats` writes a backup's roots
+/// straight into it, and a row can be edited by hand — so the denylist is
+/// re-applied on every call instead of being trusted to attach time. A refused
+/// root simply reads as missing, which is the answer the UI already shows.
+fn roots_to_paths(app: &AppHandle, roots: Vec<String>) -> Vec<std::path::PathBuf> {
+    let app_data = app.path().app_data_dir().ok();
+    roots
+        .into_iter()
+        .filter(|r| !tools::is_refused_root(r, app_data.as_deref()))
+        .map(std::path::PathBuf::from)
+        .collect()
+}
+
 /// Resolve the Ollama API key: prefer the one set in app settings, fall back
 /// to the OLLAMA_API_KEY env var (only inherited when launched from a shell,
 /// e.g. `npm run dev` — not from a Finder/Dock-launched bundle on macOS).
@@ -326,6 +487,30 @@ fn resolve_ollama_base(from_settings: Option<String>) -> String {
     match from_settings {
         Some(url) if !url.trim().is_empty() => url.trim_end_matches('/').to_string(),
         _ => OLLAMA_BASE.to_string(),
+    }
+}
+
+/// The user-facing text for a failed Ollama chat request. Split out of the
+/// streaming command so the wording — which is the whole point of this
+/// function — can be asserted without a live Ollama.
+fn ollama_error_message(status: u16, body: &str) -> String {
+    match status {
+        401 | 403 => format!(
+            "Ollama rejected the request (HTTP {status}). You may have hit a usage limit — check your account at ollama.com, or switch models."
+        ),
+        429 => "Ollama usage limit reached (HTTP 429). Wait a bit, check your account at ollama.com, or switch models.".to_string(),
+        // Ollama answers 404 for a tag it doesn't know: renamed, retired, or
+        // never pulled. Reachability has already been checked by this point, so
+        // this is about the model — and it's the one case where "pick another"
+        // is the actual fix, which the raw body ("model not found, try pulling
+        // it first") does not say usefully.
+        404 => "That model isn't available on this Ollama server (HTTP 404) — it may have been renamed, removed, or never pulled. Pick another from the model menu.".to_string(),
+        // Anything else keeps the provider's own text, which is the only
+        // explanation available for an unanticipated failure.
+        _ => format!(
+            "Ollama chat request failed (HTTP {status}) {}",
+            body.chars().take(200).collect::<String>()
+        ),
     }
 }
 
@@ -379,6 +564,63 @@ pub async fn ollama_list_models(
     names
 }
 
+/// A model's context window, from Ollama's `/api/show`.
+///
+/// Codebase mode uses this as the *ceiling* for the context it asks for: the
+/// window is a fact about the model, and asking for more than the trained length
+/// doesn't error — Ollama applies RoPE scaling and the output quietly degrades.
+///
+/// `None` on any failure, which the caller must treat as "do not raise": a
+/// window we can't read is one we have no business exceeding.
+#[tauri::command]
+pub async fn ollama_model_context(
+    model: String,
+    ollama_url: Option<String>,
+    api_key: Option<String>,
+) -> Option<usize> {
+    let base = resolve_ollama_base(ollama_url);
+    let key = resolve_ollama_key(api_key);
+    let mut req = reqwest::Client::new()
+        .post(format!("{base}/api/show"))
+        .timeout(std::time::Duration::from_secs(5))
+        .json(&serde_json::json!({ "model": model }));
+    if !key.is_empty() {
+        req = req.header("Authorization", format!("Bearer {key}"));
+    }
+    let Ok(res) = req.send().await else {
+        return None;
+    };
+    if !res.status().is_success() {
+        return None;
+    }
+    let Ok(data) = res.json::<serde_json::Value>().await else {
+        return None;
+    };
+    context_length_from_show(&data)
+}
+
+/// Pull the context window out of a `/api/show` payload. Split out so it can be
+/// tested without a running Ollama.
+///
+/// `model_info` keys are architecture-prefixed (`gemma4.context_length`,
+/// `llama.context_length`, …), so match the suffix rather than guessing the
+/// architecture from the tag.
+fn context_length_from_show(data: &serde_json::Value) -> Option<usize> {
+    data.get("model_info")
+        .and_then(|info| info.as_object())
+        .and_then(|info| {
+            info.iter()
+                .find(|(key, _)| key.ends_with("context_length"))
+                .and_then(|(_, value)| {
+                    value
+                        .as_u64()
+                        .or_else(|| value.as_f64().map(|f| f.max(0.0) as u64))
+                })
+        })
+        .filter(|n| *n > 0)
+        .map(|n| n as usize)
+}
+
 /// Proxy a streaming chat completion to Ollama. Emits one `ollama://chunk`
 /// event per SSE JSON line from Ollama, then `ollama://done` (with the
 /// accumulated final content) or `ollama://error` (with the error string).
@@ -425,16 +667,7 @@ pub async fn ollama_chat_stream(
     if !response.status().is_success() {
         let status = response.status().as_u16();
         let body_text = response.text().await.unwrap_or_default();
-        let message = match status {
-            401 | 403 => format!(
-                "Ollama rejected the request (HTTP {status}). You may have hit a usage limit — check your account at ollama.com, or switch models."
-            ),
-            429 => "Ollama usage limit reached (HTTP 429). Wait a bit, check your account at ollama.com, or switch models.".to_string(),
-            _ => format!(
-                "Ollama chat request failed (HTTP {status}) {}",
-                body_text.chars().take(200).collect::<String>()
-            ),
-        };
+        let message = ollama_error_message(status, &body_text);
         let _ = app.emit(
             "ollama://error",
             serde_json::json!({ "request_id": &request_id, "error": &message }),
@@ -574,6 +807,85 @@ mod tests {
     use super::*;
 
     #[test]
+    fn rotate_agent_log_keeps_one_rotated_file() {
+        let dir = std::env::temp_dir().join(format!("luma_agent_log_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("agent.jsonl");
+
+        // Under the cap: left alone.
+        std::fs::write(&path, b"one\n").unwrap();
+        rotate_agent_log_if_large(&path, 1024);
+        assert!(path.exists());
+        assert!(!dir.join("agent.1.jsonl").exists());
+
+        // Over the cap: rotated, and a previous rotation is replaced.
+        std::fs::write(&path, vec![b'x'; 2048]).unwrap();
+        std::fs::write(dir.join("agent.1.jsonl"), b"stale").unwrap();
+        rotate_agent_log_if_large(&path, 1024);
+        assert!(!path.exists(), "log should have been rotated away");
+        let rotated = std::fs::read(dir.join("agent.1.jsonl")).unwrap();
+        assert_eq!(rotated.len(), 2048, "previous rotation should be replaced");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn ollama_error_message_names_the_model_problem_on_404() {
+        // The tag can be renamed or retired under a saved session; the message
+        // has to point at the fix, not print the provider's raw JSON.
+        let msg = ollama_error_message(
+            404,
+            "{\"error\":\"model 'x' not found, try pulling it first\"}",
+        );
+        assert!(msg.contains("isn't available"), "{msg}");
+        assert!(msg.contains("Pick another from the model menu"), "{msg}");
+        assert!(!msg.contains("{"), "raw JSON leaked: {msg}");
+
+        // Usage-limit statuses keep their own wording.
+        assert!(ollama_error_message(401, "").contains("usage limit"));
+        assert!(ollama_error_message(403, "").contains("usage limit"));
+        assert!(ollama_error_message(429, "").contains("usage limit reached"));
+
+        // Anything unanticipated still surfaces the provider's text, truncated.
+        let other = ollama_error_message(500, &"x".repeat(500));
+        assert!(other.contains("HTTP 500"), "{other}");
+        assert_eq!(other.matches('x').count(), 200, "body should be truncated");
+    }
+
+    #[test]
+    fn context_length_is_read_from_the_architecture_prefixed_key() {
+        // Shape verified against a live Ollama: /api/show for gemma4:31b-cloud
+        // reports gemma4.context_length = 262144.
+        let show = serde_json::json!({
+            "model_info": {
+                "gemma4.context_length": 262144,
+                "general.architecture": "gemma4",
+                "gemma4.attention.head_count": 32
+            }
+        });
+        assert_eq!(context_length_from_show(&show), Some(262144));
+
+        // Any architecture prefix, not just the one we happened to check.
+        let llama = serde_json::json!({ "model_info": { "llama.context_length": 131072 } });
+        assert_eq!(context_length_from_show(&llama), Some(131072));
+    }
+
+    #[test]
+    fn context_length_is_none_when_absent_unreadable_or_nonsense() {
+        let cases = [
+            serde_json::json!({}),
+            serde_json::json!({ "model_info": {} }),
+            serde_json::json!({ "model_info": { "llama.block_count": 32 } }),
+            // A zero window is not a window — refuse it rather than returning 0.
+            serde_json::json!({ "model_info": { "llama.context_length": 0 } }),
+            serde_json::json!({ "model_info": "not an object" }),
+        ];
+        for case in cases {
+            assert_eq!(context_length_from_show(&case), None, "{case}");
+        }
+    }
+
+    #[test]
     fn cancel_before_register_yields_pre_cancelled_slot() {
         let registry = CancelRegistry::default();
         let id = "req-1".to_string();
@@ -657,6 +969,7 @@ mod tests {
             id: "s1".to_string(),
             title: "Title".to_string(),
             model: "llama3".to_string(),
+            project_roots: Some(vec!["/tmp/luma-project".to_string()]),
             messages: vec![Message {
                 id: "m1".to_string(),
                 role: "user".to_string(),
@@ -681,6 +994,11 @@ mod tests {
         assert_eq!(decoded.len(), 1);
         assert_eq!(decoded[0].id, "s1");
         assert_eq!(decoded[0].messages[0].content, "hi");
+        // An attached project has to survive a backup/restore round trip.
+        assert_eq!(
+            decoded[0].project_roots,
+            Some(vec!["/tmp/luma-project".to_string()])
+        );
     }
 
     #[test]

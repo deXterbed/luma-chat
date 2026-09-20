@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, RotateCcw, ChevronDown, Check, Download, Upload } from "lucide-react";
 import { save as saveDialog, open as openDialog } from "@tauri-apps/plugin-dialog";
+import { open } from "@tauri-apps/plugin-shell";
 import { useUiStore } from "../store/uiStore";
 import { useSettingsStore, SETTINGS_DEFAULTS } from "../store/settingsStore";
 import { useSessionStore } from "../store/sessionStore";
@@ -20,6 +21,8 @@ export default function SettingsPage() {
   const setDefaultModel = useSettingsStore((s) => s.setDefaultModel);
   const webSearchDefault = useSettingsStore((s) => s.webSearchDefault);
   const setWebSearchDefault = useSettingsStore((s) => s.setWebSearchDefault);
+  const agentLogEnabled = useSettingsStore((s) => s.agentLogEnabled);
+  const setAgentLogEnabled = useSettingsStore((s) => s.setAgentLogEnabled);
   const searchProvider = useSettingsStore((s) => s.searchProvider);
   const setSearchProvider = useSettingsStore((s) => s.setSearchProvider);
   const ollamaApiKey = useSettingsStore((s) => s.ollamaApiKey);
@@ -28,12 +31,31 @@ export default function SettingsPage() {
   const setOllamaUrl = useSettingsStore((s) => s.setOllamaUrl);
   const toolCallLimit = useSettingsStore((s) => s.toolCallLimit);
   const setToolCallLimit = useSettingsStore((s) => s.setToolCallLimit);
+  const numCtx = useSettingsStore((s) => s.numCtx);
+  const setNumCtx = useSettingsStore((s) => s.setNumCtx);
+  const temperature = useSettingsStore((s) => s.temperature);
+  const setTemperature = useSettingsStore((s) => s.setTemperature);
   const resetToDefaults = useSettingsStore((s) => s.resetToDefaults);
   const setSessionsFromDb = useSessionStore((s) => s.setSessionsFromDb);
 
   // Backup / restore
   const [backupStatus, setBackupStatus] = useState(null); // { kind: "success" | "error", text }
   const [backupBusy, setBackupBusy] = useState(false);
+  // Where the agent log lives (resolved by Rust — it owns app_data_dir), so the
+  // user can open it in an editor instead of hunting for the path.
+  const [agentLogPath, setAgentLogPath] = useState(null);
+  const [agentLogCleared, setAgentLogCleared] = useState(false);
+  const [agentLogCopied, setAgentLogCopied] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    db.agentLogPath().then((path) => {
+      if (!cancelled) setAgentLogPath(path);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Model picker state
   const [modelOpen, setModelOpen] = useState(false);
@@ -297,6 +319,80 @@ export default function SettingsPage() {
           </label>
         </section>
 
+        {/* ── Agent log ── */}
+        <section className={`${styles.section} ${styles.sectionFull}`}>
+          <div className={styles.sectionHeader}>
+            <h2 className={styles.sectionTitle}>Agent log</h2>
+            <p className={styles.sectionHint}>
+              Record what the agent loop actually did — every round, the policy
+              message it was given, each tool call with its arguments, timing
+              and result size, and why the run ended — as one JSON object per
+              line. This is how the harness gets tuned from evidence. It
+              contains the prompt and excerpts of what the model read
+              (including any source files), so it is off unless you want it.
+              Read it with <code>jq</code>, or grep for a failure pattern.
+            </p>
+          </div>
+
+          <label className={styles.toggleRow}>
+            <span className={styles.toggleLabel}>Enable agent logging</span>
+            <button
+              role="switch"
+              aria-checked={agentLogEnabled}
+              onClick={() => setAgentLogEnabled(!agentLogEnabled)}
+              className={`${styles.switch} ${agentLogEnabled ? styles.switchOn : ""}`}
+            >
+              <span className={styles.switchKnob} />
+            </button>
+          </label>
+
+          <div className={styles.serverRow}>
+            {/* Deliberately not an <input>. The location is owned by the Rust
+                side (the app data dir), so an editable-looking control would be
+                a false affordance — a readOnly field that ignores clicks and
+                shows no caret just reads as broken. Selectable text, full path
+                on hover, plus a Copy button. */}
+            <span className={styles.logPath} title={agentLogPath || ""}>
+              {agentLogPath || "Unavailable outside the desktop app"}
+            </span>
+            <button
+              className={styles.secondaryBtn}
+              disabled={!agentLogPath}
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(agentLogPath);
+                  setAgentLogCopied(true);
+                  setTimeout(() => setAgentLogCopied(false), 2000);
+                } catch {
+                  // Clipboard can be unavailable; the path is selectable anyway.
+                }
+              }}
+              title="Copy the log path"
+            >
+              {agentLogCopied ? "Copied" : "Copy"}
+            </button>
+            <button
+              className={styles.secondaryBtn}
+              disabled={!agentLogPath}
+              onClick={() => open(agentLogPath).catch(() => {})}
+              title="Open the log in your default editor"
+            >
+              Open
+            </button>
+            <button
+              className={styles.secondaryBtn}
+              onClick={async () => {
+                await db.clearAgentLog();
+                setAgentLogCleared(true);
+                setTimeout(() => setAgentLogCleared(false), 2000);
+              }}
+              title="Delete the current log so the next run starts clean"
+            >
+              {agentLogCleared ? "Cleared" : "Clear"}
+            </button>
+          </div>
+        </section>
+
         {/* ── Ollama server ── */}
         <section className={`${styles.section} ${styles.sectionFull}`}>
           <div className={styles.sectionHeader}>
@@ -423,6 +519,64 @@ export default function SettingsPage() {
                 ? "Unlimited"
                 : `${toolCallLimit} round${toolCallLimit === 1 ? "" : "s"}`}
             </span>
+          </div>
+        </section>
+
+        {/* ── Context window ── */}
+        <section className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <h2 className={styles.sectionTitle}>Context window</h2>
+            <p className={styles.sectionHint}>
+              How many tokens the model can hold at once (Ollama's{" "}
+              <code>num_ctx</code>). In Codebase mode this is raised automatically
+              for cloud models — up to the window the model itself reports, so a
+              few source files fit without the model's quality quietly degrading.
+              Local models keep your value here, since the memory is yours;
+              every run records the number it actually used in the agent log.
+            </p>
+          </div>
+
+          <div className={styles.numberRow}>
+            <input
+              type="number"
+              min={2048}
+              max={131072}
+              step={1024}
+              value={numCtx}
+              onChange={(e) => setNumCtx(e.target.value)}
+              className={styles.numberInput}
+              aria-label="Context window in tokens"
+            />
+            <span className={styles.numberHint}>
+              {numCtx < 32768
+                ? "Small — Codebase mode raises this for cloud models"
+                : "tokens"}
+            </span>
+          </div>
+        </section>
+
+        {/* ── Temperature ── */}
+        <section className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <h2 className={styles.sectionTitle}>Temperature</h2>
+            <p className={styles.sectionHint}>
+              Sampling randomness, 0 (deterministic) to 2. Lower suits code
+              reading, higher suits brainstorming.
+            </p>
+          </div>
+
+          <div className={styles.numberRow}>
+            <input
+              type="number"
+              min={0}
+              max={2}
+              step={0.1}
+              value={temperature}
+              onChange={(e) => setTemperature(e.target.value)}
+              className={styles.numberInput}
+              aria-label="Temperature"
+            />
+            <span className={styles.numberHint}>default 0.7</span>
           </div>
         </section>
 

@@ -24,3 +24,15 @@ scraper = "0.20"
 readability = "0.3"
 url = "2"
 tokio = { version = "1", features = ["full"] }
+
+# Codebase mode file tools (see plan.md). `ignore` is ripgrep's gitignore-aware
+# walker and `grep-searcher`/`grep-regex` are its search engine — hand-rolling
+# either is the mistake. `regex` is already in the tree transitively, but naming
+# it here is required to use it directly (pattern validation + `escape` for the
+# literal-by-default search); matched to ripgrep's minor to avoid duplicate
+# copies. `dunce` normalizes Windows `\\?\` canonical paths.
+ignore = "0.4"
+grep-searcher = "0.1"
+grep-regex = "0.1"
+regex = "1"
+dunce = "1"

@@ -95,7 +95,8 @@ pub async fn search_web(query: &str, max_results: usize) -> String {
         return "No results found. Try a more specific query.".to_string();
     }
 
-    serde_json::to_string(&results).unwrap_or_else(|_| "Error: failed to serialize results".to_string())
+    serde_json::to_string(&results)
+        .unwrap_or_else(|_| "Error: failed to serialize results".to_string())
 }
 
 fn extract_real_url(href: &str) -> String {

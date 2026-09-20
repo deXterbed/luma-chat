@@ -24,7 +24,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "img-src 'self' data: blob:"
     }
   },
   "bundle": {

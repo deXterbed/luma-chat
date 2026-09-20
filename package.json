@@ -12,7 +12,9 @@
     "test": "vitest",
     "test:run": "vitest run",
     "test:rust": "cd tauri && cargo test",
-    "test:all": "npm run test:run && npm run test:rust"
+    "test:all": "npm run test:run && npm run test:rust",
+    "lint": "cd tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings",
+    "check": "npm run lint && npm run test:run && cd tauri && cargo check --all-targets"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

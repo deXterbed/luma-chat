@@ -9,6 +9,11 @@ pub struct Session {
     pub id: String,
     pub title: String,
     pub model: String,
+    /// Attached project roots for Codebase mode — a JSON array in the DB, the
+    /// first entry being the primary root. `None` means an ordinary chat
+    /// session, which is what makes the mode derivable rather than stored.
+    #[serde(rename = "projectRoots", default)]
+    pub project_roots: Option<Vec<String>>,
     pub messages: Vec<Message>,
     #[serde(rename = "sideChats")]
     pub side_chats: Vec<SideChat>,
@@ -167,6 +172,10 @@ const MIGRATIONS: &[fn(&Connection)] = &[
         conn.execute_batch("ALTER TABLE side_chats ADD COLUMN parent_side_chat_id TEXT")
             .ok();
     },
+    |conn| {
+        conn.execute_batch("ALTER TABLE sessions ADD COLUMN project_roots TEXT")
+            .ok();
+    },
 ];
 
 fn run_migrations(conn: &Connection) {
@@ -254,7 +263,7 @@ impl Database {
     pub fn load_sessions(&self) -> Vec<Session> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn
-            .prepare("SELECT id, title, model, created_at, updated_at FROM sessions ORDER BY updated_at DESC")
+            .prepare("SELECT id, title, model, project_roots, created_at, updated_at FROM sessions ORDER BY updated_at DESC")
             .unwrap();
 
         let sessions: Vec<Session> = stmt
@@ -263,11 +272,16 @@ impl Database {
                     id: row.get(0)?,
                     title: row.get(1)?,
                     model: row.get(2)?,
+                    // A hand-edited or truncated value degrades to "no root"
+                    // rather than failing the whole session list.
+                    project_roots: row
+                        .get::<_, Option<String>>(3)?
+                        .and_then(|raw| serde_json::from_str(&raw).ok()),
                     messages: vec![],
                     side_chats: vec![],
                     active_side_chat_id: None,
-                    created_at: row.get(3)?,
-                    updated_at: row.get(4)?,
+                    created_at: row.get(4)?,
+                    updated_at: row.get(5)?,
                 })
             })
             .unwrap()
@@ -409,10 +423,22 @@ impl Database {
         for s in sessions {
             {
                 let conn = self.conn.lock().unwrap();
+                // Roots merge rather than overwrite: a session already attached
+                // on this machine keeps its own (real, existing) folders, while
+                // one with no attachment adopts the backup's — which is the
+                // cross-machine restore case, where those paths won't exist and
+                // get marked missing instead of failing the import.
                 conn.execute(
-                    "INSERT INTO sessions (id, title, model, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)
-                     ON CONFLICT(id) DO UPDATE SET title = excluded.title, model = excluded.model, created_at = excluded.created_at, updated_at = excluded.updated_at",
-                    params![s.id, s.title, s.model, s.created_at, s.updated_at],
+                    "INSERT INTO sessions (id, title, model, project_roots, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                     ON CONFLICT(id) DO UPDATE SET title = excluded.title, model = excluded.model, project_roots = COALESCE(sessions.project_roots, excluded.project_roots), created_at = excluded.created_at, updated_at = excluded.updated_at",
+                    params![
+                        s.id,
+                        s.title,
+                        s.model,
+                        encode_roots(s.project_roots.as_deref()),
+                        s.created_at,
+                        s.updated_at
+                    ],
                 )
                 .ok();
             }
@@ -438,6 +464,18 @@ impl Database {
         conn.execute(
             "INSERT INTO sessions (id, title, model, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(id) DO UPDATE SET title = excluded.title, model = excluded.model, updated_at = excluded.updated_at",
             params![id, title, model, now, now],
+        )
+        .ok();
+    }
+
+    /// Deliberately separate from `save_session`: a title or model edit must
+    /// never touch the attached roots, and `setProjectRoots` is called only from
+    /// the attach/detach flow.
+    pub fn set_project_roots(&self, id: &str, roots: &[String]) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE sessions SET project_roots = ?1 WHERE id = ?2",
+            params![encode_roots(Some(roots)), id],
         )
         .ok();
     }
@@ -631,7 +669,8 @@ fn sync_messages(
             params![fk_value],
         )?;
     } else {
-        let placeholders: Vec<String> = (0..messages.len()).map(|i| format!("?{}", i + 2)).collect();
+        let placeholders: Vec<String> =
+            (0..messages.len()).map(|i| format!("?{}", i + 2)).collect();
         let sql = format!(
             "DELETE FROM {table} WHERE {fk_col} = ?1 AND id NOT IN ({})",
             placeholders.join(", ")
@@ -652,6 +691,16 @@ fn chrono_now() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_millis() as i64
+}
+
+/// Roots are stored as a JSON array in one nullable TEXT column (the codebase
+/// already JSON-encodes `images`/`tool_calls`). An empty list is stored as NULL,
+/// so "no project attached" is a single representation the mode can key off.
+fn encode_roots(roots: Option<&[String]>) -> Option<String> {
+    match roots {
+        Some(r) if !r.is_empty() => serde_json::to_string(r).ok(),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -695,12 +744,10 @@ mod tests {
                 "SELECT id, content, position FROM messages WHERE session_id = ?1 ORDER BY position",
             )
             .unwrap();
-        stmt.query_map(params![session], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-        })
-        .unwrap()
-        .map(|r| r.unwrap())
-        .collect()
+        stmt.query_map(params![session], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect()
     }
 
     #[test]
@@ -717,7 +764,10 @@ mod tests {
 
         // Inline edit of m1 + truncate-after (the edit/resend flow): only the
         // first two messages survive, m1 with new content.
-        let edited = vec![msg("m1", "user", "edited question"), msg("m2", "assistant", "answer")];
+        let edited = vec![
+            msg("m1", "user", "edited question"),
+            msg("m2", "assistant", "answer"),
+        ];
         sync_messages(&mut conn, "messages", "session_id", "s1", &edited).unwrap();
         assert_eq!(
             stored(&conn, "s1"),
@@ -751,7 +801,10 @@ mod tests {
         assert_eq!(count, 0, "identical re-save must not rewrite any row");
 
         // Edit one message: exactly that row updates.
-        let edited = vec![msg("m1", "user", "hello EDITED"), msg("m2", "assistant", "hi")];
+        let edited = vec![
+            msg("m1", "user", "hello EDITED"),
+            msg("m2", "assistant", "hi"),
+        ];
         sync_messages(&mut conn, "messages", "session_id", "s1", &edited).unwrap();
         let logged: Vec<String> = conn
             .prepare("SELECT id FROM update_log")
@@ -766,8 +819,22 @@ mod tests {
     #[test]
     fn sync_messages_scopes_deletes_to_one_chat() {
         let mut conn = messages_test_conn();
-        sync_messages(&mut conn, "messages", "session_id", "s1", &[msg("a", "user", "x")]).unwrap();
-        sync_messages(&mut conn, "messages", "session_id", "s2", &[msg("b", "user", "y")]).unwrap();
+        sync_messages(
+            &mut conn,
+            "messages",
+            "session_id",
+            "s1",
+            &[msg("a", "user", "x")],
+        )
+        .unwrap();
+        sync_messages(
+            &mut conn,
+            "messages",
+            "session_id",
+            "s2",
+            &[msg("b", "user", "y")],
+        )
+        .unwrap();
 
         // Clearing s1 (empty desired state) must not touch s2's rows.
         sync_messages(&mut conn, "messages", "session_id", "s1", &[]).unwrap();
@@ -796,6 +863,8 @@ mod tests {
         conn.execute_batch("SELECT tool_calls FROM messages")
             .unwrap();
         conn.execute_batch("SELECT updated_at FROM sessions")
+            .unwrap();
+        conn.execute_batch("SELECT project_roots FROM sessions")
             .unwrap();
         conn.execute_batch("SELECT parent_side_chat_id FROM side_chats")
             .unwrap();
@@ -904,7 +973,10 @@ mod tests {
         let db1 = Database::new(dir1.clone());
 
         db1.save_session("s1", "Title", "llama3");
-        db1.save_messages("s1", &[msg("m1", "user", "hi"), msg("m2", "assistant", "hello")]);
+        db1.save_messages(
+            "s1",
+            &[msg("m1", "user", "hi"), msg("m2", "assistant", "hello")],
+        );
         db1.upsert_side_chat("s1", "sc1", "llama3", 0, None);
         db1.save_side_chat_messages("sc1", &[msg("sm1", "user", "side question")]);
         db1.set_active_side_chat("s1", Some("sc1"));

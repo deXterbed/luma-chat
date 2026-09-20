@@ -28,6 +28,14 @@
     white-space: nowrap;
 }
 
+/* The selected model isn't on the server any more — the pane says why in full;
+   this is the marker that points at where to fix it. */
+.modelNameUnavailable {
+    color: var(--status-err);
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
+}
+
 .modelNameCompact {
     max-width: 100px;
 }

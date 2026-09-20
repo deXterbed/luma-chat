@@ -34,7 +34,7 @@ export function useDbInit() {
         setActiveChatId(last.id);
         const data = await hydrateSession(last.id);
         if (cancelled) return;
-        loadMessages(data.messages, last.model);
+        loadMessages(data.messages, last.model, last.projectRoots ?? []);
       } catch {
         // Session restore failed; the user can still start a new chat.
       }

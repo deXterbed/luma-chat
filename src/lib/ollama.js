@@ -8,6 +8,12 @@
 
 import { listen } from "@tauri-apps/api/event";
 import { useSettingsStore } from "../store/settingsStore";
+import { FILE_TOOL_NAMES as FILE_TOOL_LIST, WEB_TOOL_NAMES as WEB_TOOL_LIST } from "./tools";
+import {
+  classifyToolResult,
+  messageKind,
+} from "./ollamaStream";
+import { contextChars, summarizeToolResult } from "./agentLog";
 
 let _invoke;
 async function getInvoke() {
@@ -105,7 +111,8 @@ const WEB_SEARCH_NUDGE_AT = 15;
 // again"; 0 = unlimited. Overshoots by at most one round's batch (≤3 calls)
 // since it's checked after each round, not per call. Surface as a setting later.
 const DEFAULT_MAX_SEARCHES = 15;
-const WEB_TOOL_NAMES = new Set(["web_search", "web_fetch"]);
+const WEB_TOOL_NAMES = new Set(WEB_TOOL_LIST);
+const FILE_TOOL_NAMES = new Set(FILE_TOOL_LIST);
 
 const ALL_FAILED_MSG =
   "All tool calls in the last round failed. Write your final answer now based on everything gathered so far.";
@@ -126,6 +133,11 @@ const ALL_FAILED_MSG =
  * @param {number}  [params.maxToolRounds=10]
  * @param {number}  [params.toolCallLimit=0]   - max tool rounds before a forced tools-disabled final answer; 0 = unlimited
  * @param {number}  [params.maxSearches=15]    - max web_search + web_fetch calls across the whole stream before a forced final answer; 0 = unlimited
+ * @param {number|null} [params.webSearchNudgeAt=15] - round at which the DuckDuckGo rate-limit nudge is injected; null disables it
+ * @param {number}  [params.maxFileCalls=0]    - max read_file/search_code/list_dir calls per stream; 0 = unlimited
+ * @param {number}  [params.maxFileBytes=0]    - max total bytes returned by those tools; 0 = unlimited
+ * @param {object}  [params.log]              - agent logger (see lib/agentLog.js). A no-op
+ *   object when logging is off, so every call site can just call `log?.event(...)`.
  * @param {AbortSignal} [params.signal]
  */
 export async function streamChat({
@@ -141,8 +153,14 @@ export async function streamChat({
   maxToolRounds = 10,
   toolCallLimit = 0,
   maxSearches = DEFAULT_MAX_SEARCHES,
+  webSearchNudgeAt = WEB_SEARCH_NUDGE_AT,
+  maxFileCalls = 0,
+  maxFileBytes = 0,
+  log,
   signal,
   think,
+  numCtx,
+  temperature,
 }) {
   const workingMessages = [...messages];
   let round = 0;
@@ -152,7 +170,8 @@ export async function streamChat({
   const limits = {
     hardCap,
     maxToolRounds,
-    webSearchNudgeAt: WEB_SEARCH_NUDGE_AT,
+    // null (Codebase mode) never equals a round number, so the nudge is off.
+    webSearchNudgeAt,
     // Set to true once `searchCount` reaches `maxSearches`; the next round
     // becomes a tools-disabled force-final (same path as the hardCap limit).
     budgetExhausted: false,
@@ -160,6 +179,33 @@ export async function streamChat({
   // Counts web_search + web_fetch calls across all rounds (success or fail —
   // a failed call still cost a network request and a round).
   let searchCount = 0;
+  // Same idea for the file tools, which the web budget deliberately doesn't
+  // cover: reading a repo makes far more calls, and each one re-sends the whole
+  // transcript, so the bytes matter as much as the count.
+  let fileCallCount = 0;
+  let fileBytes = 0;
+
+  // The effective policy for this run, recorded once — a log of failures can't
+  // tell you whether the harness or the model was at fault without it. Values
+  // are the *resolved* ones (defaults filled in), not the params as passed.
+  log?.event("limits", {
+    model,
+    numCtx: numCtx ?? 8192,
+    temperature: temperature ?? 0.7,
+    hardCap,
+    maxToolRounds,
+    maxSearches,
+    webSearchNudgeAt,
+    maxFileCalls,
+    maxFileBytes,
+    toolCount: tools?.length ?? 0,
+  });
+
+  // Why the loop ended, for the log. Set at each terminal point; the `finally`
+  // below writes it even on the paths that `return` (final answer) or throw
+  // (abort, transport error).
+  let endReason = "error";
+  const startedAt = Date.now();
 
   // Per-stream state. Mutated by the event listeners and read on completion.
   const state = {
@@ -243,14 +289,29 @@ export async function streamChat({
       // strips tools (see includeTools below) and ignores any tool calls the
       // model still emits, finalizing with whatever text it produced.
       const forceFinal = (hardCap !== null && round >= hardCap) || limits.budgetExhausted;
-      for (const msg of systemMessagesForRound(round, limits)) {
+      const injected = systemMessagesForRound(round, limits);
+      for (const msg of injected) {
         workingMessages.push(msg);
       }
+
+      // The decisions the harness made for this round are as much a part of the
+      // record as the model's replies: which policy message fired, and how big
+      // the prompt had grown by now.
+      log?.event("round.start", {
+        round,
+        forceFinal,
+        includeTools: !forceFinal,
+        injected: injected.map((m) => messageKind(m.content)),
+        messages: workingMessages.length,
+        contextChars: contextChars(workingMessages),
+      });
 
       const body = buildRequestBody(model, workingMessages, {
         tools,
         think,
         includeTools: !forceFinal,
+        numCtx,
+        temperature,
       });
 
       // Reset per-round state
@@ -259,6 +320,7 @@ export async function streamChat({
       state.toolCalls = [];
       state.finalContent = "";
       state.error = null;
+      const roundBeganAt = Date.now();
 
       const completionPromise = new Promise((resolve) => {
         state.resolve = resolve;
@@ -284,10 +346,25 @@ export async function streamChat({
       // Strip leaked tool_call XML some models emit in the text content
       const content = stripLeakedToolCallXml(state.finalContent);
 
+      log?.event("round.reply", {
+        round,
+        ms: Date.now() - roundBeganAt,
+        contentChars: content.length,
+        thinkingChars: state.thinking.length,
+        toolCalls: forceFinal ? 0 : state.toolCalls.length,
+        // The model's stated plan for the round — the most direct evidence of
+        // *why* it chose these calls. For a model that reasons in the thinking
+        // channel (thinking is on by default for cloud models) `content` is
+        // empty and the rationale is only here, which is why both are recorded.
+        contentHead: content.slice(0, 400),
+        thinkingHead: state.thinking.slice(0, 400),
+      });
+
       // On the forced-final round we ignore any tool calls the model still
       // emitted and finalize with whatever text it produced.
       const toolCalls = forceFinal ? [] : state.toolCalls;
       if (toolCalls.length === 0) {
+        endReason = "final";
         onDone?.(content);
         return;
       }
@@ -298,12 +375,27 @@ export async function streamChat({
         tool_calls: toolCalls,
       });
 
-      const { allFailed, quotaError } = await runToolCalls(
+      const { allFailed, quotaError, results, timings } = await runToolCalls(
         toolCalls,
         executeTool,
         workingMessages,
         { onToolCall, onToolResult },
       );
+
+      // One line per call: what it asked for, what came back, how long it took.
+      // Repeated identical `args` across rounds is the signature of a model
+      // looping, and `chars` is what actually moves the context budget.
+      for (let i = 0; i < toolCalls.length; i++) {
+        log?.event("tool", {
+          round,
+          index: i,
+          name: toolCalls[i].function.name,
+          args: toolCalls[i].function.arguments || {},
+          ms: timings[i],
+          kind: classifyToolResult(results[i]),
+          ...summarizeToolResult(results[i]),
+        });
+      }
 
       // Count this round's web calls against the search budget. Failed calls
       // count too — they still cost a network request. Once the budget is hit,
@@ -316,13 +408,41 @@ export async function streamChat({
         if (searchCount >= maxSearches) limits.budgetExhausted = true;
       }
 
+      // Same accounting for the file tools, on count *and* bytes. Counted after
+      // the round, like the web budget, so either can overshoot by one batch.
+      if (maxFileCalls > 0 || maxFileBytes > 0) {
+        for (let i = 0; i < toolCalls.length; i++) {
+          if (!FILE_TOOL_NAMES.has(toolCalls[i].function.name)) continue;
+          fileCallCount += 1;
+          const result = results[i];
+          if (typeof result === "string") fileBytes += result.length;
+        }
+        if (
+          (maxFileCalls > 0 && fileCallCount >= maxFileCalls) ||
+          (maxFileBytes > 0 && fileBytes >= maxFileBytes)
+        ) {
+          limits.budgetExhausted = true;
+        }
+      }
+
       // A QUOTA/auth failure (bad or exhausted Ollama key) won't recover on
       // retry — every further web call fails too. Stop the whole stream
       // rather than re-prompting for a final answer; the UI banner explains.
       if (quotaError) {
+        endReason = "quota";
         onDone?.(content);
         return;
       }
+
+      log?.event("round.end", {
+        round,
+        ms: Date.now() - roundBeganAt,
+        allFailed,
+        webCalls: searchCount,
+        fileCalls: fileCallCount,
+        fileBytes,
+        budgetExhausted: limits.budgetExhausted,
+      });
 
       if (allFailed && round < maxToolRounds) {
         workingMessages.push({ role: "system", content: ALL_FAILED_MSG });
@@ -330,7 +450,30 @@ export async function streamChat({
       }
       round++;
     }
+  } catch (err) {
+    // Distinguish a user Stop from a real failure: both land here (the loop
+    // throws on an aborted signal), but only one is worth investigating.
+    endReason = signal?.aborted ? "abort" : "error";
+    log?.event("stream.error", {
+      round,
+      reason: endReason,
+      message: err?.message || String(err),
+    });
+    throw err;
   } finally {
+    // Written on every exit path — final answer, quota, abort, transport error.
+    // This is the line that says whether the run ended because the model
+    // finished or because the harness cut it off.
+    log?.event("stream.end", {
+      reason: endReason,
+      rounds: round + 1,
+      ms: Date.now() - startedAt,
+      webCalls: searchCount,
+      fileCalls: fileCallCount,
+      fileBytes,
+      budgetExhausted: limits.budgetExhausted,
+    });
+    await log?.flush();
     for (const un of unlisteners) {
       try {
         un();

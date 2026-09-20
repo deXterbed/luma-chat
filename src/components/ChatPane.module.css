@@ -118,6 +118,83 @@
     color: var(--accent);
 }
 
+/* Attached project (Codebase mode): the chip shows the folder's *basename* —
+   never the absolute path, which leaks the username into screenshots. */
+.projectChip {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 6px 4px 9px;
+    background: var(--accent-subtle);
+    border: 1px solid var(--accent);
+    border-radius: 5px;
+    color: var(--accent);
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.projectChipMissing {
+    background: transparent;
+    border-color: var(--status-err);
+    color: var(--status-err);
+}
+
+.projectName {
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.projectDetach {
+    display: flex;
+    align-items: center;
+    padding: 1px;
+    background: transparent;
+    border: none;
+    color: inherit;
+    opacity: 0.7;
+    cursor: pointer;
+}
+
+.projectDetach:hover {
+    opacity: 1;
+}
+
+/* One-time notice when a project folder is attached while the model runs on a
+   remote server: the files being read leave this machine. Informational, not
+   an error — it's a tradeoff the user already chose by picking a cloud model. */
+.paneNotice {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--accent-subtle);
+    border-bottom: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: 'Geist', sans-serif;
+    font-size: 11px;
+    line-height: 1.5;
+}
+
+/* Something is actually broken (the selected model is gone from the server),
+   so it reads as a warning rather than a note. */
+.paneNoticeWarn {
+    background: var(--error-bg);
+    color: var(--text);
+}
+
+.paneNoticeDismiss {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    padding: 1px;
+    background: transparent;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+}
+
 .messages {
     flex: 1;
     overflow-y: auto;

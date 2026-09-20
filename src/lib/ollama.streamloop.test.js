@@ -343,6 +343,305 @@ describe("streamChat tool-loop onDone timing", () => {
   });
 });
 
+describe("Codebase mode loop policy", () => {
+  beforeEach(() => {
+    invoke.mockReset();
+    listen.mockReset();
+  });
+
+  const streamCalls = () =>
+    invoke.mock.calls.filter((c) => c[0] === "ollama_chat_stream");
+  const readFileRound = (path) => ({
+    chunks: [
+      {
+        message: {
+          tool_calls: [{ function: { name: "read_file", arguments: { path } } }],
+        },
+      },
+    ],
+    content: "",
+  });
+  const roundMessages = (call) => call[1].body.messages;
+  const hasSystem = (call, pattern) =>
+    roundMessages(call).some(
+      (m) => m.role === "system" && pattern.test(m.content),
+    );
+
+  // A wrong path is normal while exploring a repo. Rust returns those as plain
+  // observations ("Not found: …"), which must NOT trip `allFailed` — that would
+  // jump the session to its wrap-up round after one guessed path.
+  it("keeps exploring after a round of not-found observations", async () => {
+    installStreamHarness([
+      readFileRound("nope.rs"),
+      { chunks: [{ message: { content: "Found it elsewhere." } }], content: "Found it elsewhere." },
+    ]);
+
+    let doneText = null;
+    await streamChat({
+      model: "m",
+      messages: [{ role: "user", content: "q" }],
+      tools: [{ type: "function", function: { name: "read_file" } }],
+      maxToolRounds: 20,
+      maxFileCalls: 40,
+      maxFileBytes: 150000,
+      executeTool: async () =>
+        "Not found: nope.rs (relative to the project root). Use list_dir to see what is there.",
+      onDone: (full) => {
+        doneText = full;
+      },
+    });
+
+    const calls = streamCalls();
+    expect(calls).toHaveLength(2);
+    expect(doneText).toBe("Found it elsewhere.");
+    expect(hasSystem(calls[1], /all tool calls.*failed/i)).toBe(false);
+  });
+
+  it("exhausts the file budget on bytes and forces the tools-disabled final round", async () => {
+    installStreamHarness([
+      readFileRound("big.rs"),
+      { chunks: [{ message: { content: "Answer from what I read." } }], content: "Answer from what I read." },
+    ]);
+
+    await streamChat({
+      model: "m",
+      messages: [{ role: "user", content: "q" }],
+      tools: [{ type: "function", function: { name: "read_file" } }],
+      maxFileBytes: 100,
+      executeTool: async () => "x".repeat(500),
+    });
+
+    const calls = streamCalls();
+    expect(calls).toHaveLength(2);
+    expect(hasSystem(calls[1], /reached the tool-use limit/i)).toBe(true);
+    expect(calls[1][1].body).not.toHaveProperty("tools");
+  });
+
+  it("exhausts the file budget on call count", async () => {
+    installStreamHarness([
+      {
+        chunks: [
+          {
+            message: {
+              tool_calls: [
+                { function: { name: "read_file", arguments: { path: "a.rs" } } },
+              ],
+            },
+          },
+        ],
+        content: "",
+      },
+      { chunks: [{ message: { content: "done" } }], content: "done" },
+    ]);
+
+    await streamChat({
+      model: "m",
+      messages: [{ role: "user", content: "q" }],
+      tools: [{ type: "function", function: { name: "read_file" } }],
+      maxFileCalls: 1,
+      executeTool: async () => "short",
+    });
+
+    const calls = streamCalls();
+    expect(calls).toHaveLength(2);
+    expect(hasSystem(calls[1], /reached the tool-use limit/i)).toBe(true);
+  });
+
+  // `WEB_SEARCH_NUDGE_AT = 15` fires on the round number alone, never checking
+  // which tools ran — so in Codebase mode it would tell the model to stop and
+  // write its final answer in the middle of reading a repo that made no web
+  // searches at all. `webSearchNudgeAt: null` is how the mode turns it off.
+  it("injects the DuckDuckGo nudge at round 15 by default, and never when suppressed", async () => {
+    const manyRounds = [
+      ...Array.from({ length: 16 }, (_, i) => readFileRound(`f${i}.rs`)),
+      { chunks: [{ message: { content: "final" } }], content: "final" },
+    ];
+
+    installStreamHarness(manyRounds);
+    await streamChat({
+      model: "m",
+      messages: [{ role: "user", content: "q" }],
+      tools: [{ type: "function", function: { name: "read_file" } }],
+      maxToolRounds: 40,
+      executeTool: async () => "1→code\n",
+    });
+    let calls = streamCalls();
+    expect(calls.length).toBeGreaterThan(15);
+    expect(hasSystem(calls[15], /DuckDuckGo/i)).toBe(true);
+
+    invoke.mockReset();
+    listen.mockReset();
+    installStreamHarness(manyRounds);
+    await streamChat({
+      model: "m",
+      messages: [{ role: "user", content: "q" }],
+      tools: [{ type: "function", function: { name: "read_file" } }],
+      maxToolRounds: 40,
+      webSearchNudgeAt: null,
+      executeTool: async () => "1→code\n",
+    });
+    calls = streamCalls();
+    expect(calls.length).toBeGreaterThan(15);
+    expect(hasSystem(calls[15], /DuckDuckGo/i)).toBe(false);
+  });
+});
+
+// The log is the only reason the harness can be tuned from evidence rather than
+// guesswork, so its wiring is asserted here: if an event stops being emitted,
+// the log goes quiet and looks like "nothing happened" instead of breaking.
+describe("agent log instrumentation", () => {
+  beforeEach(() => {
+    invoke.mockReset();
+    listen.mockReset();
+  });
+
+  function recordingLogger() {
+    const events = [];
+    return {
+      events,
+      log: {
+        enabled: true,
+        event: (t, d) => events.push({ t, ...d }),
+        flush: async () => {},
+      },
+      types: () => events.map((e) => e.t),
+      find: (t) => events.find((e) => e.t === t),
+    };
+  }
+
+  it("records the run's policy, each round, and every tool call", async () => {
+    installStreamHarness([
+      {
+        chunks: [
+          { message: { content: "Let me look. " } },
+          {
+            message: {
+              tool_calls: [
+                { function: { name: "read_file", arguments: { path: "a.rs" } } },
+              ],
+            },
+          },
+        ],
+        content: "Let me look. ",
+      },
+      { chunks: [{ message: { content: "The answer." } }], content: "The answer." },
+    ]);
+
+    const rec = recordingLogger();
+    await streamChat({
+      model: "m",
+      messages: [{ role: "user", content: "q" }],
+      tools: [{ type: "function", function: { name: "read_file" } }],
+      log: rec.log,
+      numCtx: 32768,
+      webSearchNudgeAt: null,
+      maxFileCalls: 40,
+      maxFileBytes: 150000,
+      executeTool: async () => "1→code\n",
+    });
+
+    const types = rec.types();
+    for (const expected of [
+      "limits",
+      "round.start",
+      "round.reply",
+      "tool",
+      "round.end",
+      "stream.end",
+    ]) {
+      expect(types).toContain(expected);
+    }
+
+    // The resolved policy, not the params: this is what makes a log
+    // self-explanatory a week later.
+    expect(rec.find("limits")).toMatchObject({
+      numCtx: 32768,
+      webSearchNudgeAt: null,
+      maxFileCalls: 40,
+      maxFileBytes: 150000,
+      toolCount: 1,
+    });
+
+    // Where the model's plan for the round lands — the decision, not just its
+    // consequence.
+    expect(rec.find("round.reply").contentHead).toContain("Let me look.");
+
+    // The call, its args, its verdict, and its size.
+    const tool = rec.find("tool");
+    expect(tool).toMatchObject({ round: 0, index: 0, name: "read_file", kind: "ok" });
+    expect(tool.args).toEqual({ path: "a.rs" });
+    expect(tool.chars).toBeGreaterThan(0);
+    expect(typeof tool.ms).toBe("number");
+
+    expect(rec.find("stream.end")).toMatchObject({ reason: "final" });
+  });
+
+  it("names the policy message that was injected, so a cut-off run is explainable", async () => {
+    installStreamHarness([
+      {
+        chunks: [
+          {
+            message: {
+              tool_calls: [
+                { function: { name: "read_file", arguments: { path: "a.rs" } } },
+              ],
+            },
+          },
+        ],
+        content: "",
+      },
+      { chunks: [{ message: { content: "final" } }], content: "final" },
+    ]);
+
+    const rec = recordingLogger();
+    await streamChat({
+      model: "m",
+      messages: [{ role: "user", content: "q" }],
+      tools: [{ type: "function", function: { name: "read_file" } }],
+      maxToolRounds: 1,
+      log: rec.log,
+      executeTool: async () => "1→code\n",
+    });
+
+    const starts = rec.events.filter((e) => e.t === "round.start");
+    expect(starts[0].injected).toEqual([]);
+    // Round 1 is maxToolRounds, so the wrap-up fires — and the log says which
+    // policy message it was, not merely that a system message appeared.
+    expect(starts[1].injected).toContain("WRAP_UP");
+  });
+
+  it("records why the run ended when the model's calls all fail", async () => {
+    installStreamHarness([
+      {
+        chunks: [
+          {
+            message: {
+              tool_calls: [
+                { function: { name: "read_file", arguments: { path: "missing.rs" } } },
+              ],
+            },
+          },
+        ],
+        content: "",
+      },
+      { chunks: [{ message: { content: "gave up" } }], content: "gave up" },
+    ]);
+
+    const rec = recordingLogger();
+    await streamChat({
+      model: "m",
+      messages: [{ role: "user", content: "q" }],
+      tools: [{ type: "function", function: { name: "read_file" } }],
+      maxToolRounds: 20,
+      log: rec.log,
+      executeTool: async () => "Error: could not read the file",
+    });
+
+    expect(rec.find("tool")).toMatchObject({ kind: "error" });
+    expect(rec.find("round.end")).toMatchObject({ allFailed: true });
+  });
+});
+
 describe("streamChat abort -> ollama_cancel contract", () => {
   beforeEach(() => {
     invoke.mockReset();
