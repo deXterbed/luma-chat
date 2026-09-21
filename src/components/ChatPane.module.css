@@ -83,6 +83,17 @@
     gap: 8px;
 }
 
+/* The attached folders, one chip each, plus the button that adds another.
+   Wraps rather than overflowing the header once several are attached. */
+.projectChips {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-width: 0;
+}
+
 .headerBtn {
     display: flex;
     align-items: center;
@@ -140,7 +151,7 @@
 }
 
 .projectName {
-    max-width: 160px;
+    max-width: 120px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

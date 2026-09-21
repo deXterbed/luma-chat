@@ -376,13 +376,16 @@ pub async fn read_file(
     app: AppHandle,
     roots: Vec<String>,
     path: String,
+    root: Option<String>,
     offset: Option<usize>,
     limit: Option<usize>,
 ) -> String {
     let roots = roots_to_paths(&app, roots);
-    tauri::async_runtime::spawn_blocking(move || tools::read_file(&roots, &path, offset, limit))
-        .await
-        .unwrap_or_else(|e| format!("Error: file read failed ({})", e))
+    tauri::async_runtime::spawn_blocking(move || {
+        tools::read_file(&roots, &path, root.as_deref(), offset, limit)
+    })
+    .await
+    .unwrap_or_else(|e| format!("Error: file read failed ({})", e))
 }
 
 // The argument list is the `invoke()` payload shape the renderer sends — grouping
@@ -394,6 +397,7 @@ pub async fn search_code(
     roots: Vec<String>,
     query: String,
     path: Option<String>,
+    root: Option<String>,
     glob: Option<String>,
     output: Option<String>,
     regex: Option<bool>,
@@ -405,6 +409,7 @@ pub async fn search_code(
             &roots,
             &query,
             path.as_deref(),
+            root.as_deref(),
             glob.as_deref(),
             output.as_deref(),
             regex.unwrap_or(false),
@@ -416,11 +421,18 @@ pub async fn search_code(
 }
 
 #[tauri::command]
-pub async fn list_dir(app: AppHandle, roots: Vec<String>, path: Option<String>) -> String {
+pub async fn list_dir(
+    app: AppHandle,
+    roots: Vec<String>,
+    path: Option<String>,
+    root: Option<String>,
+) -> String {
     let roots = roots_to_paths(&app, roots);
-    tauri::async_runtime::spawn_blocking(move || tools::list_dir(&roots, path.as_deref()))
-        .await
-        .unwrap_or_else(|e| format!("Error: listing failed ({})", e))
+    tauri::async_runtime::spawn_blocking(move || {
+        tools::list_dir(&roots, path.as_deref(), root.as_deref())
+    })
+    .await
+    .unwrap_or_else(|e| format!("Error: listing failed ({})", e))
 }
 
 /// Gate for attaching a folder: returns the canonical path to store, or the

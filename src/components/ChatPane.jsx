@@ -8,7 +8,7 @@ import { useSettingsStore } from "../store/settingsStore";
 import { useSessionStore } from "../store/sessionStore";
 import { db } from "../lib/db";
 import { isCloudModel, isModelUnavailable, loadModelWindow } from "../lib/modelContext";
-import { Trash2, Check, X, GitBranch, FolderOpen, FolderMinus } from "lucide-react";
+import { Trash2, Check, X, GitBranch, FolderOpen, FolderPlus, FolderMinus } from "lucide-react";
 import styles from "./ChatPane.module.css";
 
 // The folder's basename, for display. Never the absolute path — that leaks the
@@ -149,44 +149,70 @@ export default function ChatPane({
   );
   const [projectNotice, setProjectNotice] = useState(null);
   const [attachError, setAttachError] = useState(null);
-  // A root restored from a backup may point at a folder that isn't on this
+  // Roots restored from a backup may point at folders that aren't on this
   // machine. The same command that gates attaching answers "does it exist", so
-  // the chip can say so without a second existence check that could disagree.
-  const [rootMissing, setRootMissing] = useState(false);
+  // each chip can say so without a second existence check that could disagree.
+  const [missingRoots, setMissingRoots] = useState([]);
 
   useEffect(() => {
-    const root = projectRoots[0];
-    if (!root) {
-      setRootMissing(false);
+    if (projectRoots.length === 0) {
+      setMissingRoots([]);
       return;
     }
     let cancelled = false;
-    db.validateProjectRoot(root)
-      .then(() => {
-        if (!cancelled) setRootMissing(false);
-      })
-      .catch(() => {
-        if (!cancelled) setRootMissing(true);
-      });
+    // Every root, not just the first: a restored session can lose any of them,
+    // and each chip reports on itself.
+    Promise.all(
+      projectRoots.map((root) =>
+        db.validateProjectRoot(root).then(
+          () => null,
+          () => root,
+        ),
+      ),
+    ).then((results) => {
+      if (!cancelled) setMissingRoots(results.filter(Boolean));
+    });
     return () => {
       cancelled = true;
     };
   }, [projectRoots]);
 
+  // Attaching *appends*: a second folder is an addition to the root set, not a
+  // replacement for it. The picker allows a multi-select, so one trip can add
+  // several at once.
   const handleAttachProject = async () => {
     setAttachError(null);
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
-      const picked = await open({ directory: true, multiple: false });
+      const picked = await open({ directory: true, multiple: true });
       if (!picked) return;
+      const paths = Array.isArray(picked) ? picked : [picked];
       // Rust owns the validation (exists, is a directory, not `/`, not $HOME,
-      // not Luma's own data dir) and returns the canonical path to store.
-      const canonical = await db.validateProjectRoot(picked);
-      if (!canonical) {
-        setAttachError("Attaching a folder needs the desktop app.");
-        return;
+      // not Luma's own data dir) and returns the canonical path to store. One
+      // bad pick in a multi-select must not discard the good ones, so failures
+      // are collected and reported rather than thrown.
+      const added = [];
+      const failed = [];
+      for (const path of paths) {
+        try {
+          const canonical = await db.validateProjectRoot(path);
+          if (!canonical) {
+            failed.push(`${folderName(path)} (attaching a folder needs the desktop app)`);
+          } else if (
+            !projectRoots.includes(canonical) &&
+            !added.includes(canonical)
+          ) {
+            added.push(canonical);
+          }
+        } catch (err) {
+          failed.push(`${folderName(path)} — ${err?.message || err}`);
+        }
       }
-      const roots = [canonical];
+      if (failed.length > 0) {
+        setAttachError(`Not attached: ${failed.join("; ")}`);
+      }
+      if (added.length === 0) return;
+      const roots = [...projectRoots, ...added];
       setPaneProjectRoots(roots);
       if (sessionId) setSessionProjectRoots(sessionId, roots);
       const { ollamaUrl } = useSettingsStore.getState();
@@ -201,11 +227,15 @@ export default function ChatPane({
     }
   };
 
-  const handleDetachProject = () => {
+  // One folder at a time: each chip carries its own detach, so removing one
+  // never silently drops the others. Emptying the set is what leaves Codebase
+  // mode, since the roots *are* the mode.
+  const handleDetachProject = (root) => {
     setAttachError(null);
     setProjectNotice(null);
-    setPaneProjectRoots([]);
-    if (sessionId) setSessionProjectRoots(sessionId, []);
+    const roots = projectRoots.filter((r) => r !== root);
+    setPaneProjectRoots(roots);
+    if (sessionId) setSessionProjectRoots(sessionId, roots);
   };
 
   // Codebase mode needs the model's real context window to size itself, and
@@ -342,40 +372,58 @@ export default function ChatPane({
             ))}
         </div>
         <div className={styles.headerActions}>
-          {!isSideChat &&
-            (projectRoots.length > 0 ? (
-              <span
-                className={`${styles.projectChip} ${rootMissing ? styles.projectChipMissing : ""}`}
-                title={
-                  rootMissing
-                    ? `${projectRoots[0]} — this folder is no longer there`
-                    : `${projectRoots[0]} (read-only)`
-                }
-              >
-                <FolderOpen size={11} />
-                <span className={styles.projectName}>
-                  {folderName(projectRoots[0])}
-                  {rootMissing ? " (missing)" : ""}
-                </span>
-                <button
-                  onClick={handleDetachProject}
-                  aria-label="Detach project folder"
-                  title="Detach project folder"
-                  className={styles.projectDetach}
-                >
-                  <FolderMinus size={11} />
-                </button>
-              </span>
-            ) : (
+          {!isSideChat && (
+            <div className={styles.projectChips}>
+              {projectRoots.map((root) => {
+                const missing = missingRoots.includes(root);
+                return (
+                  <span
+                    key={root}
+                    className={`${styles.projectChip} ${missing ? styles.projectChipMissing : ""}`}
+                    title={
+                      missing
+                        ? `${root} — this folder is no longer there`
+                        : `${root} (read-only)`
+                    }
+                  >
+                    <FolderOpen size={11} />
+                    <span className={styles.projectName}>
+                      {folderName(root)}
+                      {missing ? " (missing)" : ""}
+                    </span>
+                    <button
+                      onClick={() => handleDetachProject(root)}
+                      aria-label={`Detach ${folderName(root)}`}
+                      title={`Detach ${folderName(root)}`}
+                      className={styles.projectDetach}
+                    >
+                      <FolderMinus size={11} />
+                    </button>
+                  </span>
+                );
+              })}
               <button
                 onClick={handleAttachProject}
-                aria-label="Attach a project folder"
-                title="Attach a project folder (read-only)"
+                aria-label={
+                  projectRoots.length > 0
+                    ? "Add another project folder"
+                    : "Attach a project folder"
+                }
+                title={
+                  projectRoots.length > 0
+                    ? "Add another project folder (read-only)"
+                    : "Attach a project folder (read-only)"
+                }
                 className={`${styles.headerBtn} ${compact ? styles.headerBtnCompact : ""}`}
               >
-                <FolderOpen size={11} />
+                {projectRoots.length > 0 ? (
+                  <FolderPlus size={11} />
+                ) : (
+                  <FolderOpen size={11} />
+                )}
               </button>
-            ))}
+            </div>
+          )}
           <button
             onClick={() => {
               // Block turning web search on when the Ollama backend is

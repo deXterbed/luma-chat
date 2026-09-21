@@ -106,33 +106,39 @@ before its first message, but the session row is only created on send
 
 **Project roots:** `sessions.project_roots` (nullable TEXT holding a JSON array)
 via an appended `MIGRATIONS` step in `db.rs`. The first entry is the **primary**
-root; the rest are additional. Set with `open({ directory: true })` from the
-dialog plugin — **single-select in v1**, matching the single-root UI below;
-multi-select arrives with the add-folder work.
+root; the rest are additional. Set with `open({ directory: true, multiple: true })`
+from the dialog plugin.
 
 Passed to the Rust tools as `roots` from renderer session state — **never from
 the model.**
 
 ### Multiple roots
 
+**Landed.** The header picker is a multi-select, attaching *appends* to the set,
+each folder has its own chip with its own detach, and `read_file` / `list_dir`
+take the `root` alias described below. What follows is the design that work was
+built to, kept for the reasoning.
+
 Modelled as primary + additional, matching ACP's stable `cwd` +
 `additionalDirectories` (and VS Code multi-root workspaces). That shape is
 settled, and it maps 1:1 if Luma is ever exposed over ACP.
 
-- **Relative paths resolve against the primary root only.** Additional roots
-  would be addressable but must be named — a flat relative namespace where
-  `src/index.ts` could match either root is ambiguous and the model will pick
-  unpredictably. In v1 there is one root, so this is latent rather than live.
-- **Ship a single-root UI in v1, and keep `root` out of the model-facing
-  schemas.** With one root there is nothing to select, and `search_code`
-  already carries six parameters — a speculative one costs reliability on the
-  models this app targets. The guard and storage stay multi-root-ready
-  internally (set membership, deduped basename aliases), and `root` joins the
-  schemas with the add-folder UI, which is when aliases start meaning
-  something. Aliases are surfaced in the tool descriptions — no extra string
-  parsing, and no `root` to explain until one exists.
-- When it lands: `search_code` may span all roots; `read_file` / `list_dir`
-  are per-root.
+- **Relative paths resolve against one root at a time.** Additional roots are
+  addressable but must be named — a flat relative namespace where `src/index.ts`
+  could match either root is ambiguous and the model will pick unpredictably.
+  The name is the folder's alias, which is also what labels a multi-root search
+  hit; an unknown alias is refused with the real ones listed, never guessed at.
+- **`root` is on `search_code` after all.** The plan kept it off ("six
+  parameters already, a seventh costs reliability"), but the agent log showed
+  the model sending it unprompted — its siblings take it — with Tauri dropping
+  the unknown argument so the search silently ran against the primary. Four
+  rounds went on one `Not found`. Declaring it also made scoping a search into
+  a secondary folder possible, which `path` alone never could.
+- **A refusal says where the file actually is.** `Not found` for a path that
+  exists under another attached root names that root, so the correction is one
+  round rather than a hunt for a path-format mistake.
+- `search_code` spans all roots unless `root` names one; `read_file` /
+  `list_dir` are per-root, defaulting to the primary.
 - Extra roots cost nothing now: the storage shape already holds a list, so the
   add-folder affordance arrives with no migration.
 
@@ -256,13 +262,13 @@ column isn't a dead end.
 
 | Tool | Signature |
 |---|---|
-| `read_file` | `read_file(path, offset?, limit?)` |
-| `search_code` | `search_code(query, path?, glob?, output?, regex?, no_ignore?)` |
-| `list_dir` | `list_dir(path?)` |
+| `read_file` | `read_file(path, root?, offset?, limit?)` |
+| `search_code` | `search_code(query, root?, path?, glob?, output?, regex?, no_ignore?)` |
+| `list_dir` | `list_dir(path?, root?)` |
 
-There is deliberately **no `root` parameter in v1** (see Multiple roots — it
-arrives with the add-folder UI). `path` is always **relative** to the primary
-root. `output` is `content` (default) | `files` | `count`. `regex` is opt-in;
+There is deliberately **no `root` parameter on the other search-related
+knobs**: `root` picks the folder and `path` picks the subdirectory inside it.
+`path` is always **relative** to the root in play. `output` is `content` (default) | `files` | `count`. `regex` is opt-in;
 literal matching is the default. Use the `ignore` + `grep` crates (ripgrep's
 libraries) — don't hand-roll a walker, don't shell out to `rg`.
 

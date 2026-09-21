@@ -50,15 +50,15 @@ Web tools run in the Tauri Rust backend (no CORS, network code stays in one audi
 
 ### Codebase mode (read-only project research)
 
-Attach a project folder from the pane header (the folder icon) and the model gains read-only access to that codebase — how Luma answers "how does this work?" about real code instead of about its training data.
+Attach a project folder from the pane header (the folder icon) and the model gains read-only access to that codebase — how Luma answers "how does this work?" about real code instead of about its training data. Attach more than one and it reads across them.
 
 - **Three read-only tools** — `read_file` (line-numbered, paginated with `offset`/`limit`), `search_code` (ripgrep's own engine: literal by default with `regex` as an opt-in, respects `.gitignore`, and `files`/`count` outputs for triage before reading), and `list_dir`
-- **Nothing leaves the attached folder** — every path the model supplies is relative, resolved against the attached root and canonicalized *before* it's checked, so `../`, absolute paths, and symlinks pointing outside are all refused. There is no write, edit, or shell tool: Codebase mode reads code, it doesn't change it
+- **Nothing leaves the attached folders** — every path the model supplies is relative, resolved against one of the attached roots and canonicalized *before* it's checked, so `../`, absolute paths, and symlinks pointing outside are all refused. There is no write, edit, or shell tool: Codebase mode reads code, it doesn't change it
 - **Side chats inherit it** — a side chat opened from a codebase answer keeps file access, so a question about the answer doesn't need a trip back to the main thread
 - **Web search defaults off while a folder is attached** — reading files and reaching the web from one context is the outbound pair (a fetched page can ask for a file, a file can leave inside a URL), so attaching a folder turns the pane's web-search toggle off whatever your global default says. Turn it back on in the header if you want docs lookup mid-codebase
 - **The attached folder *is* the mode switch** — detach it and the pane is an ordinary chat again; there's no separate toggle to keep in sync
-- **One folder per session** — the header attaches a single project folder. The storage and the path guard already handle a list, so multi-folder support is a UI change rather than a migration, but it isn't in this version
-- **Bounded by design** — per-call caps (2000 lines, ~150 KB per read, 20 matches per file) plus per-response budgets (40 file calls, ~150 KB) and a later wrap-up nudge, so reading a large repo can't run away with the context window
+- **Several folders per session** — the header's picker takes a multi-select, each attached folder gets its own chip, and each chip detaches on its own. `search_code` sweeps all of them; `read_file` and `list_dir` act on the first, and all three take `root` to name a different folder (the model is told the folder names, never the absolute paths). A path that exists under a different folder says so rather than a bare "not found"
+- **Bounded by design** — per-call caps (2000 lines, ~150 KB per read, 20 matches per file) plus per-response budgets (60 file calls, ~150 KB) and a later wrap-up nudge, so reading a large repo can't run away with the context window
 - **Sizes its own context window** — attaching a folder raises `num_ctx` automatically for cloud models, capped by the window the model itself reports from Ollama (a 256k-window model ends up at 65536, not a guess). Local models keep your Settings value, since that memory is yours, and the agent log records the number each run used
 
 ### Agent log (tuning the harness)

@@ -94,6 +94,11 @@ export const TOOLS = [
             description:
               "File path relative to the project root, e.g. src/lib/db.rs or tauri/src/main.rs.",
           },
+          root: {
+            type: "string",
+            description:
+              "Which attached folder to read from, when more than one is attached. Use a folder name from the one the system prompt lists; omit it for the primary folder.",
+          },
           offset: {
             type: "number",
             description:
@@ -126,6 +131,11 @@ export const TOOLS = [
             type: "string",
             description:
               "Optional subdirectory or file to search inside, relative to the project root. Defaults to the whole project.",
+          },
+          root: {
+            type: "string",
+            description:
+              "Which attached folder to search, when more than one is attached — use a folder name the system prompt lists. With path, it selects the folder that path is relative to; on its own, it limits the search to that folder. Omit it to search every folder.",
           },
           glob: {
             type: "string",
@@ -164,6 +174,11 @@ export const TOOLS = [
             type: "string",
             description:
               "Directory path relative to the project root. Defaults to the project root.",
+          },
+          root: {
+            type: "string",
+            description:
+              "Which attached folder to list, when more than one is attached. Use a folder name from the one the system prompt lists; omit it for the primary folder.",
           },
         },
         required: [],
@@ -236,6 +251,7 @@ export async function executeTool(name, args, context = {}) {
       return fileTool("read_file", {
         roots: context.roots,
         path,
+        root: toText(args?.root).trim() || undefined,
         offset: toPositiveInt(args?.offset),
         limit: toPositiveInt(args?.limit),
       });
@@ -250,6 +266,7 @@ export async function executeTool(name, args, context = {}) {
         roots: context.roots,
         query,
         path: toText(args?.path).trim() || undefined,
+        root: toText(args?.root).trim() || undefined,
         glob: toText(args?.glob).trim() || undefined,
         output: ["content", "files", "count"].includes(output)
           ? output
@@ -262,6 +279,7 @@ export async function executeTool(name, args, context = {}) {
       return fileTool("list_dir", {
         roots: context.roots,
         path: toText(args?.path).trim() || undefined,
+        root: toText(args?.root).trim() || undefined,
       });
     default:
       return `Error: unknown tool "${name}"`;

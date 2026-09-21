@@ -125,3 +125,63 @@ describe("buildSideChatSystemPrompt", () => {
     expect(prompt).toContain("2026-06-12");
   });
 });
+
+// Several folders can be attached at once. The model has to know their names
+// to pass one as `root`, and absolute paths must never reach the prompt.
+describe("multiple attached folders", () => {
+  const FOLDERS = ["/home/me/work/api", "/home/me/work/web"];
+
+  it("lists every folder by basename, with no absolute path", () => {
+    const prompt = buildMainChatSystemPrompt({
+      codebase: true,
+      roots: FOLDERS,
+      now: FIXED_DATE,
+    });
+    expect(prompt).toContain("folders are attached: api, web");
+    expect(prompt).toContain('root: "web"');
+    expect(prompt).not.toContain("/home/me");
+  });
+
+  // A search hit reads `web:src/app.ts`. Without this the model strips the
+  // prefix itself and the read lands on the primary root, wasting a round.
+  it("connects a folder:path label to the root to pass", () => {
+    const prompt = buildMainChatSystemPrompt({
+      codebase: true,
+      roots: FOLDERS,
+      now: FIXED_DATE,
+    });
+    expect(prompt).toContain('"web:src/app.ts"');
+    expect(prompt).toContain("the part before the colon as root");
+  });
+
+  it("says folder, not folders, when only one is attached", () => {
+    const prompt = buildMainChatSystemPrompt({
+      codebase: true,
+      roots: [FOLDERS[0]],
+      now: FIXED_DATE,
+    });
+    expect(prompt).toContain("relative to the project root");
+    expect(prompt).not.toContain("folders are attached");
+  });
+
+  // Mirrors `RootSet::alias` — two roots sharing a basename are told apart by
+  // their parent so both stay addressable.
+  it("qualifies colliding basenames with the parent folder", () => {
+    const prompt = buildMainChatSystemPrompt({
+      codebase: true,
+      roots: ["/home/me/work/api", "/home/me/personal/api"],
+      now: FIXED_DATE,
+    });
+    expect(prompt).toContain("work/api, personal/api");
+    expect(prompt).not.toContain("/home/me");
+  });
+
+  it("surfaces the folder names in the side-chat prompt too", () => {
+    const prompt = buildSideChatSystemPrompt({
+      codebase: true,
+      roots: FOLDERS,
+      now: FIXED_DATE,
+    });
+    expect(prompt).toContain("folders are attached: api, web");
+  });
+});

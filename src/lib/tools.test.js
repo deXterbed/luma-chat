@@ -43,26 +43,27 @@ describe("tools", () => {
       expect(tool.function.parameters.required).toContain("url");
     });
 
-    it("has the file tools, with no `root` parameter", () => {
+    it("has the file tools, with `root` on all three of them", () => {
       const read = TOOLS.find((t) => t.function.name === "read_file");
       expect(read.function.parameters.required).toContain("path");
       expect(read.function.parameters.properties.offset).toBeDefined();
       expect(read.function.parameters.properties.limit).toBeDefined();
+      expect(read.function.parameters.properties.root).toBeDefined();
 
       const search = TOOLS.find((t) => t.function.name === "search_code");
       expect(search.function.parameters.required).toContain("query");
       expect(search.function.parameters.properties.regex).toBeDefined();
       expect(search.function.parameters.properties.no_ignore).toBeDefined();
 
-      expect(TOOLS.some((t) => t.function.name === "list_dir")).toBe(true);
+      const list = TOOLS.find((t) => t.function.name === "list_dir");
+      expect(list.function.parameters.properties.root).toBeDefined();
 
-      // `root` stays out of the model-facing schemas until the add-folder UI
-      // lands: with one root there is nothing to select, and every extra
-      // parameter costs tool-calling reliability.
-      for (const name of FILE_TOOL_NAMES) {
-        const tool = TOOLS.find((t) => t.function.name === name);
-        expect(tool.function.parameters.properties.root).toBeUndefined();
-      }
+      // `search_code` used to withhold `root` on the theory that a seventh
+      // parameter costs reliability on weak models. The agent log showed the
+      // opposite: the model sends it unprompted (its siblings take it), the
+      // argument was silently dropped, and the search fell back to the primary
+      // root. Now that it is declared, the scoping works.
+      expect(search.function.parameters.properties.root).toBeDefined();
     });
   });
 
@@ -133,8 +134,35 @@ describe("tools", () => {
         expect(invoke).toHaveBeenCalledWith("read_file", {
           roots: ROOTS,
           path: "src/a.rs",
+          root: undefined,
           offset: 5,
           limit: 10,
+        });
+      });
+
+      // A named folder is what makes a secondary root readable; omitting it
+      // means the primary one.
+      it("names which attached folder a per-folder call is for", async () => {
+        invoke.mockResolvedValue("1→code\n");
+        await executeTool(
+          "read_file",
+          { path: "a.rs", root: "web" },
+          { roots: ["/tmp/api", "/tmp/web"] },
+        );
+        expect(invoke).toHaveBeenCalledWith("read_file", {
+          roots: ["/tmp/api", "/tmp/web"],
+          path: "a.rs",
+          root: "web",
+          offset: undefined,
+          limit: undefined,
+        });
+
+        invoke.mockClear();
+        await executeTool("list_dir", {}, { roots: ROOTS });
+        expect(invoke).toHaveBeenCalledWith("list_dir", {
+          roots: ROOTS,
+          path: undefined,
+          root: undefined,
         });
       });
 
@@ -151,9 +179,32 @@ describe("tools", () => {
           roots: ROOTS,
           query: "needle",
           path: undefined,
+          root: undefined,
           glob: undefined,
           output: "files",
           regex: true,
+          noIgnore: false,
+        });
+      });
+
+      // Scoping a search into a second folder was impossible before `root`
+      // reached this schema: the argument was dropped and the search ran
+      // against the primary root.
+      it("scopes a search to a named folder", async () => {
+        invoke.mockResolvedValue("ok");
+        await executeTool(
+          "search_code",
+          { query: "desc", path: "app/x.rb", root: "pos-backend" },
+          { roots: ["/tmp/Web", "/tmp/pos-backend"] },
+        );
+        expect(invoke).toHaveBeenCalledWith("search_code", {
+          roots: ["/tmp/Web", "/tmp/pos-backend"],
+          query: "desc",
+          path: "app/x.rb",
+          root: "pos-backend",
+          glob: undefined,
+          output: undefined,
+          regex: false,
           noIgnore: false,
         });
       });

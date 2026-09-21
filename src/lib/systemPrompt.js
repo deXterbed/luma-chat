@@ -63,8 +63,27 @@ function webToolLine(webSearchEnabled, codebase) {
     : "- Web search is disabled. Do not call web_search or web_fetch under any circumstances. Only get_current_time is available. Answer from your training data and be upfront if information may be outdated.";
 }
 
-function fileToolLine() {
-  return `- You have read-only access to the project folder attached to this chat: ${FILE_TOOL_NAMES.join(", ")}. Paths are relative to the project root — never absolute, never containing '..'. Search to find where something lives, then read it before saying what it does; once you know roughly where, scope the search with path or glob rather than sweeping the whole project, which takes seconds on a large repo. Nothing outside the attached folder is readable.`;
+function fileToolLine(roots = []) {
+  const names = rootAliases(roots);
+  const plural = names.length > 1;
+  const base = `- You have read-only access to the project ${plural ? "folders" : "folder"} attached to this chat: ${FILE_TOOL_NAMES.join(", ")}. Paths are relative to ${plural ? "a project root" : "the project root"} — never absolute, never containing '..'. Search to find where something lives, then read it before saying what it does; once you know roughly where, scope the search with path or glob rather than sweeping the whole project, which takes seconds on a large repo. Nothing outside the attached ${plural ? "folders" : "folder"} is readable.`;
+  if (!plural) return base;
+  return `${base} ${names.length} folders are attached: ${names.join(", ")}. search_code covers all of them at once, and read_file and list_dir use the first; pass root to act on one alone — e.g. root: "${names[1]}". A hit from another folder is labelled folder:path, like "${names[1]}:src/app.ts", so pass the part before the colon as root rather than stripping it yourself.`;
+}
+
+// Mirrors `RootSet::alias` in `tauri/src/tools/fs.rs`: the folder's basename,
+// qualified by its parent only when two attached folders share one
+// (`work/api` vs `personal/api`). `root` is matched against these server-side,
+// and the tool schemas are static, so this line is where the model learns them.
+function rootAliases(roots) {
+  const segments = (path) => (path || "").split(/[\\/]/).filter(Boolean);
+  const basename = (path) => segments(path).pop() || path;
+  return roots.map((path) => {
+    const base = basename(path);
+    if (roots.filter((other) => basename(other) === base).length === 1) return base;
+    const parent = segments(path).slice(-2, -1)[0];
+    return parent ? `${parent}/${base}` : base;
+  });
 }
 
 // Chat mode hides tool failures (they're noise for a research answer); codebase
@@ -81,7 +100,7 @@ function budgetLine(codebase) {
     : "The user values depth over speed. Take time to investigate thoroughly, but aim for no more than 8 tool calls per response. Once you have enough information to write a thorough answer, stop and write it — don't keep searching if you already have what you need.";
 }
 
-function buildMainChatTemplate({ webSearchEnabled, codebase }) {
+function buildMainChatTemplate({ webSearchEnabled, codebase, roots }) {
   return `You are Luma, the assistant inside a research workbench. Luma is your primary identity — the one that matters to the user.
 
 You are helping a user research a topic deeply in Luma, a research workbench. The user is on a journey of understanding, not just looking for a quick answer.
@@ -89,12 +108,12 @@ You are helping a user research a topic deeply in Luma, a research workbench. Th
 Guidelines:
 - When you use information from a web source, cite it inline. Prefer real titles and URLs over vague references.
 - It's fine to narrate your process ("Let me search for...") — the user wants to see how you research.
-${webToolLine(webSearchEnabled, codebase)}${codebase ? `\n${fileToolLine()}` : ""}
+${webToolLine(webSearchEnabled, codebase)}${codebase ? `\n${fileToolLine(roots)}` : ""}
 - ${failureLine(codebase)}
 - ${budgetLine(codebase)}`;
 }
 
-function buildSideChatTemplate({ webSearchEnabled, codebase }) {
+function buildSideChatTemplate({ webSearchEnabled, codebase, roots }) {
   return `You are Luma, the assistant inside a research workbench. Luma is your primary identity — the one that matters to the user.
 
 You are in a side chat of Luma, a research workbench. Side chats are focused sub-investigations: the user opened this branch to drill into a specific aspect of a larger research question they are pursuing in the main chat.
@@ -105,7 +124,7 @@ Guidelines:
 - Stay focused on the subtopic. If the user pulls you back to the broader question, follow their lead.
 - Cite sources inline when you use web information. Prefer real titles and URLs.
 - It's fine to narrate your process ("Let me search for...") — the user wants to see how you research.
-${webToolLine(webSearchEnabled, codebase)}${codebase ? `\n${fileToolLine()}` : ""}
+${webToolLine(webSearchEnabled, codebase)}${codebase ? `\n${fileToolLine(roots)}` : ""}
 - ${failureLine(codebase)}
 - This is a focused investigation; thoroughness matters more than brevity. ${budgetLine(codebase)} Don't invent sources or facts.`;
 }
@@ -137,23 +156,25 @@ function buildContextHeader(now = new Date()) {
 export function buildMainChatSystemPrompt({
   webSearchEnabled = true,
   codebase = false,
+  roots = [],
   now = new Date(),
 } = {}) {
   return (
     buildContextHeader(now) +
     "\n" +
-    buildMainChatTemplate({ webSearchEnabled, codebase })
+    buildMainChatTemplate({ webSearchEnabled, codebase, roots })
   );
 }
 
 export function buildSideChatSystemPrompt({
   webSearchEnabled = true,
   codebase = false,
+  roots = [],
   now = new Date(),
 } = {}) {
   return (
     buildContextHeader(now) +
     "\n" +
-    buildSideChatTemplate({ webSearchEnabled, codebase })
+    buildSideChatTemplate({ webSearchEnabled, codebase, roots })
   );
 }

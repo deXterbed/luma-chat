@@ -4,9 +4,10 @@
 //! `validate_project_root`, which gates the attach flow.
 //!
 //! **The attached root set is the only readable boundary.** The model supplies
-//! *relative* paths only; every one is joined to a root, canonicalized, and
-//! checked component-wise against that root. There is no tool that widens the
-//! set — only the user attaching a folder does.
+//! *relative* paths only; every one is joined to a root (the primary, or the
+//! one it names with `root`), canonicalized, and checked component-wise against
+//! that root. There is no tool that widens the set — only the user attaching a
+//! folder does.
 //!
 //! **Everything here is a pure function over `&[PathBuf]`**, with no Tauri
 //! context, so the guard is unit-testable. The `commands.rs` wrappers only add
@@ -61,7 +62,9 @@ const SEARCH_TIMEOUT: Duration = Duration::from_secs(15);
 enum Refusal {
     NotRelative(String),
     RootMissing(String),
-    NotFound(String),
+    UnknownRoot(String, String),
+    /// The relative path, plus the aliases of other roots where it does exist.
+    NotFound(String, Vec<String>),
     SymlinkEscape(String),
 }
 
@@ -76,10 +79,23 @@ impl Refusal {
                 "The attached project folder ({}) is no longer there — it was moved, renamed, or deleted. Re-attach it.",
                 label
             ),
-            Refusal::NotFound(p) => format!(
-                "Not found: {:?} (relative to the project root). Use list_dir to see what is there.",
-                p
+            Refusal::UnknownRoot(given, available) => format!(
+                "No attached folder is called {}. The attached folders are: {}. Pass one of those as root, or omit root to use the primary folder.",
+                given, available
             ),
+            Refusal::NotFound(p, elsewhere) => {
+                let mut msg = format!(
+                    "Not found: {:?} (relative to the project root). Use list_dir to see what is there.",
+                    p
+                );
+                if !elsewhere.is_empty() {
+                    msg.push_str(&format!(
+                        " The same relative path does exist under {} — pass that as root to reach it.",
+                        elsewhere.join(", ")
+                    ));
+                }
+                msg
+            }
             Refusal::SymlinkEscape(p) => format!(
                 "Not readable: {:?} resolves outside the project root through a symlink. Symlinks that leave the attached folder are refused; attach the symlink's target as an additional root to read it.",
                 p
@@ -156,13 +172,22 @@ impl RootSet {
             .count()
             > 1;
         if collides {
+            // The *parent* folder is what tells `work/api` from `personal/api`
+            // (see plan.md, "Multiple roots").
             if let Some(parent) = self.canonical[index].parent() {
-                if let Some(parent) = parent.parent() {
-                    return format!("{}/{}", basename(parent), base);
-                }
+                return format!("{}/{}", basename(parent), base);
             }
         }
         base
+    }
+
+    /// The kept roots' aliases, comma-separated — for a refusal that tells the
+    /// model what it could have named.
+    fn alias_list(&self) -> String {
+        (0..self.canonical.len())
+            .map(|index| self.alias(index))
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 }
 
@@ -172,22 +197,76 @@ fn basename(path: &Path) -> String {
         .unwrap_or_else(|| path.to_string_lossy().into_owned())
 }
 
-/// Resolve a model-supplied relative path against the **primary** attached root.
+/// The root a call resolves against: the one named by `root`, or the primary.
+///
+/// `root` is matched against each attached folder's alias, case-insensitively,
+/// and against its bare basename too — so a model that drops the `parent/`
+/// prefix of a colliding pair still lands, and the failure mode is a miss, not
+/// a wrong folder. An unknown name is an observation listing the real ones:
+/// silently falling back to the primary is exactly the mistake this parameter
+/// exists to prevent.
+fn pick_root(roots: &RootSet, root: Option<&str>) -> Result<usize, Refusal> {
+    if let Some(index) = named_root(roots, root)? {
+        return Ok(index);
+    }
+    if roots.canonical.is_empty() {
+        return Err(Refusal::RootMissing(roots.label(0)));
+    }
+    Ok(0)
+}
+
+/// The index of the root the call *named*, or `None` when it named none.
+///
+/// Split out from `pick_root` because `search_code` reads the two cases
+/// differently: no name means "every root" (a broad sweep), while a name means
+/// "that root alone".
+fn named_root(roots: &RootSet, root: Option<&str>) -> Result<Option<usize>, Refusal> {
+    let Some(alias) = root.map(str::trim).filter(|a| !a.is_empty()) else {
+        return Ok(None);
+    };
+    // Nothing attached (every root gone or refused): saying an empty list of
+    // names is worse than saying the folder that is missing.
+    if roots.canonical.is_empty() {
+        return Err(Refusal::RootMissing(roots.label(0)));
+    }
+    for index in 0..roots.canonical.len() {
+        if roots.alias(index).eq_ignore_ascii_case(alias)
+            || basename(&roots.canonical[index]).eq_ignore_ascii_case(alias)
+        {
+            return Ok(Some(index));
+        }
+    }
+    Err(Refusal::UnknownRoot(alias.to_string(), roots.alias_list()))
+}
+
+/// Aliases of the *other* attached roots where the same relative path exists.
+///
+/// Only ever used to word a "not found" observation, so it costs an `exists()
+/// per root and nothing else. It follows symlinks where the real guard would
+/// refuse them, which is why it only ever *suggests*: following the suggestion
+/// re-runs the full check against that root, and a symlink out of bounds is
+/// then refused as such.
+fn roots_containing(roots: &RootSet, index: usize, rel: &str) -> Vec<String> {
+    (0..roots.canonical.len())
+        .filter(|other| *other != index && roots.canonical[*other].join(rel).exists())
+        .map(|other| roots.alias(other))
+        .collect()
+}
+
+/// Resolve a model-supplied relative path against one attached root — the
+/// **primary** unless the call names another with `root`.
 ///
 /// Absolute paths and `..` are refused outright; the canonical, component-wise
 /// prefix check is the real guard. A path that exists but canonicalizes outside
 /// its root got there through a symlink, and is reported as such rather than as
 /// a bare "outside the root" — the difference matters to anyone with a
 /// workspace layout that links packages in from elsewhere.
-fn resolve(roots: &RootSet, rel: &str) -> Result<Resolved, Refusal> {
-    // Relative paths resolve against the **primary** root only. A flat namespace
-    // where `src/index.ts` could mean either of two attached roots is ambiguous
-    // and the model picks unpredictably, so a secondary root has to be *named* —
-    // which waits for the `root` parameter that arrives with the add-folder UI
-    // (see plan.md, "Multiple roots").
-    let Some(root) = roots.canonical.first() else {
-        return Err(Refusal::RootMissing(roots.label(0)));
-    };
+fn resolve(roots: &RootSet, rel: &str, root: Option<&str>) -> Result<Resolved, Refusal> {
+    // One root per call, never a flat namespace: a path that could mean either
+    // of two attached folders is ambiguous, and the model picks unpredictably
+    // (see plan.md, "Multiple roots"). A secondary root is *named* instead.
+    let index = pick_root(roots, root)?;
+    let root_path = &roots.canonical[index];
 
     let rel_path = Path::new(rel);
     let mut rejects_relative = rel_path.is_absolute();
@@ -203,15 +282,15 @@ fn resolve(roots: &RootSet, rel: &str) -> Result<Resolved, Refusal> {
         return Err(Refusal::NotRelative(rel.to_string()));
     }
 
-    let candidate = root.join(rel_path);
+    let candidate = root_path.join(rel_path);
     match dunce::canonicalize(&candidate) {
         Ok(canonical) => {
-            if !canonical.starts_with(root) {
+            if !canonical.starts_with(root_path) {
                 return Err(Refusal::SymlinkEscape(rel.to_string()));
             }
             Ok(Resolved {
-                root_index: 0,
-                display: display_relative(root, &canonical),
+                root_index: index,
+                display: display_in(roots, index, &canonical),
                 canonical,
             })
         }
@@ -221,11 +300,20 @@ fn resolve(roots: &RootSet, rel: &str) -> Result<Resolved, Refusal> {
             // wrong, outside means a symlink took it out of bounds.
             if let Some(ancestor) = nearest_existing_ancestor(&candidate) {
                 let resolved = dunce::canonicalize(&ancestor).unwrap_or(ancestor);
-                if !resolved.starts_with(root) {
+                if !resolved.starts_with(root_path) {
                     return Err(Refusal::SymlinkEscape(rel.to_string()));
                 }
             }
-            Err(Refusal::NotFound(rel.to_string()))
+            // Not found under this root. Before reporting that plainly, check
+            // whether the same path lives in another attached folder: the
+            // model can't see the roots' contents, so "Not found" alone sends
+            // it looking for a path-format mistake instead of a `root` one
+            // (measured in `logs/agent.jsonl` — four rounds spent on exactly
+            // that). The hint is the whole point of the extra `exists()` calls.
+            Err(Refusal::NotFound(
+                rel.to_string(),
+                roots_containing(roots, index, rel),
+            ))
         }
     }
 }
@@ -263,7 +351,12 @@ fn display_relative(root: &Path, canonical: &Path) -> String {
 fn display_in(roots: &RootSet, root_index: usize, absolute: &Path) -> String {
     let rel = display_relative(&roots.canonical[root_index], absolute);
     if roots.canonical.len() > 1 {
-        format!("{}:{}", roots.alias(root_index), rel)
+        // The root itself reads as its alias (`apps`), not `apps:.`.
+        if rel == "." {
+            roots.alias(root_index)
+        } else {
+            format!("{}:{}", roots.alias(root_index), rel)
+        }
     } else {
         rel
     }
@@ -275,17 +368,21 @@ fn display_in(roots: &RootSet, root_index: usize, absolute: &Path) -> String {
 
 /// Read a window of a text file, 1-based, with real line numbers.
 ///
+/// `root` names which attached folder to read from when more than one is
+/// attached (matched by alias, see `pick_root`); omitting it means the primary.
+///
 /// Output lines are `{n}→{text}` — the model needs the numbers to cite a
 /// location and to pick the next `offset`, and it matches `search_code`'s
 /// `path:line:` shape rather than inventing a second convention.
 pub fn read_file(
     roots: &[PathBuf],
     path: &str,
+    root: Option<&str>,
     offset: Option<usize>,
     limit: Option<usize>,
 ) -> String {
     let roots = RootSet::new(roots);
-    let resolved = match resolve(&roots, path) {
+    let resolved = match resolve(&roots, path, root) {
         Ok(r) => r,
         Err(e) => return e.message(),
     };
@@ -520,10 +617,19 @@ fn human_size(bytes: u64) -> String {
 /// Literal by default (`regex: true` opts into regex syntax) because Luma's
 /// models are weak: `user.name` should mean that string, but a regex engine
 /// happily matches `userXname`. Smart-case, ripgrep's convention.
+///
+/// `root` scopes the search: with a `path` it picks the folder that path is
+/// relative to, and on its own it restricts the sweep to that one folder.
+/// Omitting it searches every attached folder.
+// The argument list mirrors the tool schema (and the `invoke` payload in
+// `commands.rs`) one for one; keeping the three layers identical is worth more
+// than the lint, as it is for the command wrapper.
+#[allow(clippy::too_many_arguments)]
 pub fn search_code(
     roots: &[PathBuf],
     query: &str,
     path: Option<&str>,
+    root: Option<&str>,
     glob: Option<&str>,
     output: Option<&str>,
     regex: bool,
@@ -565,18 +671,26 @@ pub fn search_code(
         }
     };
 
-    // Narrow to a subdirectory/file when asked; otherwise search every root.
+    // Narrow to a subdirectory/file when asked; otherwise every root, or the
+    // one `root` names. Without this, a search could not be scoped into a
+    // secondary folder at all — `path` resolves against a single root — and a
+    // model that passed `root` anyway had it silently ignored, landing the
+    // search on the primary (`logs/agent.jsonl`).
     let mut targets: Vec<(usize, PathBuf)> = Vec::new();
     match path {
-        Some(p) => match resolve(&roots, p) {
+        Some(p) => match resolve(&roots, p, root) {
             Ok(r) => targets.push((r.root_index, r.canonical)),
             Err(e) => return e.message(),
         },
-        None => {
-            for (index, root) in roots.canonical.iter().enumerate() {
-                targets.push((index, root.clone()));
+        None => match named_root(&roots, root) {
+            Ok(Some(index)) => targets.push((index, roots.canonical[index].clone())),
+            Ok(None) => {
+                for (index, root) in roots.canonical.iter().enumerate() {
+                    targets.push((index, root.clone()));
+                }
             }
-        }
+            Err(e) => return e.message(),
+        },
     }
 
     let mut searcher = SearcherBuilder::new()
@@ -826,12 +940,15 @@ fn first_line(s: &str) -> &str {
 
 /// List one directory level: directories first, then alphabetical.
 ///
+/// `root` names which attached folder to list when more than one is attached;
+/// omitting it means the primary.
+///
 /// Luma has no shell, so `ls` has to be a tool. Symlinks are marked `@` — they
 /// are the one entry type whose contents may be refused by the guard.
-pub fn list_dir(roots: &[PathBuf], path: Option<&str>) -> String {
+pub fn list_dir(roots: &[PathBuf], path: Option<&str>, root: Option<&str>) -> String {
     let roots = RootSet::new(roots);
     let rel = path.unwrap_or(".");
-    let resolved = match resolve(&roots, rel) {
+    let resolved = match resolve(&roots, rel, root) {
         Ok(r) => r,
         Err(e) => return e.message(),
     };
@@ -1048,7 +1165,7 @@ mod tests {
         write(&root, "a.txt", "hello\n");
 
         for path in ["/etc/hosts", "../outside.txt", "src/../../etc/hosts", "."] {
-            let msg = read_file(&roots(&root), path, None, None);
+            let msg = read_file(&roots(&root), path, None, None, None);
             if path == "." {
                 // `.` is a legitimate relative path (the root itself), which is
                 // a directory — not a traversal attempt, and not a failure.
@@ -1064,7 +1181,7 @@ mod tests {
     #[test]
     fn missing_file_is_an_observation_not_an_error() {
         let root = temp_dir("missing");
-        let msg = read_file(&roots(&root), "nope/at/all.rs", None, None);
+        let msg = read_file(&roots(&root), "nope/at/all.rs", None, None, None);
         assert_observation(&msg);
         assert!(msg.starts_with("Not found:"), "{msg}");
     }
@@ -1086,7 +1203,7 @@ mod tests {
 
         #[cfg(unix)]
         {
-            let msg = read_file(&roots(&root), "sneaky/secret.txt", None, None);
+            let msg = read_file(&roots(&root), "sneaky/secret.txt", None, None, None);
             assert_observation(&msg);
             assert!(msg.contains("symlink"), "{msg}");
             assert!(!msg.contains("SECRET"), "leaked content: {msg}");
@@ -1102,7 +1219,7 @@ mod tests {
         let outside = write(&base, "outside.txt", "top secret\n");
         std::os::unix::fs::symlink(&outside, root.join("link.txt")).unwrap();
 
-        let msg = read_file(&roots(&root), "link.txt", None, None);
+        let msg = read_file(&roots(&root), "link.txt", None, None, None);
         assert_observation(&msg);
         assert!(msg.contains("symlink"), "{msg}");
         assert!(!msg.contains("top secret"), "leaked content: {msg}");
@@ -1115,7 +1232,7 @@ mod tests {
         write(&root, "real/target.txt", "inside\n");
         std::os::unix::fs::symlink(root.join("real"), root.join("alias")).unwrap();
 
-        let msg = read_file(&roots(&root), "alias/target.txt", None, None);
+        let msg = read_file(&roots(&root), "alias/target.txt", None, None, None);
         assert!(msg.contains("inside"), "{msg}");
     }
 
@@ -1131,7 +1248,7 @@ mod tests {
 
         // The root is handed over as the symlink; it must canonicalize before
         // the prefix check or its own children fail `starts_with`.
-        let msg = read_file(&roots(&link), "a.txt", None, None);
+        let msg = read_file(&roots(&link), "a.txt", None, None, None);
         assert!(msg.contains("found"), "{msg}");
     }
 
@@ -1160,7 +1277,7 @@ mod tests {
         let roots = roots(&gone);
         std::fs::remove_dir_all(&gone).unwrap();
 
-        let msg = read_file(&roots, "a.txt", None, None);
+        let msg = read_file(&roots, "a.txt", None, None, None);
         assert_observation(&msg);
         assert!(msg.contains("no longer there"), "{msg}");
         assert!(msg.contains("sub"), "should name the folder: {msg}");
@@ -1180,18 +1297,241 @@ mod tests {
         write(&secondary, "b.txt", "secondary\n");
 
         let both = vec![primary.clone(), secondary.clone()];
-        let hits = search_code(&both, "secondary", None, None, Some("files"), false, false);
+        let hits = search_code(
+            &both,
+            "secondary",
+            None,
+            None,
+            None,
+            Some("files"),
+            false,
+            false,
+        );
         assert!(
             hits.contains("b.txt"),
             "search must span both roots: {hits}"
         );
 
-        let miss = read_file(&both, "b.txt", None, None);
+        let miss = read_file(&both, "b.txt", None, None, None);
         assert_observation(&miss);
         assert!(miss.contains("Not found"), "{miss}");
 
-        let hit = read_file(&both, "a.txt", None, None);
+        let hit = read_file(&both, "a.txt", None, None, None);
         assert!(hit.contains("1→primary"), "{hit}");
+    }
+
+    /// A secondary root is readable, but only when it is *named* — the failure
+    /// this parameter exists to prevent is quietly reading the wrong folder.
+    #[test]
+    fn a_named_root_reads_from_the_secondary_folder() {
+        let base = temp_dir("named");
+        let primary = base.join("api");
+        let secondary = base.join("web");
+        write(&primary, "a.txt", "primary\n");
+        write(&secondary, "b.txt", "secondary\n");
+
+        let both = vec![primary.clone(), secondary.clone()];
+
+        let hit = read_file(&both, "b.txt", Some("web"), None, None);
+        assert!(hit.contains("1→secondary"), "{hit}");
+        // Multi-root results name the folder they came from.
+        assert!(hit.contains("web:b.txt"), "{hit}");
+
+        let listing = list_dir(&both, None, Some("web"));
+        assert!(listing.contains("b.txt"), "{listing}");
+
+        // The name is matched case-insensitively, like every other alias.
+        let upper = read_file(&both, "b.txt", Some("Web"), None, None);
+        assert!(upper.contains("1→secondary"), "{upper}");
+
+        // An unknown name is an observation listing the real ones, never a
+        // silent fallback to the primary.
+        let unknown = read_file(&both, "b.txt", Some("mobile"), None, None);
+        assert_observation(&unknown);
+        assert!(
+            unknown.contains("api") && unknown.contains("web"),
+            "{unknown}"
+        );
+    }
+
+    /// The common case is one attached folder, and it has to read plainly: no
+    /// `folder:path` label from any of the three tools (`display_in`).
+    #[test]
+    fn a_single_root_never_labels_results() {
+        let root = temp_dir("single_label");
+        write(&root, "src/app.rs", "needle\n");
+
+        // What the label would look like if one were applied.
+        let labelled = format!("{}:", basename(&root));
+
+        let read = read_file(&roots(&root), "src/app.rs", None, None, None);
+        assert!(read.contains("File: src/app.rs"), "{read}");
+        assert!(!read.contains(&labelled), "{read}");
+
+        let listing = list_dir(&roots(&root), None, None);
+        assert!(listing.contains("Directory: ."), "{listing}");
+        assert!(!listing.contains(&labelled), "{listing}");
+
+        let hits = search_code(
+            &roots(&root),
+            "needle",
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+        );
+        assert!(hits.contains("src/app.rs:1:needle"), "{hits}");
+        assert!(!hits.contains(&labelled), "{hits}");
+    }
+
+    /// The failure that motivated `search_code`'s `root`: it used to drop the
+    /// argument, resolve `path` against the primary root, and report a plain
+    /// `Not found` — which the model misread as a path-format problem and spent
+    /// four rounds on (`logs/agent.jsonl`).
+    #[test]
+    fn search_code_honours_a_named_root() {
+        let base = temp_dir("search_root");
+        let primary = base.join("web");
+        let secondary = base.join("pos-backend");
+        write(&primary, "README.md", "nothing to find\n");
+        write(
+            &secondary,
+            "app/controllers/locations.rb",
+            "desc \"a\"\ndesc \"b\"\n",
+        );
+
+        let both = vec![primary, secondary];
+
+        // Scoping a search into a secondary folder works.
+        let scoped = search_code(
+            &both,
+            "desc",
+            Some("app/controllers/locations.rb"),
+            Some("pos-backend"),
+            None,
+            None,
+            false,
+            false,
+        );
+        assert!(
+            scoped.contains("pos-backend:app/controllers/locations.rb:1:"),
+            "{scoped}"
+        );
+
+        // Naming a root with no path restricts the sweep to it.
+        let swept = search_code(
+            &both,
+            "desc",
+            None,
+            Some("pos-backend"),
+            None,
+            Some("count"),
+            false,
+            false,
+        );
+        assert!(swept.contains("in 1 file"), "{swept}");
+        assert!(!swept.contains("web:"), "{swept}");
+
+        // No root named still means every root, which is the broad-sweep default.
+        let broad = search_code(&both, "desc", None, None, None, Some("count"), false, false);
+        assert!(broad.contains("in 1 file"), "{broad}");
+
+        // An unknown name stays an observation rather than a silent primary search.
+        let unknown = search_code(
+            &both,
+            "desc",
+            None,
+            Some("mobile"),
+            None,
+            None,
+            false,
+            false,
+        );
+        assert_observation(&unknown);
+        assert!(unknown.contains("pos-backend"), "{unknown}");
+    }
+
+    /// "Not found" on its own reads as a path mistake. Naming the folder that
+    /// does hold the file is what makes it a one-round correction instead.
+    #[test]
+    fn a_not_found_path_names_the_folder_that_has_it() {
+        let base = temp_dir("hint");
+        let primary = base.join("web");
+        let secondary = base.join("pos-backend");
+        // The primary has to exist, or `RootSet::new` drops it and the other
+        // folder silently becomes the primary (which is the point of the test).
+        std::fs::create_dir_all(&primary).unwrap();
+        write(&secondary, "app/models/ticket.rb", "class Ticket\n");
+
+        let both = vec![primary, secondary];
+
+        for msg in [
+            read_file(&both, "app/models/ticket.rb", None, None, None),
+            list_dir(&both, Some("app/models/ticket.rb"), None),
+            search_code(
+                &both,
+                "class",
+                Some("app/models/ticket.rb"),
+                None,
+                None,
+                None,
+                false,
+                false,
+            ),
+        ] {
+            assert_observation(&msg);
+            assert!(msg.starts_with("Not found:"), "{msg}");
+            assert!(msg.contains("does exist under pos-backend"), "{msg}");
+        }
+
+        // Naming the folder that has it resolves, and adds no hint.
+        let hit = read_file(
+            &both,
+            "app/models/ticket.rb",
+            Some("pos-backend"),
+            None,
+            None,
+        );
+        assert!(hit.contains("class Ticket"), "{hit}");
+        assert!(!hit.contains("does exist under"), "{hit}");
+
+        // With one folder attached there is nothing to suggest, so the message
+        // stays exactly as it was.
+        let alone = temp_dir("hint_single");
+        let plain = read_file(&roots(&alone), "app/models/ticket.rb", None, None, None);
+        assert!(plain.starts_with("Not found:"), "{plain}");
+        assert!(!plain.contains("does exist under"), "{plain}");
+    }
+
+    /// Two roots that share a basename are told apart by their *parent* folder,
+    /// which is what makes both of them addressable (`plan.md`, "Multiple
+    /// roots").
+    #[test]
+    fn colliding_root_basenames_are_disambiguated_by_parent() {
+        let base = temp_dir("collide");
+        let work = base.join("work/api");
+        let personal = base.join("personal/api");
+        write(&work, "w.txt", "from work\n");
+        write(&personal, "p.txt", "from personal\n");
+
+        let both = vec![work.clone(), personal.clone()];
+
+        let from_work = read_file(&both, "w.txt", Some("work/api"), None, None);
+        assert!(from_work.contains("from work"), "{from_work}");
+
+        let from_personal = read_file(&both, "p.txt", Some("personal/api"), None, None);
+        assert!(from_personal.contains("from personal"), "{from_personal}");
+        assert!(
+            from_personal.contains("personal/api:p.txt"),
+            "{from_personal}"
+        );
+
+        // The bare name is ambiguous and resolves to the first match (the
+        // primary); the qualified form is the way to reach the other one.
+        let bare = read_file(&both, "w.txt", Some("api"), None, None);
+        assert!(bare.contains("from work"), "{bare}");
     }
 
     // ── read_file ──
@@ -1201,11 +1541,11 @@ mod tests {
         let root = temp_dir("read");
         write(&root, "src/a.rs", "one\ntwo\nthree\n");
 
-        let msg = read_file(&roots(&root), "src/a.rs", None, None);
+        let msg = read_file(&roots(&root), "src/a.rs", None, None, None);
         assert!(msg.contains("File: src/a.rs"), "{msg}");
         assert!(msg.contains("1→one\n2→two\n3→three\n"), "{msg}");
 
-        let windowed = read_file(&roots(&root), "src/a.rs", Some(2), Some(1));
+        let windowed = read_file(&roots(&root), "src/a.rs", None, Some(2), Some(1));
         assert!(windowed.contains("2→two"), "{windowed}");
         assert!(!windowed.contains("1→one"), "{windowed}");
         assert!(windowed.contains("continue with offset=3"), "{windowed}");
@@ -1217,14 +1557,14 @@ mod tests {
         write(&root, "empty.txt", "");
         write(&root, "crlf.txt", "a\r\nb\r\n");
 
-        let empty = read_file(&roots(&root), "empty.txt", None, None);
+        let empty = read_file(&roots(&root), "empty.txt", None, None, None);
         assert!(empty.contains("empty (0 lines)"), "{empty}");
 
-        let past = read_file(&roots(&root), "crlf.txt", Some(9), None);
+        let past = read_file(&roots(&root), "crlf.txt", None, Some(9), None);
         assert_observation(&past);
         assert!(past.contains("past the end"), "{past}");
 
-        let crlf = read_file(&roots(&root), "crlf.txt", None, None);
+        let crlf = read_file(&roots(&root), "crlf.txt", None, None, None);
         assert!(crlf.contains("1→a\n"), "{crlf}");
         assert!(!crlf.contains('\r'), "{crlf}");
     }
@@ -1235,12 +1575,12 @@ mod tests {
         write(&root, "src/keep.rs", "ok\n");
         std::fs::write(root.join("blob.bin"), [0u8, 1, 2, 3, 0u8, 9]).unwrap();
 
-        let dir = read_file(&roots(&root), "src", None, None);
+        let dir = read_file(&roots(&root), "src", None, None, None);
         assert_observation(&dir);
         assert!(dir.contains("is a directory"), "{dir}");
         assert!(dir.contains("list_dir"), "{dir}");
 
-        let binary = read_file(&roots(&root), "blob.bin", None, None);
+        let binary = read_file(&roots(&root), "blob.bin", None, None, None);
         assert_observation(&binary);
         assert!(binary.contains("binary"), "{binary}");
     }
@@ -1251,7 +1591,7 @@ mod tests {
         let long = "x".repeat(READ_MAX_LINE_CHARS * 3);
         write(&root, "min.js", &format!("short\n{}\nafter\n", long));
 
-        let msg = read_file(&roots(&root), "min.js", None, None);
+        let msg = read_file(&roots(&root), "min.js", None, None, None);
         assert!(msg.contains("1→short"), "{msg}");
         assert!(msg.contains("[line truncated at 2000 chars]"), "{msg}");
         assert!(
@@ -1274,7 +1614,7 @@ mod tests {
         let root = temp_dir("utf8");
         // Line 1 is Latin-1 (`é` as 0xE9), line 2 is clean ASCII.
         std::fs::write(root.join("legacy.txt"), b"caf\xE9\nplain\n").unwrap();
-        let windowed = read_file(&roots(&root), "legacy.txt", Some(2), Some(1));
+        let windowed = read_file(&roots(&root), "legacy.txt", None, Some(2), Some(1));
         assert!(
             windowed.contains("2→plain"),
             "a bad byte before the window must not fail it: {windowed}"
@@ -1283,7 +1623,7 @@ mod tests {
         // 2000 bytes cuts a 3-byte character in half (1998 is the last boundary).
         let filler = "€".repeat(READ_MAX_LINE_CHARS);
         write(&root, "min.js", &format!("{}\nafter\n", filler));
-        let cut = read_file(&roots(&root), "min.js", None, None);
+        let cut = read_file(&roots(&root), "min.js", None, None, None);
         assert!(cut.contains("[line truncated at 2000 chars]"), "{cut}");
         assert!(
             cut.contains("2→after"),
@@ -1298,11 +1638,29 @@ mod tests {
         let root = temp_dir("literal");
         write(&root, "a.txt", "user.name\nuserXname\n");
 
-        let literal = search_code(&roots(&root), "user.name", None, None, None, false, false);
+        let literal = search_code(
+            &roots(&root),
+            "user.name",
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+        );
         assert!(literal.contains("1:user.name"), "{literal}");
         assert!(!literal.contains("userXname"), "{literal}");
 
-        let regex = search_code(&roots(&root), "user.name", None, None, None, true, false);
+        let regex = search_code(
+            &roots(&root),
+            "user.name",
+            None,
+            None,
+            None,
+            None,
+            true,
+            false,
+        );
         assert!(regex.contains("userXname"), "{regex}");
     }
 
@@ -1319,6 +1677,7 @@ mod tests {
             "NEEDLE",
             None,
             None,
+            None,
             Some("files"),
             false,
             false,
@@ -1330,6 +1689,7 @@ mod tests {
         let all = search_code(
             &roots(&root),
             "NEEDLE",
+            None,
             None,
             None,
             Some("files"),
@@ -1346,7 +1706,16 @@ mod tests {
         write(&root, "a.txt", "needle\nneedle\n");
         write(&root, "b.txt", "needle\n");
 
-        let content = search_code(&roots(&root), "needle", None, None, None, false, false);
+        let content = search_code(
+            &roots(&root),
+            "needle",
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+        );
         assert!(content.contains("a.txt:1:needle"), "{content}");
         assert!(content.contains("a.txt:2:needle"), "{content}");
         assert!(content.contains("b.txt:1:needle"), "{content}");
@@ -1354,6 +1723,7 @@ mod tests {
         let files = search_code(
             &roots(&root),
             "needle",
+            None,
             None,
             None,
             Some("files"),
@@ -1366,6 +1736,7 @@ mod tests {
         let count = search_code(
             &roots(&root),
             "needle",
+            None,
             None,
             None,
             Some("count"),
@@ -1383,7 +1754,7 @@ mod tests {
         write(&root, "many.txt", &many);
         write(&root, "one.txt", "match\n");
 
-        let msg = search_code(&roots(&root), "match", None, None, None, false, false);
+        let msg = search_code(&roots(&root), "match", None, None, None, None, false, false);
         assert_eq!(
             msg.matches("many.txt:").count(),
             SEARCH_MAX_PER_FILE,
@@ -1417,6 +1788,7 @@ mod tests {
             "needle",
             None,
             None,
+            None,
             Some("files"),
             false,
             false,
@@ -1424,7 +1796,7 @@ mod tests {
         assert!(files.contains("a.txt ("), "{files}");
         assert!(files.contains("sub/b.txt ("), "{files}");
 
-        let listing = list_dir(&roots(&root), None);
+        let listing = list_dir(&roots(&root), None, None);
         assert!(listing.contains("a.txt ("), "{listing}");
         // A directory keeps its `/` marker and carries no size.
         assert!(listing.contains("sub/"), "{listing}");
@@ -1443,6 +1815,7 @@ mod tests {
         let msg = search_code(
             &roots(&root),
             "needle",
+            None,
             None,
             None,
             Some("content"),
@@ -1466,6 +1839,7 @@ mod tests {
             &roots(&root),
             "needle",
             None,
+            None,
             Some("**/*.{txt,md}"),
             Some("files"),
             false,
@@ -1488,6 +1862,7 @@ mod tests {
             "needle",
             Some("src"),
             None,
+            None,
             Some("files"),
             false,
             false,
@@ -1501,6 +1876,7 @@ mod tests {
         let by_glob = search_code(
             &roots(&root),
             "needle",
+            None,
             None,
             Some("*.rs"),
             Some("files"),
@@ -1516,13 +1892,14 @@ mod tests {
             None,
             None,
             None,
+            None,
             false,
             false,
         );
         assert_observation(&none);
         assert!(none.contains("No matches"), "{none}");
 
-        let bad_regex = search_code(&roots(&root), "a(", None, None, None, true, false);
+        let bad_regex = search_code(&roots(&root), "a(", None, None, None, None, true, false);
         assert_observation(&bad_regex);
         assert!(
             bad_regex.contains("Invalid regular expression"),
@@ -1532,6 +1909,7 @@ mod tests {
         let bad_mode = search_code(
             &roots(&root),
             "needle",
+            None,
             None,
             None,
             Some("nope"),
@@ -1544,6 +1922,7 @@ mod tests {
             &roots(&root),
             "needle",
             Some("nope/"),
+            None,
             None,
             None,
             false,
@@ -1562,7 +1941,7 @@ mod tests {
         write(&root, "a.txt", "a\n");
         write(&root, "src/keep.rs", "x\n");
 
-        let msg = list_dir(&roots(&root), Some("."));
+        let msg = list_dir(&roots(&root), Some("."), None);
         assert!(msg.starts_with("Directory: . (3 entries)"), "{msg}");
         let lines: Vec<&str> = msg.lines().collect();
         assert_eq!(lines[1], "src/", "{msg}");
@@ -1571,19 +1950,19 @@ mod tests {
         assert!(lines[2].starts_with("a.txt ("), "{msg}");
         assert!(lines[3].starts_with("z.txt ("), "{msg}");
 
-        let sub = list_dir(&roots(&root), Some("src"));
+        let sub = list_dir(&roots(&root), Some("src"), None);
         assert!(sub.contains("Directory: src (1 entries)"), "{sub}");
         assert!(sub.contains("keep.rs"), "{sub}");
 
         let empty = temp_dir("list_empty");
-        assert!(list_dir(&roots(&empty), None).contains("empty directory"));
+        assert!(list_dir(&roots(&empty), None, None).contains("empty directory"));
     }
 
     #[test]
     fn list_dir_refuses_a_file() {
         let root = temp_dir("list_file");
         write(&root, "a.txt", "a\n");
-        let msg = list_dir(&roots(&root), Some("a.txt"));
+        let msg = list_dir(&roots(&root), Some("a.txt"), None);
         assert_observation(&msg);
         assert!(msg.contains("not a directory"), "{msg}");
         assert!(msg.contains("read_file"), "{msg}");
@@ -1648,14 +2027,23 @@ mod tests {
         let root = temp_dir("invariant");
         write(&root, "a.txt", "x\n");
         let messages = vec![
-            read_file(&roots(&root), "../a.txt", None, None),
-            read_file(&roots(&root), "/etc/hosts", None, None),
-            read_file(&roots(&root), "gone.txt", None, None),
-            read_file(&roots(&root), "a.txt", Some(50), None),
-            read_file(&roots(&root), ".", None, None),
-            list_dir(&roots(&root), Some("a.txt")),
-            search_code(&roots(&root), "nothing", None, None, None, false, false),
-            search_code(&roots(&root), "a(", None, None, None, true, false),
+            read_file(&roots(&root), "../a.txt", None, None, None),
+            read_file(&roots(&root), "/etc/hosts", None, None, None),
+            read_file(&roots(&root), "gone.txt", None, None, None),
+            read_file(&roots(&root), "a.txt", None, Some(50), None),
+            read_file(&roots(&root), ".", None, None, None),
+            list_dir(&roots(&root), Some("a.txt"), None),
+            search_code(
+                &roots(&root),
+                "nothing",
+                None,
+                None,
+                None,
+                None,
+                false,
+                false,
+            ),
+            search_code(&roots(&root), "a(", None, None, None, None, true, false),
         ];
         for msg in messages {
             assert_observation(&msg);
