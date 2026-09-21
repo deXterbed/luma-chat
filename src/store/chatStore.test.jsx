@@ -154,6 +154,16 @@ describe("chatStore", () => {
       expect(store.getState().isStreaming).toBe(false);
       expect(store.getState().abortController).toBeNull();
     });
+
+    // Reasoning is persisted now, and `saveOnReply` reads the message straight
+    // after this call, so finalizing must not be what drops it.
+    it("leaves thinking intact so it is still there to persist", () => {
+      const id = store.getState().addStreamingMessage();
+      store.getState().updateThinking(id, "weighing two options");
+      store.getState().finalizeMessage(id, "Final content");
+
+      expect(store.getState().messages[0].thinking).toBe("weighing two options");
+    });
   });
 
   describe("setError / clearError", () => {

@@ -47,7 +47,7 @@ export const createChatStore = (id) => {
         isStreaming: false,
         toolCalls: [],
         // Transient follow-up suggestion chips (not persisted to SQLite —
-        // regenerate per answer, vanish on reload, like `thinking`).
+        // regenerate per answer and go stale immediately, unlike `thinking`).
         subtopics: [],
       };
       set((s) => ({ messages: [...s.messages, msg] }));
@@ -75,7 +75,8 @@ export const createChatStore = (id) => {
       }));
     },
 
-    // Live reasoning text (transient; not persisted to SQLite).
+    // Live reasoning text. Display-only, but persisted so a restored
+    // session still shows it (it is never sent back to the model).
     updateThinking: (id, thinking) => {
       set((s) => ({
         messages: s.messages.map((m) => (m.id === id ? { ...m, thinking } : m)),

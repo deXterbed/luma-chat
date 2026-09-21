@@ -1069,6 +1069,7 @@ mod tests {
                 content: "hi".to_string(),
                 images: vec![],
                 tool_calls: vec![],
+                thinking: "thinking about it".to_string(),
                 position: 0,
                 is_streaming: false,
             }],
@@ -1107,6 +1108,7 @@ mod tests {
                 content: "the quick brown fox jumps over the lazy dog ".repeat(20),
                 images: vec![],
                 tool_calls: vec![],
+                thinking: String::new(),
                 position: i,
                 is_streaming: false,
             })

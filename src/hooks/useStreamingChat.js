@@ -128,6 +128,32 @@ export function useStreamingChat({
         }
       };
 
+      // Apply whatever the rAF throttle is still holding, then cancel the frame.
+      // `content` survives without this — the final callback carries it in full —
+      // but reasoning has no such backstop, and cancelling the pending frame
+      // would drop its last chunk. That used to be a display blip; now that
+      // thinking is persisted, it would be a permanent hole in the record.
+      // Called on every way the stream can end, including abort, where the
+      // partial reasoning is part of what `saveNow` writes.
+      const flushPending = () => {
+        if (pendingContent.rafId !== null) {
+          cancelAnimationFrame(pendingContent.rafId);
+          pendingContent.rafId = null;
+        }
+        if (pendingThinking.rafId !== null) {
+          cancelAnimationFrame(pendingThinking.rafId);
+          pendingThinking.rafId = null;
+        }
+        if (pendingThinking.current !== null) {
+          store.getState().updateThinking(streamId, pendingThinking.current);
+          pendingThinking.current = null;
+        }
+        if (pendingContent.current !== null) {
+          store.getState().updateStreamingMessage(streamId, pendingContent.current);
+          pendingContent.current = null;
+        }
+      };
+
       try {
         const apiMessages = store
           .getState()
@@ -314,14 +340,7 @@ export function useStreamingChat({
             }
           },
           onDone: (full) => {
-            if (pendingContent.rafId !== null) {
-              cancelAnimationFrame(pendingContent.rafId);
-              pendingContent.rafId = null;
-            }
-            if (pendingThinking.rafId !== null) {
-              cancelAnimationFrame(pendingThinking.rafId);
-              pendingThinking.rafId = null;
-            }
+            flushPending();
             store.getState().finalizeMessage(streamId, full);
             saveOnReply(streamId, full, model, currentSessionId);
             // Fire-and-forget: generate clickable follow-up chips via a
@@ -329,20 +348,14 @@ export function useStreamingChat({
             // won't reliably call a side-effect "suggest" tool on follow-up
             // turns, so we decouple it into its own focused inference. Best
             // effort — never surfaces an error or blocks the UI. Subtopics are
-            // transient (not persisted), like `thinking`.
+            // transient (not persisted on purpose, unlike thinking — the chips
+            // are cheap to regenerate and go stale immediately).
             generateSubtopics(streamId);
           },
           signal: ctrl.signal,
         });
       } catch (err) {
-        if (pendingContent.rafId !== null) {
-          cancelAnimationFrame(pendingContent.rafId);
-          pendingContent.rafId = null;
-        }
-        if (pendingThinking.rafId !== null) {
-          cancelAnimationFrame(pendingThinking.rafId);
-          pendingThinking.rafId = null;
-        }
+        flushPending();
         if (err.name === "AbortError" || err.message === "aborted") {
           const partial =
             store.getState().messages.find((m) => m.id === streamId)

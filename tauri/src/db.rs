@@ -32,6 +32,10 @@ pub struct Message {
     pub images: Vec<String>,
     #[serde(rename = "toolCalls", default)]
     pub tool_calls: Vec<serde_json::Value>,
+    /// Live reasoning (`think: true`). Display-only: kept so a reloaded session
+    /// can still show it, but never fed back into a request.
+    #[serde(default)]
+    pub thinking: String,
     #[serde(default)]
     pub position: i64,
     #[serde(rename = "isStreaming", default)]
@@ -175,6 +179,18 @@ const MIGRATIONS: &[fn(&Connection)] = &[
     |conn| {
         conn.execute_batch("ALTER TABLE sessions ADD COLUMN project_roots TEXT")
             .ok();
+    },
+    // Reasoning text (`think: true`). Persisted so a restored session still
+    // shows how an answer was reached — it is display-only either way, never
+    // sent back to the model (see `getApiMessages`).
+    |conn| {
+        for table in &["messages", "side_chat_messages"] {
+            conn.execute_batch(&format!(
+                "ALTER TABLE {} ADD COLUMN thinking TEXT NOT NULL DEFAULT ''",
+                table
+            ))
+            .ok();
+        }
     },
 ];
 
@@ -328,7 +344,7 @@ impl Database {
         let conn = self.conn.lock().unwrap();
 
         let mut stmt = conn
-            .prepare("SELECT id, role, content, images, tool_calls, position FROM messages WHERE session_id = ? ORDER BY position")
+            .prepare("SELECT id, role, content, images, tool_calls, thinking, position FROM messages WHERE session_id = ? ORDER BY position")
             .unwrap();
 
         let messages: Vec<Message> = stmt
@@ -341,7 +357,8 @@ impl Database {
                     content: row.get(2)?,
                     images: serde_json::from_str(&images_str).unwrap_or_default(),
                     tool_calls: serde_json::from_str(&tool_calls_str).unwrap_or_default(),
-                    position: row.get(5)?,
+                    thinking: row.get(5)?,
+                    position: row.get(6)?,
                     is_streaming: false,
                 })
             })
@@ -366,7 +383,7 @@ impl Database {
                 .filter_map(|r| r.ok())
                 .map(|(sc_id, model, parent_side_chat_id)| {
                     let mut msg_stmt = conn
-                        .prepare("SELECT id, role, content, images, tool_calls, position FROM side_chat_messages WHERE side_chat_id = ? ORDER BY position")
+                        .prepare("SELECT id, role, content, images, tool_calls, thinking, position FROM side_chat_messages WHERE side_chat_id = ? ORDER BY position")
                         .unwrap();
 
                     let messages: Vec<Message> = msg_stmt
@@ -379,7 +396,8 @@ impl Database {
                                 content: row.get(2)?,
                                 images: serde_json::from_str(&images_str).unwrap_or_default(),
                                 tool_calls: serde_json::from_str(&tool_calls_str).unwrap_or_default(),
-                                position: row.get(5)?,
+                                thinking: row.get(5)?,
+                                position: row.get(6)?,
                                 is_streaming: false,
                             })
                         })
@@ -633,18 +651,20 @@ fn sync_messages(
     let tx = conn.transaction()?;
     {
         let mut upsert = tx.prepare(&format!(
-            "INSERT INTO {table} (id, {fk_col}, role, content, images, tool_calls, position)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "INSERT INTO {table} (id, {fk_col}, role, content, images, tool_calls, thinking, position)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
              ON CONFLICT(id) DO UPDATE SET
                  role = excluded.role,
                  content = excluded.content,
                  images = excluded.images,
                  tool_calls = excluded.tool_calls,
+                 thinking = excluded.thinking,
                  position = excluded.position
              WHERE role IS NOT excluded.role
                 OR content IS NOT excluded.content
                 OR images IS NOT excluded.images
                 OR tool_calls IS NOT excluded.tool_calls
+                OR thinking IS NOT excluded.thinking
                 OR position IS NOT excluded.position"
         ))?;
         for (i, m) in messages.iter().enumerate() {
@@ -655,6 +675,7 @@ fn sync_messages(
                 m.content,
                 serde_json::to_string(&m.images).unwrap_or_default(),
                 serde_json::to_string(&m.tool_calls).unwrap_or_default(),
+                m.thinking,
                 i as i64,
             ])?;
         }
@@ -716,6 +737,7 @@ mod tests {
             content: content.to_string(),
             images: vec![],
             tool_calls: vec![],
+            thinking: String::new(),
             position: 0,
             is_streaming: false,
         }
@@ -731,6 +753,7 @@ mod tests {
                 content TEXT NOT NULL DEFAULT '',
                 images TEXT NOT NULL DEFAULT '[]',
                 tool_calls TEXT NOT NULL DEFAULT '[]',
+                thinking TEXT NOT NULL DEFAULT '',
                 position INTEGER NOT NULL
             );",
         )
@@ -806,6 +829,63 @@ mod tests {
             msg("m2", "assistant", "hi"),
         ];
         sync_messages(&mut conn, "messages", "session_id", "s1", &edited).unwrap();
+        let logged: Vec<String> = conn
+            .prepare("SELECT id FROM update_log")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(logged, vec!["m1".to_string()]);
+    }
+
+    /// Reasoning is persisted, so a restored session can still show how an
+    /// answer was reached. It is display-only either way — never sent back to
+    /// the model — but losing it on reload was the gap.
+    #[test]
+    fn sync_messages_persists_thinking() {
+        let mut conn = messages_test_conn();
+        let mut with_reasoning = msg("m1", "assistant", "answer");
+        with_reasoning.thinking = "weighing two options".to_string();
+        let other = msg("m2", "assistant", "no reasoning here");
+        sync_messages(
+            &mut conn,
+            "messages",
+            "session_id",
+            "s1",
+            &[with_reasoning.clone(), other],
+        )
+        .unwrap();
+
+        {
+            let mut stmt = conn
+                .prepare("SELECT thinking FROM messages WHERE id = ?1")
+                .unwrap();
+            let stored: String = stmt.query_row(params!["m1"], |r| r.get(0)).unwrap();
+            assert_eq!(stored, "weighing two options");
+
+            // A message with none round-trips as the empty default, not NULL.
+            let empty: String = stmt.query_row(params!["m2"], |r| r.get(0)).unwrap();
+            assert_eq!(empty, "");
+        }
+
+        // And reasoning alone is enough to make the row worth rewriting.
+        conn.execute_batch(
+            "CREATE TABLE update_log (id TEXT);
+             CREATE TRIGGER log_updates AFTER UPDATE ON messages
+             BEGIN INSERT INTO update_log VALUES (new.id); END;",
+        )
+        .unwrap();
+        let mut grown = with_reasoning;
+        grown.thinking = "weighing two options, at length".to_string();
+        sync_messages(
+            &mut conn,
+            "messages",
+            "session_id",
+            "s1",
+            &[grown, msg("m2", "assistant", "no reasoning here")],
+        )
+        .unwrap();
         let logged: Vec<String> = conn
             .prepare("SELECT id FROM update_log")
             .unwrap()

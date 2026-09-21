@@ -33,7 +33,7 @@ A research workbench for deep-dive topic exploration, built as a dual-pane deskt
 - **Stop button** — cancels mid-generation and halts the UI immediately, keeping whatever streamed so far
 - **Auto-scroll toggle** — a control next to the send button keeps the view pinned to the newest tokens; off by default so you can read back without fighting the scroll
 - **Inline message editing** — edit one of your earlier messages in place and resend from that point
-- **Per-pane thinking toggle** — an icon next to the web-search button turns the model's internal reasoning step on or off for that pane. It defaults on for cloud models (which reason quickly) and off for local models (where the extra reasoning pass is slow), following the pane's model until you toggle it manually
+- **Per-pane thinking toggle** — an icon next to the web-search button turns the model's internal reasoning step on or off for that pane. It defaults on for cloud models (which reason quickly) and off for local models (where the extra reasoning pass is slow), following the pane's model until you toggle it manually. The reasoning is saved with the message, so reopening a chat still shows how an answer was reached (it is display-only — it is never fed back to the model)
 - **Follow-up subtopic chips** — after an answer finishes, 1–3 clickable follow-up questions appear beneath it. Clicking one sends it as your next message in the same pane, so you keep exploring without retyping. Suggestions come from a separate focused model call made after the answer (not a tool the main response calls) and are transient — they disappear on reload
 
 ### Vision
