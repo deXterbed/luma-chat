@@ -74,6 +74,42 @@ describe("ChatPane attaching project folders", () => {
     expect(store.getState().projectRoots).toEqual(["/picked/api", "/picked/web"]);
     expect(screen.getByText("api")).toBeInTheDocument();
     expect(screen.getByText("web")).toBeInTheDocument();
+    // No session row yet (a brand-new chat), so there is nothing to write to —
+    // the roots are carried in the pane until `createSession` writes them.
+    expect(db.setProjectRoots).not.toHaveBeenCalled();
+  });
+
+  // The bug this pins: the main pane was rendered without `sessionId` (only
+  // SidePanel passed it), so every attach/detach in the main pane updated the
+  // pane store alone — the session store and the DB never saw the folders, and
+  // an added folder vanished on the next session load.
+  it("persists the whole list to the session it belongs to", async () => {
+    openDialog.mockResolvedValue(["/picked/api", "/picked/web"]);
+    useSessionStore.setState({
+      chatSessions: [{ id: "s1", projectRoots: [] }],
+    });
+    const store = createChatStore("attach-session");
+    render(<ChatPane store={store} sessionId="s1" />);
+
+    await attach("Attach a project folder (read-only)");
+
+    expect(db.setProjectRoots).toHaveBeenCalledWith("s1", [
+      "/picked/api",
+      "/picked/web",
+    ]);
+  });
+
+  it("persists a detach too", () => {
+    useSessionStore.setState({
+      chatSessions: [{ id: "s1", projectRoots: ["/picked/api", "/picked/web"] }],
+    });
+    const store = createChatStore("detach-session");
+    render(<ChatPane store={store} sessionId="s1" />);
+    act(() => store.getState().setProjectRoots(["/picked/api", "/picked/web"]));
+
+    fireEvent.click(screen.getByTitle("Detach web"));
+
+    expect(db.setProjectRoots).toHaveBeenCalledWith("s1", ["/picked/api"]);
   });
 
   it("adds to what is already attached rather than replacing it", async () => {

@@ -5,6 +5,7 @@ import Sidebar from "./components/Sidebar";
 import ChatPane from "./components/ChatPane";
 import { useUiStore } from "./store/uiStore";
 import { useMainChat } from "./store/chatStore";
+import { useSessionStore } from "./store/sessionStore";
 import { isOllamaReachable, listLocalModels } from "./lib/ollama";
 import { db } from "./lib/db";
 import { useDbInit } from "./hooks/useDbInit";
@@ -28,6 +29,12 @@ export default function App() {
     webSearchNotice,
     clearWebSearchNotice,
   } = useUiStore();
+  // The main pane needs its session id: attaching or detaching a folder writes
+  // the root set to the *session* (and so to SQLite), and that write is guarded
+  // on this prop. SidePanel already passed it to its panes; without it here, a
+  // folder attached in the main pane lived only in the pane store and was gone
+  // on the next session load.
+  const activeChatId = useSessionStore((s) => s.activeChatId);
   useDbInit();
 
   useEffect(() => {
@@ -118,6 +125,7 @@ export default function App() {
               >
                 <ChatPane
                   store={useMainChat}
+                  sessionId={activeChatId}
                   placeholder="Ask anything…"
                   label="Main Chat"
                   compact={sideChatOpen}
