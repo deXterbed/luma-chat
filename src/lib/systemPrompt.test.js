@@ -75,6 +75,17 @@ describe("both prompts in codebase mode", () => {
       expect(prompt).toContain("try a different path or query");
     });
 
+    // An unscoped search walks the whole tree — 15x the cost of a scoped one on
+    // a real repo — so the prompt asks the model to narrow once it knows where.
+    it(`${label}: asks the model to scope searches rather than sweep the repo`, () => {
+      const prompt = build({ codebase: true, now: FIXED_DATE });
+      expect(prompt).toContain("scope the search with path or glob");
+      // Only in codebase mode: there is nothing to scope without the file tools.
+      expect(build({ codebase: false, now: FIXED_DATE })).not.toContain(
+        "scope the search",
+      );
+    });
+
     it(`${label}: still applies those clauses in chat mode`, () => {
       const prompt = build({ codebase: false, now: FIXED_DATE });
       expect(prompt).toContain("Never mention tool failures");

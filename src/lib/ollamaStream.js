@@ -40,7 +40,8 @@ export function normalizeToolCalls(toolCalls) {
 // -----------------------------------------------------------------------------
 
 // Apply one streamed JSON line to the per-round `state`, mutating its
-// `content`, `thinking`, and `toolCalls` fields and firing the callbacks.
+// `content`, `thinking`, `toolCalls`, and `doneReason` fields and firing the
+// callbacks.
 //
 // `state` only needs those three fields here; the orchestrator also keeps
 // requestId/finalContent/error/resolve on the same object but those are
@@ -61,6 +62,15 @@ export function applyStreamLine(line, state, { onToken, onThinking, signal }) {
   if (typeof thinking === "string" && thinking.length > 0) {
     state.thinking += thinking;
     if (!signal?.aborted) onThinking?.(thinking, state.thinking);
+  }
+
+  // Ollama's last line carries `done_reason`: "stop" when the model finished,
+  // "length" when its output cap cut the answer off mid-sentence. It's the only
+  // stream signal that separates those two, and `contentChars` can't — a
+  // truncated final answer and a deliberately short one look identical without
+  // it.
+  if (typeof line?.done_reason === "string" && line.done_reason.length > 0) {
+    state.doneReason = line.done_reason;
   }
 
   if (

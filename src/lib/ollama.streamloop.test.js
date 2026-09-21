@@ -576,6 +576,58 @@ describe("agent log instrumentation", () => {
     expect(rec.find("stream.end")).toMatchObject({ reason: "final" });
   });
 
+  // The final answer's own round is the one most likely to be truncated (it is
+  // the longest generation of the run), and `contentChars` can't tell a short
+  // answer from a cut-off one. The stream line is the only witness.
+  it("records the stream's done_reason, so a truncated answer is visible", async () => {
+    installStreamHarness([
+      {
+        chunks: [
+          { message: { content: "A cut-off ans" }, done_reason: "length" },
+        ],
+        content: "A cut-off ans",
+      },
+    ]);
+
+    const rec = recordingLogger();
+    await streamChat({
+      model: "m",
+      messages: [{ role: "user", content: "q" }],
+      tools: [],
+      log: rec.log,
+    });
+
+    expect(rec.find("round.reply")).toMatchObject({ doneReason: "length" });
+  });
+
+  // The forced-final round strips tools, but the model can still emit calls in
+  // it — and those are discarded. Logging 0 made a stripped round
+  // indistinguishable from one where the model simply chose no tools.
+  it("reports the model's real tool calls on the tools-disabled final round", async () => {
+    const call = (path) => ({
+      message: { tool_calls: [{ function: { name: "read_file", arguments: { path } } }] },
+    });
+    installStreamHarness([
+      { chunks: [call("a.rs")], content: "" },
+      // Round 1 runs with tools off (the byte budget tripped) yet asks again.
+      { chunks: [call("b.rs"), { message: { content: "final" } }], content: "final" },
+    ]);
+
+    const rec = recordingLogger();
+    await streamChat({
+      model: "m",
+      messages: [{ role: "user", content: "q" }],
+      tools: [{ type: "function", function: { name: "read_file" } }],
+      maxFileBytes: 100,
+      log: rec.log,
+      executeTool: async () => "x".repeat(500),
+    });
+
+    const replies = rec.events.filter((e) => e.t === "round.reply");
+    expect(replies[0]).toMatchObject({ toolCalls: 1, includeTools: true });
+    expect(replies[1]).toMatchObject({ toolCalls: 1, includeTools: false });
+  });
+
   it("names the policy message that was injected, so a cut-off run is explainable", async () => {
     installStreamHarness([
       {

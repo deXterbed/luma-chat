@@ -488,6 +488,33 @@ enum Mode {
     Count,
 }
 
+/// Format a byte count for the model, e.g. `84 KB`.
+///
+/// A size is appended to `search_code`'s `files` listing and to `list_dir`
+/// because a model that can see *how big* a file is pages it with
+/// `offset`/`limit`, and a model that cannot reads it whole — one unpaged read
+/// of a large file was 56% of a run's whole byte budget.
+///
+/// The *number* is what does the work, and that was measured against
+/// deepseek-v4.1-flash rather than assumed: the same listing read
+/// `app/models/ticket.rb` unpaged with a bare filename, paged it at
+/// `limit: 200` with `(84 KB)` beside it, and read it unpaged again with a bare
+/// `[large]` marker. So don't "simplify" this to a boolean flag — a qualitative
+/// hint is measurably worse than useless. The size comes from directory-entry
+/// metadata, and only for files that survive the caps, so it costs a stat on at
+/// most `SEARCH_MAX_TOTAL` entries rather than on the whole walk.
+fn human_size(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = 1024 * 1024;
+    if bytes >= MB {
+        format!("{:.1} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{} KB", (bytes + KB / 2) / KB)
+    } else {
+        format!("{} B", bytes)
+    }
+}
+
 /// Search inside the attached roots.
 ///
 /// Literal by default (`regex: true` opts into regex syntax) because Luma's
@@ -560,7 +587,7 @@ pub fn search_code(
     let deadline = Instant::now() + SEARCH_TIMEOUT;
     let mut timed_out = false;
     let mut hits: Vec<String> = Vec::new();
-    let mut matched_files: Vec<String> = Vec::new();
+    let mut matched_files: Vec<(String, PathBuf)> = Vec::new();
     let mut counts: Vec<(String, usize)> = Vec::new();
     let mut capped_files = 0usize;
 
@@ -629,7 +656,10 @@ pub fn search_code(
                     match mode {
                         Mode::Files => {
                             if matched_files.len() < SEARCH_MAX_TOTAL {
-                                matched_files.push(display.clone());
+                                // Keep the path as well as the display form: the
+                                // size is stat'd after the walk, for these files
+                                // only, never for every file the walk opened.
+                                matched_files.push((display.clone(), entry.path().to_path_buf()));
                             }
                         }
                         Mode::Content => {
@@ -713,8 +743,11 @@ pub fn search_code(
             return no_matches(query, regex, no_ignore, timed_out);
         }
         let mut out = format!("{} file(s):\n", matched_files.len());
-        for path in &matched_files {
+        for (path, abs) in &matched_files {
             out.push_str(path);
+            if let Ok(m) = std::fs::metadata(abs) {
+                out.push_str(&format!(" ({})", human_size(m.len())));
+            }
             out.push('\n');
         }
         if matched_files.len() >= SEARCH_MAX_TOTAL {
@@ -820,20 +853,23 @@ pub fn list_dir(roots: &[PathBuf], path: Option<&str>) -> String {
     };
 
     let mut dirs: Vec<String> = Vec::new();
-    let mut files: Vec<String> = Vec::new();
+    // Files carry their size: a listing is the other place the model decides
+    // whether to read a file whole or page it (see `human_size`).
+    let mut files: Vec<(String, Option<u64>)> = Vec::new();
     let mut symlinks: Vec<String> = Vec::new();
     for entry in dir.into_iter().flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
+        let size = entry.metadata().ok().map(|m| m.len());
         match entry.file_type() {
             Ok(t) if t.is_symlink() => symlinks.push(name),
             Ok(t) if t.is_dir() => dirs.push(name),
-            Ok(_) => files.push(name),
-            Err(_) => files.push(name),
+            Ok(_) => files.push((name, size)),
+            Err(_) => files.push((name, size)),
         }
     }
     let sort = |v: &mut Vec<String>| v.sort_by_key(|n| n.to_lowercase());
     sort(&mut dirs);
-    sort(&mut files);
+    files.sort_by_key(|(name, _)| name.to_lowercase());
     sort(&mut symlinks);
 
     let total = dirs.len() + files.len() + symlinks.len();
@@ -858,8 +894,16 @@ pub fn list_dir(roots: &[PathBuf], path: Option<&str>) -> String {
     for name in &symlinks {
         push(&mut out, name, "@", &mut shown);
     }
-    for name in &files {
-        push(&mut out, name, "", &mut shown);
+    for (name, size) in &files {
+        match size {
+            Some(bytes) => push(
+                &mut out,
+                name,
+                &format!(" ({})", human_size(*bytes)),
+                &mut shown,
+            ),
+            None => push(&mut out, name, "", &mut shown),
+        }
     }
     if total > shown {
         out.push_str(&format!("[{} more entries not shown]\n", total - shown));
@@ -1349,6 +1393,44 @@ mod tests {
         assert!(msg.contains("one.txt:1:match"), "{msg}");
     }
 
+    #[test]
+    fn human_size_formats_byte_counts() {
+        assert_eq!(human_size(0), "0 B");
+        assert_eq!(human_size(999), "999 B");
+        assert_eq!(human_size(1024), "1 KB");
+        assert_eq!(human_size(85_527), "84 KB");
+        assert_eq!(human_size(1024 * 1024), "1.0 MB");
+        assert_eq!(human_size(3 * 1024 * 1024 + 512 * 1024), "3.5 MB");
+    }
+
+    /// Both listings the model uses to pick a file carry its size. The size is
+    /// what makes it page a large file instead of reading it whole, so a
+    /// missing suffix is a behaviour change, not a cosmetic one.
+    #[test]
+    fn listings_report_file_sizes() {
+        let root = temp_dir("sizes");
+        write(&root, "a.txt", "needle\n");
+        write(&root, "sub/b.txt", "needle\n");
+
+        let files = search_code(
+            &roots(&root),
+            "needle",
+            None,
+            None,
+            Some("files"),
+            false,
+            false,
+        );
+        assert!(files.contains("a.txt ("), "{files}");
+        assert!(files.contains("sub/b.txt ("), "{files}");
+
+        let listing = list_dir(&roots(&root), None);
+        assert!(listing.contains("a.txt ("), "{listing}");
+        // A directory keeps its `/` marker and carries no size.
+        assert!(listing.contains("sub/"), "{listing}");
+        assert!(!listing.contains("sub/ ("), "{listing}");
+    }
+
     /// Sorted by path, so what survives a cap doesn't depend on readdir order.
     #[test]
     fn search_results_are_sorted_by_path() {
@@ -1484,8 +1566,10 @@ mod tests {
         assert!(msg.starts_with("Directory: . (3 entries)"), "{msg}");
         let lines: Vec<&str> = msg.lines().collect();
         assert_eq!(lines[1], "src/", "{msg}");
-        assert_eq!(lines[2], "a.txt", "{msg}");
-        assert_eq!(lines[3], "z.txt", "{msg}");
+        // Files now carry a size suffix (see `human_size`); the ordering is what
+        // this test is about, so it asserts on the name.
+        assert!(lines[2].starts_with("a.txt ("), "{msg}");
+        assert!(lines[3].starts_with("z.txt ("), "{msg}");
 
         let sub = list_dir(&roots(&root), Some("src"));
         assert!(sub.contains("Directory: src (1 entries)"), "{sub}");

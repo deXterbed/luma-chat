@@ -36,6 +36,12 @@
 //
 // Both side and main templates take the flag: a side chat inherits its
 // session's attached folder, so it needs the same guidance.
+//
+// A third codebase-only clause asks the model to scope a search with `path`/`glob`
+// once it knows roughly where to look. That is not in tension with "search first
+// instead of guessing at paths" below — an unscoped search is the right *first*
+// move; this is about the second one. It was added on evidence: in a logged run,
+// unscoped `search_code` calls averaged 2.3s against 0.15s for scoped ones.
 
 import { FILE_TOOL_NAMES } from "./tools";
 
@@ -58,7 +64,7 @@ function webToolLine(webSearchEnabled, codebase) {
 }
 
 function fileToolLine() {
-  return `- You have read-only access to the project folder attached to this chat: ${FILE_TOOL_NAMES.join(", ")}. Paths are relative to the project root — never absolute, never containing '..'. Search to find where something lives, then read it before saying what it does. Nothing outside the attached folder is readable.`;
+  return `- You have read-only access to the project folder attached to this chat: ${FILE_TOOL_NAMES.join(", ")}. Paths are relative to the project root — never absolute, never containing '..'. Search to find where something lives, then read it before saying what it does; once you know roughly where, scope the search with path or glob rather than sweeping the whole project, which takes seconds on a large repo. Nothing outside the attached folder is readable.`;
 }
 
 // Chat mode hides tool failures (they're noise for a research answer); codebase

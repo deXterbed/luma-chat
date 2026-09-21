@@ -46,6 +46,25 @@ describe("createAgentLogger", () => {
     expect(typeof events[0].ts).toBe("number");
   });
 
+  // `round` restarts at 0 every run and `stream.start` is just another line, so
+  // a run has to be identifiable from each line itself — otherwise grouping or
+  // diffing runs means counting `stream.start` lines positionally.
+  it("stamps every line with one run id, distinct per logger", async () => {
+    const a = makeLogger();
+    a.log.event("stream.start", { userText: "q" });
+    a.log.event("round.start", { round: 0 });
+    const b = makeLogger();
+    b.log.event("stream.start", { userText: "q" });
+
+    await a.log.flush();
+    await b.log.flush();
+
+    const [first, second] = parse(a.flush.mock.calls[0][0]);
+    expect(typeof first.runId).toBe("string");
+    expect(second.runId).toBe(first.runId);
+    expect(parse(b.flush.mock.calls[0][0])[0].runId).not.toBe(first.runId);
+  });
+
   it("flushes on its own once the buffer reaches the batch size", async () => {
     const { log, flush } = makeLogger();
     for (let i = 0; i < 39; i++) log.event("tool", { i });

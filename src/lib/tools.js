@@ -113,7 +113,7 @@ export const TOOLS = [
     function: {
       name: "search_code",
       description:
-        "Search the attached project's files for a string and return matches as path:line:text. Literal by default — 'user.name' matches exactly that text; set regex=true only for a real regular expression. Use output=\"files\" to get just the matching file names, or output=\"count\" for a per-file tally — both are the cheap way to find where something lives before reading it. Files ignored by .gitignore are skipped unless no_ignore=true. Search instead of guessing at paths.",
+        "Search the attached project's files for a string and return matches as path:line:text. Literal by default — 'user.name' matches exactly that text; set regex=true only when you mean a real regular expression. One good use of regex is to outline a file instead of reading it whole: an anchored pattern for the definitions you want — in Ruby, lines beginning with class, module, def, has_many or belongs_to — returns just those lines with their numbers, so you can read single ranges rather than the whole file. Use output=\"files\" to get just the matching file names, or output=\"count\" for a per-file tally — both are the cheap way to find where something lives before reading it. Files ignored by .gitignore are skipped unless no_ignore=true. Search instead of guessing at paths.",
       parameters: {
         type: "object",
         properties: {

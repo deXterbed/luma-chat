@@ -621,6 +621,32 @@ fn context_length_from_show(data: &serde_json::Value) -> Option<usize> {
         .map(|n| n as usize)
 }
 
+/// Drain every complete (newline-terminated) line from `buf`, decoding each one
+/// lossily, and leave any partial trailing line in `buf` for the next chunk.
+///
+/// The buffer holds raw bytes and decoding happens per *line*, so a JSON object
+/// or a multi-byte character split across two chunks is rejoined rather than
+/// lost. Decoding a whole chunk instead (`str::from_utf8(&chunk)`) fails
+/// whenever that chunk happens to end mid-codepoint — routine for an SSE stream
+/// carrying non-ASCII — and the caller's `Err(_) => continue` then discarded the
+/// entire chunk. That lost its JSON line, and when the discarded chunk held the
+/// newline, two objects were spliced together in the buffer so *both* failed to
+/// parse. `tools/fetch.rs` handles the same split-at-a-boundary problem the same
+/// way: accumulate bytes, decode lossily once.
+fn drain_complete_lines(buf: &mut Vec<u8>) -> Vec<String> {
+    let mut lines = Vec::new();
+    while let Some(idx) = buf.iter().position(|&b| b == b'\n') {
+        let raw: Vec<u8> = buf.drain(..=idx).collect();
+        let line = String::from_utf8_lossy(&raw);
+        // Strip the newline, then a `\r` if Ollama (or a proxy) sent CRLF.
+        let line = line.trim_end_matches('\n').trim_end_matches('\r');
+        if !line.is_empty() {
+            lines.push(line.to_string());
+        }
+    }
+    lines
+}
+
 /// Proxy a streaming chat completion to Ollama. Emits one `ollama://chunk`
 /// event per SSE JSON line from Ollama, then `ollama://done` (with the
 /// accumulated final content) or `ollama://error` (with the error string).
@@ -676,7 +702,9 @@ pub async fn ollama_chat_stream(
     }
 
     let mut full = String::new();
-    let mut buffer = String::new();
+    // Raw bytes, not a `String`: a chunk boundary can land inside a multi-byte
+    // character, so text is only decoded once a whole line is in hand.
+    let mut buffer: Vec<u8> = Vec::new();
     let mut cancelled = false;
 
     // Stream chunks as they arrive. Each chunk may contain one or more
@@ -719,21 +747,12 @@ pub async fn ollama_chat_stream(
             }
         };
 
-        let text = match std::str::from_utf8(&bytes) {
-            Ok(s) => s,
-            Err(_) => continue, // skip non-UTF8 bytes defensively
-        };
-        buffer.push_str(text);
+        buffer.extend_from_slice(&bytes);
 
-        // Drain complete lines (terminated by '\n'). Anything after
-        // the last newline stays in the buffer for the next chunk.
-        while let Some(idx) = buffer.find('\n') {
-            let line: String = buffer.drain(..=idx).collect();
-            let line = line.trim_end_matches('\n').trim_end_matches('\r');
-            if line.is_empty() {
-                continue;
-            }
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
+        // Every complete line now in the buffer, as text. Anything after the
+        // last newline stays in `buffer` for the next chunk.
+        for line in drain_complete_lines(&mut buffer) {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) {
                 if let Some(content) = json
                     .get("message")
                     .and_then(|m| m.get("content"))
@@ -752,7 +771,8 @@ pub async fn ollama_chat_stream(
     // Flush any trailing data Ollama sent without a final newline. Skipped on
     // cancel — we already broke out of the loop and don't parse more.
     if !cancelled {
-        let tail = buffer.trim();
+        let tail = String::from_utf8_lossy(&buffer);
+        let tail = tail.trim();
         if !tail.is_empty() {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(tail) {
                 if let Some(content) = json
@@ -827,6 +847,67 @@ mod tests {
         assert_eq!(rotated.len(), 2048, "previous rotation should be replaced");
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn drain_complete_lines_rejoins_a_json_object_split_across_chunks() {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(b"{\"a\":1}\n{\"b");
+        assert_eq!(
+            drain_complete_lines(&mut buf),
+            vec!["{\"a\":1}".to_string()]
+        );
+        // The partial object stays buffered until its tail arrives.
+        assert_eq!(buf, b"{\"b".to_vec());
+
+        buf.extend_from_slice(b"\":2}\n");
+        assert_eq!(
+            drain_complete_lines(&mut buf),
+            vec!["{\"b\":2}".to_string()]
+        );
+        assert!(buf.is_empty());
+    }
+
+    // The bug this replaces: decoding a whole chunk meant a chunk that happened
+    // to end mid-codepoint was discarded outright (`Err(_) => continue`), taking
+    // its JSON line with it.
+    #[test]
+    fn drain_complete_lines_survives_a_boundary_inside_a_character() {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(b"{\"message\":{\"content\":\"");
+        buf.extend_from_slice(&[0xE2]); // first byte of "\u{2014}" (E2 80 94)
+        assert!(drain_complete_lines(&mut buf).is_empty());
+
+        buf.extend_from_slice(&[0x80, 0x94]);
+        buf.extend_from_slice(b"\"}}\n");
+        let lines = drain_complete_lines(&mut buf);
+        assert_eq!(lines.len(), 1, "the split line must not be dropped");
+
+        let json: serde_json::Value = serde_json::from_str(&lines[0]).unwrap();
+        assert_eq!(json["message"]["content"].as_str(), Some("\u{2014}"));
+    }
+
+    #[test]
+    fn drain_complete_lines_keeps_going_after_an_invalid_byte() {
+        // A stray byte makes its own line unparseable, but must not take the
+        // rest of the stream down with it — skipping the bad line is the
+        // caller's job, via the `from_str` that fails.
+        let mut buf = Vec::new();
+        buf.extend_from_slice(b"bad\xffbyte\n{\"b\":2}\n");
+        let lines = drain_complete_lines(&mut buf);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[1], "{\"b\":2}");
+        assert!(serde_json::from_str::<serde_json::Value>(&lines[0]).is_err());
+    }
+
+    #[test]
+    fn drain_complete_lines_skips_blank_and_crlf_terminated_lines() {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(b"\r\n\n{\"a\":1}\r\n");
+        assert_eq!(
+            drain_complete_lines(&mut buf),
+            vec!["{\"a\":1}".to_string()]
+        );
     }
 
     #[test]

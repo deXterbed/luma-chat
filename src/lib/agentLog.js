@@ -24,6 +24,18 @@ import { db } from "./db";
 /** Flush after this many buffered lines even if the round hasn't ended. */
 export const AGENT_LOG_FLUSH_AT = 40;
 
+// Identifies one run's lines. `round` restarts at 0 every run and `stream.start`
+// is just another line, so without this, attributing an event to a run means
+// counting `stream.start` lines positionally — which turns "diff this run
+// against that one" into an argument about ordering instead of a `jq group_by`.
+// A logger instance is created per run (one per user turn), so the id lives on
+// the logger rather than being threaded through every `event()` call.
+let _runCounter = 0;
+function nextRunId() {
+  _runCounter += 1;
+  return `run-${Date.now()}-${_runCounter}`;
+}
+
 // Events that end a phase of the run. Flushing on these is what stops a
 // post-run event from being stranded in the buffer: `subtopics` fires after
 // `stream.end`, so nothing else would ever flush it — and when a later run
@@ -77,6 +89,7 @@ export function createAgentLogger({
 } = {}) {
   if (!enabled) return NOOP_LOGGER;
 
+  const runId = nextRunId();
   let buffer = [];
   // Serialize writes so two flushes can't interleave their lines.
   let chain = Promise.resolve();
@@ -101,7 +114,7 @@ export function createAgentLogger({
     event(type, data = {}) {
       let line;
       try {
-        line = JSON.stringify({ ts: now(), t: type, ...data });
+        line = JSON.stringify({ ts: now(), t: type, runId, ...data });
       } catch {
         // A non-serializable value in `data` (a Map, a circular ref) must not
         // take the stream down with it.

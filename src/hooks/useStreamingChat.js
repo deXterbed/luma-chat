@@ -23,7 +23,14 @@ const NO_ROOTS = [];
 // Codebase-mode loop policy (see plan.md). Chat mode keeps its existing numbers:
 // the wrap-up nudge at 10 rounds, no file budgets, the DuckDuckGo nudge live.
 const CODEBASE_MAX_TOOL_ROUNDS = 20;
-const CODEBASE_MAX_FILE_CALLS = 40;
+// Call count is the *second* line of defence, not the first: the listings now
+// report file sizes, so the model pages a large file instead of reading it
+// whole, which trades byte pressure for call pressure. Raised from 40 to keep
+// that trade from just moving the cut-off point (a full 150k-byte sweep in
+// ~200-line pages is ~19 reads, and searches share this budget). The byte
+// budget is what actually bounds read spend; a log that now trips on calls
+// rather than bytes means this number is still too low.
+const CODEBASE_MAX_FILE_CALLS = 60;
 // Roughly one full context's worth of source. Per-call caps bound a single read;
 // nothing bounds thirty of them, and each round re-sends the whole transcript.
 const CODEBASE_MAX_FILE_BYTES = 150_000;

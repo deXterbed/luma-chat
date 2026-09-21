@@ -70,7 +70,7 @@ describe("normalizeToolCalls", () => {
 
 describe("applyStreamLine", () => {
   function makeState() {
-    return { content: "", thinking: "", toolCalls: [] };
+    return { content: "", thinking: "", toolCalls: [], doneReason: null };
   }
 
   it("accumulates content text and fires onToken with the running full text", () => {
@@ -227,6 +227,28 @@ describe("applyStreamLine", () => {
     expect(state.content).toBe("");
     expect(state.toolCalls).toEqual([]);
     expect(tokens).toBe(0);
+    // …though it is the one line that says *how* the round ended.
+    expect(state.doneReason).toBe("stop");
+  });
+
+  // The distinction that matters: "stop" is a finished answer, "length" is one
+  // the model's output cap cut off mid-sentence. Both arrive with whatever text
+  // they produced, so `contentChars` cannot tell them apart — only this can.
+  it("distinguishes a truncated answer from a short one", () => {
+    const stopped = makeState();
+    applyStreamLine({ done: true, done_reason: "stop" }, stopped, {});
+    expect(stopped.doneReason).toBe("stop");
+
+    const cut = makeState();
+    applyStreamLine({ done: true, done_reason: "length" }, cut, {});
+    expect(cut.doneReason).toBe("length");
+  });
+
+  it("leaves doneReason null when no line carried one", () => {
+    const state = makeState();
+    applyStreamLine({ done: true }, state, {});
+    applyStreamLine({ message: { content: "x" } }, state, {});
+    expect(state.doneReason).toBeNull();
   });
 });
 

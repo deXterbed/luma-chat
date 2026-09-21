@@ -215,6 +215,10 @@ export async function streamChat({
     // round) so the displayed reasoning spans the whole tool-calling loop.
     thinking: "",
     toolCalls: [],
+    // Ollama's `done_reason` for the round in flight — "stop" (the model
+    // finished) vs "length" (its output cap cut it off). Reset each round,
+    // because it describes one round's call, not the whole loop.
+    doneReason: null,
     finalContent: "",
     error: null,
     resolve: null,
@@ -318,6 +322,7 @@ export async function streamChat({
       state.requestId = nextRequestId();
       state.content = "";
       state.toolCalls = [];
+      state.doneReason = null;
       state.finalContent = "";
       state.error = null;
       const roundBeganAt = Date.now();
@@ -351,7 +356,13 @@ export async function streamChat({
         ms: Date.now() - roundBeganAt,
         contentChars: content.length,
         thinkingChars: state.thinking.length,
-        toolCalls: forceFinal ? 0 : state.toolCalls.length,
+        // What the model actually emitted — including on the forced-final round,
+        // where those calls are then discarded. Reporting 0 there read as "the
+        // model chose not to use tools" when in fact tools had been stripped
+        // from the request; `includeTools` is the field that tells them apart.
+        toolCalls: state.toolCalls.length,
+        includeTools: !forceFinal,
+        doneReason: state.doneReason,
         // The model's stated plan for the round — the most direct evidence of
         // *why* it chose these calls. For a model that reasons in the thinking
         // channel (thinking is on by default for cloud models) `content` is
