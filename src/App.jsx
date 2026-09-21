@@ -81,64 +81,68 @@ export default function App() {
     </div>
   ) : null;
 
-  if (settingsOpen) {
-    return (
-      <div className={styles.app}>
-        <TitleBar />
-        {quotaBanner}
-        <Suspense fallback={<div className={styles.loading}>Loading...</div>}>
-          <SettingsPage />
-        </Suspense>
-      </div>
-    );
-  }
-
   return (
     <div className={styles.app}>
       <TitleBar />
       {quotaBanner}
 
-      <div className={styles.body}>
-        <Sidebar />
+      <div className={styles.content}>
+        {/* Kept mounted (just hidden) while Settings is open, so scroll
+            positions and in-flight streams survive the trip. */}
+        <div
+          className={`${styles.body} ${settingsOpen ? styles.bodyHidden : ""}`}
+        >
+          <Sidebar />
 
-        <div className={styles.mainArea}>
-          <div className={styles.topBar}>
-            <button
-              onClick={toggleSideChat}
-              className={`${styles.sideChatToggle} ${sideChatOpen ? styles.sideChatToggleActive : ""}`}
-            >
-              {sideChatOpen ? (
-                <>
-                  <PanelRightClose size={12} /> Close Side Chat
-                </>
-              ) : (
-                <>
-                  <PanelRight size={12} /> Side Chat
-                </>
-              )}
-            </button>
-          </div>
-
-          <div className={styles.chatArea}>
-            <div
-              className={`${styles.mainPane} ${sideChatOpen ? styles.mainPaneSplit : ""}`}
-            >
-              <ChatPane
-                store={useMainChat}
-                placeholder="Ask anything…"
-                label="Main Chat"
-                compact={sideChatOpen}
-              />
-            </div>
-            {sideChatOpen && (
-              <Suspense
-                fallback={<div className={styles.loading}>Loading...</div>}
+          <div className={styles.mainArea}>
+            <div className={styles.topBar}>
+              <button
+                onClick={toggleSideChat}
+                className={`${styles.sideChatToggle} ${sideChatOpen ? styles.sideChatToggleActive : ""}`}
               >
-                <SidePanel />
-              </Suspense>
-            )}
+                {sideChatOpen ? (
+                  <>
+                    <PanelRightClose size={12} /> Close Side Chat
+                  </>
+                ) : (
+                  <>
+                    <PanelRight size={12} /> Side Chat
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div className={styles.chatArea}>
+              <div
+                className={`${styles.mainPane} ${sideChatOpen ? styles.mainPaneSplit : ""}`}
+              >
+                <ChatPane
+                  store={useMainChat}
+                  placeholder="Ask anything…"
+                  label="Main Chat"
+                  compact={sideChatOpen}
+                />
+              </div>
+              {sideChatOpen && (
+                <Suspense
+                  fallback={<div className={styles.loading}>Loading...</div>}
+                >
+                  <SidePanel />
+                </Suspense>
+              )}
+            </div>
           </div>
         </div>
+
+        {settingsOpen && (
+          <div className={styles.settingsOverlay}>
+            <Suspense
+              fallback={<div className={styles.loading}>Loading...</div>}
+            >
+              <SettingsPage />
+            </Suspense>
+          </div>
+        )}
       </div>
     </div>
   );

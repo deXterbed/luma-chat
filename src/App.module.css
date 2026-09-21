@@ -14,6 +14,33 @@
   overflow: hidden;
 }
 
+/* Wraps the chat UI so the Settings page can be stacked over it. */
+.content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Settings is open: hide the chat without unmounting it, so scroll positions,
+   in-flight streams and pane widths survive. `visibility` (not `display: none`)
+   because WKWebView won't accept click-to-focus on a textarea that went through
+   `display: none` — see the SidePanel pane-switching note. */
+.bodyHidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.settingsOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
 /* ── Web search quota/auth banner ── */
 .quotaBanner {
   display: flex;
