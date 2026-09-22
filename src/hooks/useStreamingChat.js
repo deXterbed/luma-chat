@@ -83,6 +83,15 @@ export function useStreamingChat({
       // than stale closures captured at render time.
       store.getState().clearError();
 
+      // This run's identity is the pane it started on. `chatNonce` moves only
+      // when the pane is handed a different conversation (`loadMessages` /
+      // `clearMessages`), so a change mid-run means the user switched session
+      // or started a new chat — and every write below would then be aimed at a
+      // conversation that is no longer on screen. `chatStore` aborts the run
+      // when that happens; this is the matching check on the way out.
+      const paneNonce = store.getState().chatNonce;
+      const paneIsCurrent = () => store.getState().chatNonce === paneNonce;
+
       const isFirstMessage = store.getState().messages.length === 0;
       if (!afterMessageId) {
         store.getState().addMessage("user", text, images);
@@ -341,6 +350,11 @@ export function useStreamingChat({
           },
           onDone: (full) => {
             flushPending();
+            // The pane already holds another conversation. Finalizing would
+            // clear *that* pane's streaming flags, and saving would read its
+            // messages and write them to the session id captured at send time,
+            // replacing one conversation with another's.
+            if (!paneIsCurrent()) return;
             store.getState().finalizeMessage(streamId, full);
             saveOnReply(streamId, full, model, currentSessionId);
             // Fire-and-forget: generate clickable follow-up chips via a
@@ -356,6 +370,11 @@ export function useStreamingChat({
         });
       } catch (err) {
         flushPending();
+        // Nothing of this run is left in the store, so there is nothing to
+        // finalize, save, or report: the failure belongs to a conversation the
+        // user has left, and `loadMessages`/`clearMessages` already reset the
+        // pane it was streaming into.
+        if (!paneIsCurrent()) return;
         if (err.name === "AbortError" || err.message === "aborted") {
           const partial =
             store.getState().messages.find((m) => m.id === streamId)

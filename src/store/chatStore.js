@@ -173,17 +173,25 @@ export const createChatStore = (id) => {
     // user's default. The settings store's `defaultModel` is the source of
     // truth here, so we read it directly rather than relying on the
     // hydration subscription (which only fires once per store).
-    clearMessages: () =>
+    clearMessages: () => {
+      get().abortController?.abort();
       set((s) => ({
         messages: [],
         error: null,
         // A new chat is not attached to anything; the previous project does
         // not follow the user into it.
         projectRoots: [],
+        // Replacing the pane orphans any run in flight, so it is stopped here
+        // (see `loadMessages`). Its flags have to be cleared too: that run now
+        // returns early on its way out and would never clear them itself,
+        // leaving the new chat's composer stuck on a spinner that can't stop.
+        isStreaming: false,
+        abortController: null,
         model: useSettingsStore.getState().defaultModel || "",
         chatNonce: s.chatNonce + 1,
         focusNonce: s.focusNonce + 1,
-      })),
+      }));
+    },
 
     // Replace a message's content. Used by inline-edit on user messages.
     editMessage: (id, content) =>
@@ -204,7 +212,13 @@ export const createChatStore = (id) => {
     // here (rather than leaving the pane's previous value in place) is what
     // stops one codebase session's roots leaking into the next session the
     // user opens. Side chat tabs omit it; they inherit the session's roots.
-    loadMessages: (messages, model, projectRoots = []) =>
+    loadMessages: (messages, model, projectRoots = []) => {
+      // This pane is being handed a different conversation, which orphans any
+      // run in flight over the old one: its message is gone from `messages`
+      // and its callbacks have nothing of their own left to write to. Stop it
+      // here, or Rust keeps draining Ollama and the quota it spends buys an
+      // answer nothing can display.
+      get().abortController?.abort();
       set((s) => ({
         messages,
         model,
@@ -213,7 +227,8 @@ export const createChatStore = (id) => {
         isStreaming: false,
         abortController: null,
         chatNonce: s.chatNonce + 1,
-      })),
+      }));
+    },
 
     // Bump the focus signal without touching anything else. Used by
     // addSideChat so a freshly created side chat's input auto-focuses.
