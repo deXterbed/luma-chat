@@ -116,6 +116,19 @@ describe("MarkdownBody", () => {
     expect(open).toHaveBeenCalledWith("https://example.com");
   });
 
+  it("colors links with the theme accent so they stay legible on dark surfaces", () => {
+    // Without an explicit color the anchor falls back to the UA default link
+    // blue, which is near-invisible against the dark assistant bubble.
+    expect(renderMd("[Rappler](https://example.com)").querySelector("a").style.color).toBe(
+      toRgb(getTheme("dark").accent),
+    );
+    expect(
+      renderMd("[Rappler](https://example.com)", getTheme("light")).querySelector(
+        "a",
+      ).style.color,
+    ).toBe(toRgb(getTheme("light").accent));
+  });
+
   it("does not call open when clicking a link with no href", () => {
     // A link without href won't render as <a href> from markdown, but guard
     // the onClick branch by simulating a bare anchor click through React.

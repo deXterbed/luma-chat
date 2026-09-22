@@ -190,6 +190,12 @@ export function buildMarkdownComponents(t) {
         <a
           href={href}
           title={href}
+          // The UA default link color (#0000EE-ish) is close to invisible on
+          // the dark assistant bubble, so the anchor has to carry its own.
+          // The `.markdown-body a` rule in index.css cannot do it: the markdown
+          // wrapper carries a hashed CSS-module class, so that selector never
+          // matches.
+          style={{ color: t.accent }}
           onClick={(e) => {
             e.preventDefault();
             if (href) open(href);
