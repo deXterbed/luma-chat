@@ -7,6 +7,11 @@ import styles from "./TitleBar.module.css";
 export default function TitleBar() {
   const [isMaximized, setIsMaximized] = useState(false);
   const openSettings = useUiStore((s) => s.openSettings);
+  // macOS draws its own window controls (the traffic lights) over this bar —
+  // see tauri.macos.conf.json, which is the one place the two platforms' window
+  // config diverges. Rendering the app's own buttons there would show two sets
+  // of controls, so it only draws them where the window is actually frameless.
+  const nativeWindowControls = /Mac/.test(navigator.userAgent);
 
   useEffect(() => {
     let unlisten = null;
@@ -71,13 +76,12 @@ export default function TitleBar() {
 
   return (
     <div
-      className={styles.titlebar}
+      className={`${styles.titlebar} ${nativeWindowControls ? styles.titlebarMac : ""}`}
       data-tauri-drag-region
       onMouseDown={handleTitlebarMouseDown}
     >
       {/* App name */}
       <div className={styles.brand}>
-        <div className={styles.brandDot} />
         <span className={styles.brandText}>Luma</span>
       </div>
 
@@ -94,18 +98,34 @@ export default function TitleBar() {
           <Settings size={13} />
         </button>
 
-        <button onClick={handleMinimize} className={styles.winBtn}>
-          <Minus size={12} />
-        </button>
-        <button onClick={handleMaximize} className={styles.winBtn}>
-          {isMaximized ? <Square size={11} /> : <Maximize2 size={11} />}
-        </button>
-        <button
-          onClick={handleClose}
-          className={`${styles.winBtn} ${styles.winBtnClose}`}
-        >
-          <X size={12} />
-        </button>
+        {!nativeWindowControls && (
+          <>
+            <button
+              onClick={handleMinimize}
+              className={styles.winBtn}
+              title="Minimize"
+              aria-label="Minimize"
+            >
+              <Minus size={12} />
+            </button>
+            <button
+              onClick={handleMaximize}
+              className={styles.winBtn}
+              title={isMaximized ? "Restore" : "Maximize"}
+              aria-label={isMaximized ? "Restore" : "Maximize"}
+            >
+              {isMaximized ? <Square size={11} /> : <Maximize2 size={11} />}
+            </button>
+            <button
+              onClick={handleClose}
+              className={`${styles.winBtn} ${styles.winBtnClose}`}
+              title="Close"
+              aria-label="Close"
+            >
+              <X size={12} />
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

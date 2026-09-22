@@ -13,7 +13,7 @@ A research workbench for deep-dive topic exploration, built as a dual-pane deskt
 - **Dual-pane layout** — main chat on the left, resizable side panel on the right
 - **Resizable side panel** — drag the divider to resize
 - **Sidebar** — session list with persistent history
-- **Custom frameless title bar** — drag it to move the window, double-click to maximize/restore, with the app's own minimize/maximize/close controls
+- **Custom frameless title bar** — drag it to move the window, double-click to maximize/restore. It draws its own minimize/maximize/close controls on Windows and Linux; on macOS it keeps the native traffic lights, so the OS also draws the window's rounded corners and shadow
 
 ### Side chat as first-class research branch
 - **Auto context bridge** — the side chat automatically receives the main chat's conversation as context, so you can ask follow-up questions about main-chat responses without losing the main thread

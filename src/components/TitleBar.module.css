@@ -10,17 +10,21 @@
   user-select: none;
 }
 
+/* macOS draws the traffic lights into the left of this bar, so the brand starts
+   after them, and the app's own icons sit in from the right edge (on Windows the
+   window buttons belong flush in that corner, so this is macOS-only). The
+   lights' geometry varies by macOS version, and their vertical offset comes from
+   the OS — `trafficLightPosition` in tauri.macos.conf.json is the knob if they
+   ever sit off-centre. */
+.titlebarMac {
+  padding-left: 92px;
+  padding-right: 16px;
+}
+
 .brand {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.brandDot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #a78bfa, #60a5fa);
 }
 
 .brandText {
