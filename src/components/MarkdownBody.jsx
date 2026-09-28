@@ -16,8 +16,10 @@
 // disabled (`singleDollarTextMath: false`) because chat text routinely
 // contains literal currency dollar signs (e.g. "$40 per 100GB ($0.40/GB)"),
 // which remark-math would otherwise pair up as inline-math delimiters and
-// mangle the text between them — `normalizeMathDelimiters` always emits
-// `$$...$$` (for both inline and block math), so real math still renders.
+// mangle the text between them. `normalizeMathDelimiters` always emits
+// `$$...$$` (for both inline and block math), so real math still renders:
+// it upgrades a `$...$` span to `$$...$$` only when the span unambiguously
+// looks like math, and leaves currency alone.
 //
 // Per CLAUDE.md: all markdown element styling lives here (inline styles on the
 // `components` overrides), NOT in `index.css` — the global `.markdown-body …`

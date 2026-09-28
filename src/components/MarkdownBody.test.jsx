@@ -153,6 +153,14 @@ describe("MarkdownBody", () => {
     expect(c.textContent).toContain("E=mc^2");
   });
 
+  it("renders single-dollar inline math (the `$2^n$` form models emit)", () => {
+    const c = renderMd("one of $2^n$ distinct patterns");
+    // remark-math strips the delimiters into a math node before MathSpan sees
+    // it, so the raw `$2^n$` must be gone from the rendered text.
+    expect(c.textContent).toContain("2^n");
+    expect(c.textContent).not.toContain("$2^n$");
+  });
+
   it("does not treat currency dollar signs as math delimiters", () => {
     const c = renderMd("**$40 per 100GB** ($0.40/GB)");
     expect(c.textContent).toContain("$40 per 100GB");
