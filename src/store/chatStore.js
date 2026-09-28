@@ -19,6 +19,11 @@ export const createChatStore = (id) => {
     // chat panes never set it: they inherit the session's roots (see
     // useStreamingChat's fallback).
     projectRoots: [],
+    // Per-pane web search toggle. Lives in the store (not local component
+    // state) so a side chat pane can read its parent's value via `contextStore`
+    // and inherit it as its own starting default — see ChatPane. Not persisted:
+    // like the thinking toggle it re-derives per chat/session.
+    webSearchEnabled: false,
     isStreaming: false,
     abortController: null,
     error: null,
@@ -37,6 +42,8 @@ export const createChatStore = (id) => {
 
     setProjectRoots: (roots) =>
       set({ projectRoots: Array.isArray(roots) ? roots : [] }),
+
+    setWebSearchEnabled: (enabled) => set({ webSearchEnabled: !!enabled }),
 
     addMessage: (role, content, images = []) => {
       const msg = {

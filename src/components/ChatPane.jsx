@@ -68,13 +68,19 @@ export default function ChatPane({
   );
   const codebase = projectRoots.length > 0 || (sessionRoots?.length ?? 0) > 0;
 
-  // Seed the per-pane web search toggle from the user's default. Re-derives on
-  // each new chat or loaded session (chatNonce bump) so the toggle doesn't
-  // carry over from the previous chat; within a chat the user's manual toggle
-  // wins. Gated on `hydrated` since the default comes from settings.
-  const webSearchDefault = useSettingsStore((s) => s.webSearchDefault);
+  // Seed the per-pane web search toggle. Re-derives on each new chat or loaded
+  // session (chatNonce bump) so the toggle doesn't carry over from the previous
+  // chat; within a chat the user's manual toggle wins. Gated on `hydrated`
+  // since the default comes from settings.
+  //
+  // The value lives in the pane's store (not local state) so a side chat can
+  // read its parent pane's value and inherit it. The parent is the pane whose
+  // conversation supplies this chat's context — the main chat for a top-level
+  // side chat, the parent side chat for a branch (`contextStore`, set by
+  // SidePanel; the main pane has none, so it uses the global default).
   const settingsHydrated = useSettingsStore((s) => s.hydrated);
-  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  const webSearchEnabled = store((s) => s.webSearchEnabled);
+  const setWebSearchEnabled = store((s) => s.setWebSearchEnabled);
   const webSearchTouchedRef = useRef(false);
   const prevWebNonceRef = useRef(chatNonce);
   const prevCodebaseRef = useRef(codebase);
@@ -93,8 +99,17 @@ export default function ChatPane({
     }
     if (!settingsHydrated) return;
     if (webSearchTouchedRef.current) return;
-    setWebSearchEnabled(codebase ? false : useSettingsStore.getState().webSearchDefault);
-  }, [settingsHydrated, chatNonce, codebase]);
+    // A side chat inherits its parent pane's current value instead of the global
+    // default: the toggle decides whether a pane may reach the web, so a
+    // question asked of a pane with search on should start with search on too.
+    setWebSearchEnabled(
+      codebase
+        ? false
+        : contextStore
+          ? contextStore.getState().webSearchEnabled
+          : useSettingsStore.getState().webSearchDefault,
+    );
+  }, [settingsHydrated, chatNonce, codebase, contextStore, setWebSearchEnabled]);
 
   // Thinking defaults on for cloud models (which reason quickly) and off for
   // local models (where the extra reasoning pass is slow). Each new chat or
@@ -444,7 +459,7 @@ export default function ChatPane({
                 }
               }
               webSearchTouchedRef.current = true;
-              setWebSearchEnabled((v) => !v);
+              setWebSearchEnabled(!webSearchEnabled);
             }}
             title={webSearchEnabled ? "Web search on" : "Web search off"}
             className={`${styles.headerBtn} ${compact ? styles.headerBtnCompact : ""} ${webSearchEnabled ? styles.webBtnActive : ""}`}

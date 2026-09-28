@@ -83,7 +83,7 @@ Off by default (Settings → Agent log), because it contains the prompt and exce
 
 ### Search controls
 - **Per-pane web search toggle** — disable web tools in either pane for sessions that don't need them. The renderer filters the tool list before passing it to the model.
-- **Global web search default** — the per-pane toggle seeds from a setting you can change in the Settings page. The per-pane override itself isn't persisted.
+- **Global web search default** — the per-pane toggle seeds from a setting you can change in the Settings page, and a side chat inherits its parent pane's current value instead. The per-pane override itself isn't persisted.
 - **Search provider** — choose DuckDuckGo (no key) or Ollama cloud search (needs an API key) in Settings. Quota/auth failures from the Ollama provider surface as a dismissible app-wide banner that links to Settings, instead of failing silently mid-response.
 
 ### Settings

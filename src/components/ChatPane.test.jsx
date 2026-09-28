@@ -43,6 +43,43 @@ describe("ChatPane web search in Codebase mode", () => {
     render(<ChatPane store={sideStore} sessionId="s2" sideChatId="sc1" isSideChat />);
     expect(screen.getByTitle("Web search off")).toBeInTheDocument();
   });
+
+  // A side chat's toggle follows the pane it was opened from, not the global
+  // setting — the parent's choice of whether to reach the web is the relevant
+  // default for a question asked of it. `contextStore` is that parent (the main
+  // chat here; a branched side chat passes its parent side chat).
+  it("inherits the parent pane's value, not the global default", () => {
+    // Parent off, global on (beforeEach) → the side chat must follow the parent.
+    const parentStore = createChatStore("inherit-parent-off");
+    const childStore = createChatStore("inherit-child-off");
+    render(
+      <ChatPane
+        store={childStore}
+        contextStore={parentStore}
+        sessionId="s3"
+        sideChatId="sc2"
+        isSideChat
+      />,
+    );
+    expect(screen.getByTitle("Web search off")).toBeInTheDocument();
+  });
+
+  it("inherits the parent's on, even when the global default is off", () => {
+    useSettingsStore.setState({ webSearchDefault: false });
+    const parentStore = createChatStore("inherit-parent-on");
+    parentStore.getState().setWebSearchEnabled(true);
+    const childStore = createChatStore("inherit-child-on");
+    render(
+      <ChatPane
+        store={childStore}
+        contextStore={parentStore}
+        sessionId="s4"
+        sideChatId="sc3"
+        isSideChat
+      />,
+    );
+    expect(screen.getByTitle("Web search on")).toBeInTheDocument();
+  });
 });
 
 // Attaching is additive: several folders can be attached, each stays
