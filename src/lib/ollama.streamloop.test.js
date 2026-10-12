@@ -447,6 +447,31 @@ describe("Codebase mode loop policy", () => {
     expect(hasSystem(calls[1], /reached the tool-use limit/i)).toBe(true);
   });
 
+  // The renderer's `@`-mention reads happen before `streamChat` and are handed
+  // over as `initialFileBytes` / `initialFileCalls`, so a mention cannot be a
+  // bypass of the file budget.
+  it("counts bytes already spent before the loop against the file budget", async () => {
+    installStreamHarness([
+      readFileRound("small.rs"),
+      { chunks: [{ message: { content: "Answer." } }], content: "Answer." },
+    ]);
+
+    await streamChat({
+      model: "m",
+      messages: [{ role: "user", content: "q" }],
+      tools: [{ type: "function", function: { name: "read_file" } }],
+      maxFileBytes: 100,
+      initialFileBytes: 100, // the mention already consumed the budget
+      initialFileCalls: 1,
+      executeTool: async () => "short",
+    });
+
+    const calls = streamCalls();
+    expect(calls).toHaveLength(2);
+    expect(hasSystem(calls[1], /reached the tool-use limit/i)).toBe(true);
+    expect(calls[1][1].body).not.toHaveProperty("tools");
+  });
+
   // `WEB_SEARCH_NUDGE_AT = 15` fires on the round number alone, never checking
   // which tools ran — so in Codebase mode it would tell the model to stop and
   // write its final answer in the middle of reading a repo that made no web

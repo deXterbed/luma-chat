@@ -7,6 +7,7 @@ import {
 } from "../lib/systemPrompt";
 import { buildFollowUpMessages, parseSubtopics } from "../lib/followups";
 import { expandCommands } from "../lib/commands";
+import { buildMentionContext } from "../lib/fileMentions";
 import { useChatSession } from "./useChatSession";
 import { useSettingsStore } from "../store/settingsStore";
 import { useSessionStore } from "../store/sessionStore";
@@ -35,6 +36,11 @@ const CODEBASE_MAX_FILE_CALLS = 60;
 // Roughly one full context's worth of source. Per-call caps bound a single read;
 // nothing bounds thirty of them, and each round re-sends the whole transcript.
 const CODEBASE_MAX_FILE_BYTES = 150_000;
+// What the `@`-mention reads may spend of that, before the loop even starts. A
+// mention is the user pointing at a file, not a licence to spend the run on it:
+// one measured mention took 94 KB of a run's 150 KB and the run was cut off by
+// the budget it left behind. The rest is headroom for the model's own reads.
+const CODEBASE_MAX_MENTION_BYTES = 50_000;
 
 // Project folders are logged by basename, never by absolute path: the log is a
 // file the user might share when reporting a problem, and a path carries their
@@ -217,6 +223,31 @@ export function useStreamingChat({
         // The file tools need the roots the model can never supply itself.
         const runTool = (name, args) => executeTool(name, args, { roots });
 
+        // An @-mentioned file is read here — before the model sees the message —
+        // and injected as a per-turn system block, so the reference is
+        // deterministic rather than a path the model may or may not choose to
+        // read. The contents deliberately do NOT go into the message: a reload
+        // keeps the bare `@path` and re-derives it, instead of carrying a stale
+        // copy through every later turn. These reads are charged against the
+        // run's file budget below, or a mention would be an unlimited-read
+        // bypass of `maxFileCalls` / `maxFileBytes`.
+        let mentionCalls = 0;
+        let mentionBytes = 0;
+        if (codebase) {
+          const mentionCtx = await buildMentionContext({
+            text,
+            multiRoot: roots.length > 1,
+            readFile: (path, root, options) =>
+              runTool("read_file", { path, root, ...options }),
+            maxBytes: CODEBASE_MAX_MENTION_BYTES,
+          });
+          if (mentionCtx) {
+            systemMessages.push({ role: "system", content: mentionCtx.content });
+            mentionCalls = mentionCtx.calls;
+            mentionBytes = mentionCtx.bytes;
+          }
+        }
+
         const loopPolicy = codebase
           ? {
               maxToolRounds: CODEBASE_MAX_TOOL_ROUNDS,
@@ -324,6 +355,9 @@ export function useStreamingChat({
           toolCallLimit: settings.toolCallLimit,
           numCtx,
           temperature: settings.temperature,
+          // Spend already committed before the loop: the @-mention reads.
+          initialFileCalls: mentionCalls,
+          initialFileBytes: mentionBytes,
           ...loopPolicy,
           onToken: (_, full) => {
             pendingContent.current = full;

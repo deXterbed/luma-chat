@@ -53,6 +53,7 @@ pub fn run() {
             commands::read_file,
             commands::search_code,
             commands::list_dir,
+            commands::list_project_files,
             commands::validate_project_root,
             commands::set_project_roots,
             commands::append_agent_log,

@@ -136,6 +136,9 @@ const ALL_FAILED_MSG =
  * @param {number|null} [params.webSearchNudgeAt=15] - round at which the DuckDuckGo rate-limit nudge is injected; null disables it
  * @param {number}  [params.maxFileCalls=0]    - max read_file/search_code/list_dir calls per stream; 0 = unlimited
  * @param {number}  [params.maxFileBytes=0]    - max total bytes returned by those tools; 0 = unlimited
+ * @param {number}  [params.initialFileCalls=0] - file calls already spent before the loop
+ *   (the renderer's `@`-mention reads happen before `streamChat` and are charged here)
+ * @param {number}  [params.initialFileBytes=0] - bytes already returned by those reads
  * @param {object}  [params.log]              - agent logger (see lib/agentLog.js). A no-op
  *   object when logging is off, so every call site can just call `log?.event(...)`.
  * @param {AbortSignal} [params.signal]
@@ -156,6 +159,8 @@ export async function streamChat({
   webSearchNudgeAt = WEB_SEARCH_NUDGE_AT,
   maxFileCalls = 0,
   maxFileBytes = 0,
+  initialFileCalls = 0,
+  initialFileBytes = 0,
   log,
   signal,
   think,
@@ -181,9 +186,10 @@ export async function streamChat({
   let searchCount = 0;
   // Same idea for the file tools, which the web budget deliberately doesn't
   // cover: reading a repo makes far more calls, and each one re-sends the whole
-  // transcript, so the bytes matter as much as the count.
-  let fileCallCount = 0;
-  let fileBytes = 0;
+  // transcript, so the bytes matter as much as the count. Seeded with the
+  // renderer's `@`-mention reads, which have already happened by this point.
+  let fileCallCount = initialFileCalls;
+  let fileBytes = initialFileBytes;
 
   // The effective policy for this run, recorded once — a log of failures can't
   // tell you whether the harness or the model was at fault without it. Values
@@ -198,6 +204,8 @@ export async function streamChat({
     webSearchNudgeAt,
     maxFileCalls,
     maxFileBytes,
+    initialFileCalls,
+    initialFileBytes,
     toolCount: tools?.length ?? 0,
   });
 

@@ -60,6 +60,11 @@ export const db = {
   validateProjectRoot: (path) => invoke("validate_project_root", { path }),
   setProjectRoots: (sid, roots) =>
     invoke("set_project_roots", { sessionId: sid, roots }).catch(noop),
+  // The `@`-mention index for the composer: every file in the attached roots,
+  // as display paths (`src/lib/db.rs`, or `web:src/app.ts` for multiple roots).
+  // Not a model tool — the renderer filters it for autocomplete.
+  listProjectFiles: (roots) =>
+    invoke("list_project_files", { roots }).then((r) => r ?? []),
   // Agent log. `appendAgentLog` never rejects: logging is best-effort and must
   // not be able to fail a chat turn.
   appendAgentLog: (lines) => invoke("append_agent_log", { lines }).catch(noop),

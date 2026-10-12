@@ -282,10 +282,35 @@ and **a round-trip isn't free** — every tool call re-sends the whole pane
 transcript, so forcing a locate-then-read pair can cost more than one slightly
 larger result. That is only safe because of the caps below.
 
-**Result caps:** per-file (~20 matches) plus total (~100). The per-file cap is
-the important one — without it one generated file with thousands of matches
-eats the whole budget. It is also why Claude Code defaults to `files`; with the
-cap, `content` is safe to default to.
+**`list_project_files(roots)` — the one non-tool.** It is never offered to the
+model; it feeds the composer's `@`-mention autocomplete with the files under the
+attached roots. It walks with `search_code`'s settings (gitignore respected,
+hidden files and `.git` skipped, sorted, capped at `LIST_FILES_MAX`) and the
+renderer filters the result. A picked mention resolves to a real `read_file`
+call at send time, and its contents are injected as a **per-turn system block**
+— not written into the message, so a reload keeps the bare `@path`. Those reads
+are charged against `maxFileCalls` / `maxFileBytes` (`initialFileCalls` /
+`initialFileBytes` on `streamChat`), or a mention would be a budget bypass, and
+they are bounded twice: `MENTION_READ_LIMIT` (600 lines) per read and
+`CODEBASE_MAX_MENTION_BYTES` (50 KB) for the block as a whole. Evidence for the
+bound: one mention of a 21,668-line file took the default 2000-line read, 94 KB
+of a 150 KB budget, and the run was cut off by what it left behind. The
+token-boundary rules — `@` only after whitespace, `@"a b.ts"` quoted for spaces,
+replace the exact token range, Enter with no match still sends — are copied from
+bugs Codex and Claude Code each filed; see `src/lib/fileMentions.js`.
+
+**Result caps:** per-file (~20 matches) plus total (~100), and a ~50 KB ceiling
+on the whole `content` result. The per-file cap is the important one — without it
+one generated file with thousands of matches eats the whole budget. It is also
+why Claude Code defaults to `files`; with the cap, `content` is safe to default
+to.
+
+**A single-file search gets 500/500 instead.** The 20-cap exists to stop one
+file dominating a *sweep*, and when `path` names one file there is no sweep to
+protect. Evidence: on a 21,668-line model the model asked for the count (270
+`def`s), saw a listing could not fit in 20, and then spent 8 of its 20 searches
+on `^  def (process_|handle_)`-style prefix buckets to enumerate them 20 at a
+time. The byte ceiling, not the count, is what bounds that result.
 
 **`read_file` output is line-numbered** — `{n}→{content}`, real file line
 numbers even when `offset > 1` (the `cat -n` shape the established harnesses

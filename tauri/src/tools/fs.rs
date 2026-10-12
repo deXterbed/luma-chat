@@ -1,7 +1,9 @@
 //! Read-only file tools for Codebase mode (see `plan.md`).
 //!
 //! Three tools — `read_file`, `search_code`, `list_dir` — plus
-//! `validate_project_root`, which gates the attach flow.
+//! `validate_project_root`, which gates the attach flow, and
+//! `list_project_files`, which backs the composer's `@`-mention autocomplete
+//! rather than being offered to the model.
 //!
 //! **The attached root set is the only readable boundary.** The model supplies
 //! *relative* paths only; every one is joined to a root (the primary, or the
@@ -47,8 +49,29 @@ const READ_MAX_OUTPUT_CHARS: usize = 150_000;
 /// eats the whole budget.
 const SEARCH_MAX_PER_FILE: usize = 20;
 const SEARCH_MAX_TOTAL: usize = 100;
+/// Caps for a search the model scoped to a *single file* with `path`. The 20/100
+/// pair exists to stop one file dominating a broad sweep, and with one file
+/// named there is nothing to protect against — the cap instead forces the model
+/// to enumerate a file's methods through prefix-bucketed regexes. Measured
+/// against `deepseek-v4.1-flash` on a 21,668-line file: the model asked for the
+/// count (270 `def`s), saw a listing could not fit in 20, and spent 8 of its 20
+/// searches on `def (process_|handle_)`-style buckets. `SEARCH_MAX_OUTPUT_CHARS`
+/// is what actually bounds a result; the counts just stop it being asked for
+/// one line at a time.
+const SEARCH_MAX_PER_FILE_SINGLE: usize = 500;
+const SEARCH_MAX_TOTAL_SINGLE: usize = 500;
+/// Byte ceiling for a `content` result. The count caps bound *how many* matches,
+/// this bounds *how much text* — without it, loosening the single-file cap lets
+/// a minified file return hundreds of very long lines.
+const SEARCH_MAX_OUTPUT_CHARS: usize = 50_000;
 const SEARCH_COUNT_LISTED: usize = 20;
 const LIST_MAX_ENTRIES: usize = 500;
+/// Cap for the `@`-mention index (`list_project_files`). The caller filters this
+/// list in the composer, so it is shipped whole over IPC; past this many files
+/// the index is truncated rather than sent, which biases a very large repo
+/// alphabetically. Doing it in Rust instead would mean a round trip per
+/// keystroke, with debounce and cancellation to go with it.
+const LIST_FILES_MAX: usize = 20_000;
 /// A wrong root can otherwise hang the app. Checked *inside* the walk, so a
 /// timeout returns partial results instead of leaving a thread running.
 const SEARCH_TIMEOUT: Duration = Duration::from_secs(15);
@@ -693,6 +716,16 @@ pub fn search_code(
         },
     }
 
+    // A search the model deliberately narrowed to one file gets the looser
+    // caps: there is no broad sweep left to protect, and the byte ceiling still
+    // bounds the result. A directory (or a bare `path` guess) keeps 20/100.
+    let single_file = targets.len() == 1 && targets[0].1.is_file();
+    let (per_file_cap, total_cap) = if single_file {
+        (SEARCH_MAX_PER_FILE_SINGLE, SEARCH_MAX_TOTAL_SINGLE)
+    } else {
+        (SEARCH_MAX_PER_FILE, SEARCH_MAX_TOTAL)
+    };
+
     let mut searcher = SearcherBuilder::new()
         .line_number(true)
         .binary_detection(BinaryDetection::quit(b'\0'))
@@ -704,6 +737,9 @@ pub fn search_code(
     let mut matched_files: Vec<(String, PathBuf)> = Vec::new();
     let mut counts: Vec<(String, usize)> = Vec::new();
     let mut capped_files = 0usize;
+    // Running size of the `content` result, and whether the ceiling stopped it.
+    let mut content_chars = 0usize;
+    let mut byte_capped = false;
 
     'targets: for (root_index, target) in &targets {
         let mut builder = WalkBuilder::new(target);
@@ -769,7 +805,7 @@ pub fn search_code(
                     per_file += 1;
                     match mode {
                         Mode::Files => {
-                            if matched_files.len() < SEARCH_MAX_TOTAL {
+                            if matched_files.len() < total_cap {
                                 // Keep the path as well as the display form: the
                                 // size is stat'd after the walk, for these files
                                 // only, never for every file the walk opened.
@@ -777,13 +813,17 @@ pub fn search_code(
                             }
                         }
                         Mode::Content => {
-                            if per_file <= SEARCH_MAX_PER_FILE && hits.len() < SEARCH_MAX_TOTAL {
-                                hits.push(format!(
-                                    "{}:{}:{}",
-                                    display,
-                                    line_number,
-                                    trim_line_end(line)
-                                ));
+                            if per_file <= per_file_cap && hits.len() < total_cap && !byte_capped {
+                                let rendered =
+                                    format!("{}:{}:{}", display, line_number, trim_line_end(line));
+                                // One line can be longer than the whole ceiling,
+                                // so the check is per line, not per file.
+                                if content_chars + rendered.len() > SEARCH_MAX_OUTPUT_CHARS {
+                                    byte_capped = true;
+                                } else {
+                                    content_chars += rendered.len() + 1;
+                                    hits.push(rendered);
+                                }
                             }
                         }
                         Mode::Count => {}
@@ -793,7 +833,7 @@ pub fn search_code(
                         // what proves the file had more, so the notice can say
                         // so without scanning the whole file.
                         Mode::Content => {
-                            per_file <= SEARCH_MAX_PER_FILE && hits.len() < SEARCH_MAX_TOTAL
+                            !byte_capped && per_file <= per_file_cap && hits.len() < total_cap
                         }
                         Mode::Files => false,
                         Mode::Count => true,
@@ -809,15 +849,15 @@ pub fn search_code(
             if mode == Mode::Count && per_file > 0 {
                 counts.push((display, per_file));
             }
-            if mode == Mode::Content && per_file > SEARCH_MAX_PER_FILE {
+            if mode == Mode::Content && per_file > per_file_cap {
                 capped_files += 1;
             }
 
             // The cap is full: every remaining file would be opened only to have
             // its matches discarded, so stop the walk here rather than at the
             // deadline (which would also tack on a bogus "timed out" notice).
-            if (mode == Mode::Content && hits.len() >= SEARCH_MAX_TOTAL)
-                || (mode == Mode::Files && matched_files.len() >= SEARCH_MAX_TOTAL)
+            if (mode == Mode::Content && (hits.len() >= total_cap || byte_capped))
+                || (mode == Mode::Files && matched_files.len() >= total_cap)
             {
                 break 'targets;
             }
@@ -864,10 +904,10 @@ pub fn search_code(
             }
             out.push('\n');
         }
-        if matched_files.len() >= SEARCH_MAX_TOTAL {
+        if matched_files.len() >= total_cap {
             out.push_str(&format!(
                 "[stopped at {} files — narrow with path or glob]\n",
-                SEARCH_MAX_TOTAL
+                total_cap
             ));
         }
         if timed_out {
@@ -887,13 +927,19 @@ pub fn search_code(
     if capped_files > 0 {
         out.push_str(&format!(
             "[{} file(s) had more than {} matches; only the first {} of each are shown]\n",
-            capped_files, SEARCH_MAX_PER_FILE, SEARCH_MAX_PER_FILE
+            capped_files, per_file_cap, per_file_cap
         ));
     }
-    if hits.len() >= SEARCH_MAX_TOTAL {
+    if byte_capped {
+        out.push_str(&format!(
+            "[stopped at ~{} KB of matches — narrow with path or glob, or use output=\"count\"]\n",
+            SEARCH_MAX_OUTPUT_CHARS / 1000
+        ));
+    }
+    if hits.len() >= total_cap {
         out.push_str(&format!(
             "[stopped at {} matches — narrow with path or glob]\n",
-            SEARCH_MAX_TOTAL
+            total_cap
         ));
     }
     if timed_out {
@@ -1026,6 +1072,55 @@ pub fn list_dir(roots: &[PathBuf], path: Option<&str>, root: Option<&str>) -> St
         out.push_str(&format!("[{} more entries not shown]\n", total - shown));
     }
     out
+}
+
+// -----------------------------------------------------------------------------
+// list_project_files
+// -----------------------------------------------------------------------------
+
+/// Every file under the attached roots, as display paths (`src/lib/db.rs`, or
+/// `web:src/app.ts` when more than one root is attached).
+///
+/// This is not a model tool: it backs the composer's `@`-mention autocomplete,
+/// so it returns raw data rather than a formatted observation. It deliberately
+/// walks with `search_code`'s settings, so the picker offers exactly the files a
+/// search would find — `.gitignore` respected, hidden files and `.git` skipped,
+/// path-sorted. A dotfile is therefore not discoverable from the picker, though
+/// typing `@.env` by hand still resolves: `read_file` does not care about hidden
+/// files, only this index does.
+///
+/// The walk is capped (see `LIST_FILES_MAX`) and the result sorted, so a
+/// truncated index is still deterministic rather than readdir-ordered.
+pub fn list_project_files(roots: &[PathBuf]) -> Vec<String> {
+    let roots = RootSet::new(roots);
+    let mut files: Vec<String> = Vec::new();
+    let deadline = Instant::now() + SEARCH_TIMEOUT;
+
+    'roots: for (index, root) in roots.canonical.iter().enumerate() {
+        let mut builder = WalkBuilder::new(root);
+        builder.sort_by_file_path(|a, b| a.cmp(b));
+        builder.follow_links(false);
+        builder.require_git(false);
+        builder.parents(false);
+        builder.filter_entry(|entry| entry.file_name() != ".git");
+
+        for entry in builder.build() {
+            if Instant::now() > deadline {
+                break 'roots;
+            }
+            let Ok(entry) = entry else { continue };
+            if !entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
+                continue;
+            }
+            files.push(display_in(&roots, index, entry.path()));
+            if files.len() >= LIST_FILES_MAX {
+                break 'roots;
+            }
+        }
+    }
+
+    files.sort();
+    files
 }
 
 // -----------------------------------------------------------------------------
@@ -1764,6 +1859,76 @@ mod tests {
         assert!(msg.contains("one.txt:1:match"), "{msg}");
     }
 
+    /// A search scoped to one file gets the looser caps. The 20-cap exists to
+    /// stop one file dominating a *sweep*; there is no sweep here, and the cap
+    /// instead made the model enumerate a file's methods 20 at a time.
+    #[test]
+    fn a_single_file_search_is_not_capped_at_twenty() {
+        let root = temp_dir("cap_single");
+        let many: String = "match\n".repeat(60);
+        write(&root, "many.txt", &many);
+
+        let msg = search_code(
+            &roots(&root),
+            "match",
+            Some("many.txt"),
+            None,
+            None,
+            None,
+            false,
+            false,
+        );
+        assert_eq!(
+            msg.matches("many.txt:").count(),
+            60,
+            "single-file cap too tight: {msg}"
+        );
+        assert!(!msg.contains("only the first"), "{msg}");
+    }
+
+    /// …but a sweep still caps each file at 20, so one generated file can't eat
+    /// the budget.
+    #[test]
+    fn a_directory_sweep_still_caps_each_file_at_twenty() {
+        let root = temp_dir("cap_sweep");
+        write(&root, "many.txt", &"match\n".repeat(60));
+        write(&root, "other.txt", "match\n");
+
+        let msg = search_code(&roots(&root), "match", None, None, None, None, false, false);
+        assert_eq!(
+            msg.matches("many.txt:").count(),
+            SEARCH_MAX_PER_FILE,
+            "{msg}"
+        );
+        assert!(msg.contains("other.txt:1:match"), "{msg}");
+    }
+
+    /// The byte ceiling is what actually bounds a result, so loosening the
+    /// count cap can't turn a minified file into a huge one.
+    #[test]
+    fn a_single_file_search_stops_at_the_byte_ceiling() {
+        let root = temp_dir("cap_bytes");
+        let long = "x".repeat(4000);
+        write(&root, "many.txt", &format!("needle{long}\n").repeat(100));
+
+        let msg = search_code(
+            &roots(&root),
+            "needle",
+            Some("many.txt"),
+            None,
+            None,
+            None,
+            false,
+            false,
+        );
+        assert!(
+            msg.len() < SEARCH_MAX_OUTPUT_CHARS + 1000,
+            "byte ceiling not applied ({} chars)",
+            msg.len()
+        );
+        assert!(msg.contains("KB of matches"), "{msg}");
+    }
+
     #[test]
     fn human_size_formats_byte_counts() {
         assert_eq!(human_size(0), "0 B");
@@ -1966,6 +2131,54 @@ mod tests {
         assert_observation(&msg);
         assert!(msg.contains("not a directory"), "{msg}");
         assert!(msg.contains("read_file"), "{msg}");
+    }
+
+    // ── list_project_files (the @-mention index) ──
+
+    #[test]
+    fn list_project_files_returns_sorted_files_skipping_dirs_and_hidden_files() {
+        let root = temp_dir("list_files");
+        write(&root, "README.md", "r\n");
+        write(&root, "src/app.ts", "a\n");
+        write(&root, "src/lib/db.rs", "b\n");
+        write(&root, "empty/nested/keep.txt", "k\n");
+        // Hidden files are skipped, exactly as `search_code` skips them — this
+        // list matches what a search would find. Directories are never
+        // candidates; only the files inside them are.
+        write(&root, ".env", "SECRET=1\n");
+        assert_eq!(
+            list_project_files(&roots(&root)),
+            vec![
+                "README.md",
+                "empty/nested/keep.txt",
+                "src/app.ts",
+                "src/lib/db.rs"
+            ]
+        );
+    }
+
+    #[test]
+    fn list_project_files_respects_gitignore_like_search_does() {
+        let root = temp_dir("list_files_ignore");
+        write(&root, ".gitignore", "ignored.txt\n");
+        write(&root, "kept.txt", "k\n");
+        write(&root, "ignored.txt", "i\n");
+        assert_eq!(list_project_files(&roots(&root)), vec!["kept.txt"]);
+    }
+
+    #[test]
+    fn list_project_files_labels_the_root_when_more_than_one_is_attached() {
+        let base = temp_dir("list_files_multi");
+        let web = base.join("web");
+        let api = base.join("api");
+        write(&web, "one.ts", "1\n");
+        write(&api, "two.ts", "2\n");
+        // The label is the same `alias:path` form search results and the system
+        // prompt use, so a picked mention reads back as a valid `root`.
+        assert_eq!(
+            list_project_files(&[web, api]),
+            vec!["api:two.ts", "web:one.ts"]
+        );
     }
 
     // ── validate_root ──

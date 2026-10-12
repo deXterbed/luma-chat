@@ -60,7 +60,8 @@ Attach a project folder from the pane header (the folder icon) and the model gai
 - **Web search defaults off while a folder is attached** — reading files and reaching the web from one context is the outbound pair (a fetched page can ask for a file, a file can leave inside a URL), so attaching a folder turns the pane's web-search toggle off whatever your global default says. Turn it back on in the header if you want docs lookup mid-codebase
 - **The attached folder *is* the mode switch** — detach it and the pane is an ordinary chat again; there's no separate toggle to keep in sync
 - **Several folders per session** — the header's picker takes a multi-select, each attached folder gets its own chip, and each chip detaches on its own. `search_code` sweeps all of them; `read_file` and `list_dir` act on the first, and all three take `root` to name a different folder (the model is told the folder names, never the absolute paths). A path that exists under a different folder says so rather than a bare "not found"
-- **Bounded by design** — per-call caps (2000 lines, ~150 KB per read, 20 matches per file) plus per-response budgets (60 file calls, ~150 KB) and a later wrap-up nudge, so reading a large repo can't run away with the context window
+- **`@`-mention a file** — type `@` in the input box to pick a file from the attached folders. It's read before the turn and handed to the model, so pointing at a file is deterministic rather than a path the model may or may not open. The transcript keeps the bare `@path` (the contents are re-read per turn, not pasted in) and the reads count against the same per-response budget as the model's own reads
+- **Bounded by design** — per-call caps (2000 lines, ~150 KB per read, 20 matches per file in a sweep, 500 in a single-file search) plus per-response budgets (60 file calls, ~150 KB) and a later wrap-up nudge, so reading a large repo can't run away with the context window
 - **Sizes its own context window** — attaching a folder raises `num_ctx` automatically for cloud models, capped by the window the model itself reports from Ollama (a 256k-window model ends up at 65536, not a guess). Local models keep your Settings value, since that memory is yours, and the agent log records the number each run used
 
 ### Agent log (tuning the harness)
@@ -170,7 +171,7 @@ npm run lint
 npm run check
 ```
 
-The frontend test suite covers Zustand store logic, tool definitions and argument coercion, the agent log, system prompts, Ollama streaming utilities and loop policy, follow-up subtopic parsing, and the DB command wrapper. The Rust test suite covers HTML-to-markdown conversion, DB serialization and migrations, the backup container, and the Codebase file-tool guard (path escapes, symlink refusal, root validation). Three `cargo test` cases read a legacy Electron-era database and fail on a machine that doesn't have one — `CLAUDE.md` explains which and why, and `.github/workflows/ci.yml` skips them by name so the rest of the suite still runs on CI. No integration tests against a live Ollama instance are included.
+The frontend test suite covers Zustand store logic, tool definitions and argument coercion, the agent log, system prompts, Ollama streaming utilities and loop policy, follow-up subtopic parsing, the `@`-mention token rules, and the DB command wrapper. The Rust test suite covers HTML-to-markdown conversion, DB serialization and migrations, the backup container, and the Codebase file-tool guard (path escapes, symlink refusal, root validation). Three `cargo test` cases read a legacy Electron-era database and fail on a machine that doesn't have one — `CLAUDE.md` explains which and why, and `.github/workflows/ci.yml` skips them by name so the rest of the suite still runs on CI. No integration tests against a live Ollama instance are included.
 
 ## Architecture
 
@@ -211,7 +212,7 @@ luma-chat/
 ├── src/                   React UI
 │   ├── components/        ChatPane, SidePanel, Sidebar, SettingsPage, InputArea, MessageBubble, ToolActivity, SubtopicChips…
 │   ├── hooks/             useStreamingChat, useDbInit, useChatSession
-│   ├── lib/               ollama.js, ollamaStream.js, tools.js, followups.js, agentLog.js, db.js, systemPrompt.js
+│   ├── lib/               ollama.js, ollamaStream.js, tools.js, followups.js, fileMentions.js, projectFiles.js, agentLog.js, db.js, systemPrompt.js
 │   │   └── *.test.js      Unit tests for lib modules
 │   ├── store/             chatStore, sessionStore, uiStore, settingsStore
 │   │   └── *.test.js      Unit tests for store logic

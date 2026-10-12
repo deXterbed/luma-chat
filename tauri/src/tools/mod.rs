@@ -5,7 +5,9 @@ mod ollama_search;
 mod search;
 
 pub use fetch::fetch_page;
-pub use fs::{is_refused_root, list_dir, read_file, search_code, validate_root};
+pub use fs::{
+    is_refused_root, list_dir, list_project_files, read_file, search_code, validate_root,
+};
 pub use ollama_search::{fetch_page_ollama, search_web_ollama};
 pub use search::search_web;
 

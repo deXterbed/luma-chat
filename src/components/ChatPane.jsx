@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback } from "react";
+import { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import MessageBubble from "./MessageBubble";
 import ModelPicker from "./ModelPicker";
 import InputArea from "./InputArea";
@@ -67,6 +67,13 @@ export default function ChatPane({
     (s) => s.chatSessions.find((c) => c.id === sessionId)?.projectRoots,
   );
   const codebase = projectRoots.length > 0 || (sessionRoots?.length ?? 0) > 0;
+  // The roots the `@`-mention index walks: the pane's own, else its session's
+  // (a side chat has none of its own). Memoized so the composer's file index
+  // isn't re-keyed on every unrelated render.
+  const mentionRoots = useMemo(
+    () => (projectRoots.length > 0 ? projectRoots : (sessionRoots ?? [])),
+    [projectRoots, sessionRoots],
+  );
 
   // Seed the per-pane web search toggle. Re-derives on each new chat or loaded
   // session (chatNonce bump) so the toggle doesn't carry over from the previous
@@ -591,6 +598,8 @@ export default function ChatPane({
         onToggleAutoScroll={toggleAutoScroll}
         focusNonce={focusNonce}
         autoFocus={isSideChat}
+        codebase={codebase}
+        projectRoots={mentionRoots}
       />
     </div>
   );

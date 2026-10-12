@@ -435,6 +435,17 @@ pub async fn list_dir(
     .unwrap_or_else(|e| format!("Error: listing failed ({})", e))
 }
 
+/// The `@`-mention index for the composer. Read-only and root-bounded like the
+/// file tools, but never offered to the model — the renderer asks for it when a
+/// project folder is attached and filters it locally.
+#[tauri::command]
+pub async fn list_project_files(app: AppHandle, roots: Vec<String>) -> Vec<String> {
+    let roots = roots_to_paths(&app, roots);
+    tauri::async_runtime::spawn_blocking(move || tools::list_project_files(&roots))
+        .await
+        .unwrap_or_default()
+}
+
 /// Gate for attaching a folder: returns the canonical path to store, or the
 /// reason it was refused. Also re-used by the UI to mark a restored root as
 /// missing, so "exists" is answered in exactly one place.
