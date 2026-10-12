@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useCallback } from "react";
 import { Send, Square, Paperclip, X } from "lucide-react";
 import { fileToBase64 } from "../lib/ollama";
+import { matchCommands } from "../lib/commands";
 import styles from "./InputArea.module.css";
 
 export default function InputArea({
@@ -18,6 +19,8 @@ export default function InputArea({
 }) {
   const [input, setInput] = useState("");
   const [attachedImages, setAttachedImages] = useState([]);
+  const [cmdIndex, setCmdIndex] = useState(0);
+  const [cmdDismissed, setCmdDismissed] = useState(false);
 
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
@@ -60,19 +63,62 @@ export default function InputArea({
     textareaRef.current.focus();
   }, [focusNonce, autoFocus]);
 
-  const doSend = useCallback(() => {
-    const text = input.trim();
-    if (!text && attachedImages.length === 0) return;
-    if (isStreaming) return;
-    onSend(
-      text,
-      attachedImages.map((img) => img.base64),
-    );
-    setInput("");
-    setAttachedImages([]);
-  }, [input, attachedImages, isStreaming, onSend]);
+  // Slash-command palette. It opens while the input is a bare `/...` token
+  // with no whitespace yet — type a space (to add args) and it steps out of
+  // the way so Enter sends normally. `matchCommands` is the shared registry.
+  const cmdPrefix = /^\/\S*$/.test(input) ? input : null;
+  const cmdMatches =
+    cmdPrefix && !cmdDismissed && !isStreaming ? matchCommands(cmdPrefix) : [];
+  const paletteOpen = cmdMatches.length > 0;
+  const activeIndex = Math.min(cmdIndex, cmdMatches.length - 1);
+
+  const doSend = useCallback(
+    (overrideText) => {
+      const text = (overrideText ?? input).trim();
+      if (!text && attachedImages.length === 0) return;
+      if (isStreaming) return;
+      onSend(
+        text,
+        attachedImages.map((img) => img.base64),
+      );
+      setInput("");
+      setAttachedImages([]);
+      setCmdIndex(0);
+      setCmdDismissed(false);
+    },
+    [input, attachedImages, isStreaming, onSend],
+  );
 
   const handleKeyDown = (e) => {
+    if (paletteOpen) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setCmdIndex((i) => (i + 1) % cmdMatches.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setCmdIndex((i) => (i - 1 + cmdMatches.length) % cmdMatches.length);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setCmdDismissed(true);
+        return;
+      }
+      if (e.key === "Tab") {
+        // Complete in place (trailing space closes the palette) so the user
+        // can append args, e.g. "/summarise keep it to 3 bullets".
+        e.preventDefault();
+        setInput(cmdMatches[activeIndex].name + " ");
+        return;
+      }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        doSend(cmdMatches[activeIndex].name);
+        return;
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       doSend();
@@ -145,6 +191,23 @@ export default function InputArea({
       )}
 
       <div className={styles.inputRow}>
+        {paletteOpen && (
+          <div className={styles.cmdPalette}>
+            {cmdMatches.map((c, i) => (
+              <button
+                key={c.name}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => doSend(c.name)}
+                onMouseEnter={() => setCmdIndex(i)}
+                className={`${styles.cmdItem} ${i === activeIndex ? styles.cmdItemActive : ""}`}
+              >
+                <span className={styles.cmdName}>{c.name}</span>
+                <span className={styles.cmdDesc}>{c.description}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <input
           ref={fileInputRef}
           type="file"
@@ -164,7 +227,11 @@ export default function InputArea({
         <textarea
           ref={textareaRef}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => {
+            setInput(e.target.value);
+            setCmdIndex(0);
+            setCmdDismissed(false);
+          }}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           placeholder={placeholder}
@@ -213,7 +280,9 @@ export default function InputArea({
         )}
       </div>
 
-      <div className={styles.hint}>Enter to send · Shift+Enter for newline</div>
+      <div className={styles.hint}>
+        Enter to send · Shift+Enter for newline · / for commands
+      </div>
     </div>
   );
 }

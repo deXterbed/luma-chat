@@ -6,6 +6,7 @@ import {
   buildSideChatSystemPrompt,
 } from "../lib/systemPrompt";
 import { buildFollowUpMessages, parseSubtopics } from "../lib/followups";
+import { expandCommands } from "../lib/commands";
 import { useChatSession } from "./useChatSession";
 import { useSettingsStore } from "../store/settingsStore";
 import { useSessionStore } from "../store/sessionStore";
@@ -164,10 +165,16 @@ export function useStreamingChat({
       };
 
       try {
-        const apiMessages = store
-          .getState()
-          .getApiMessages()
-          .filter((m) => m.content !== "" || (m.images && m.images.length > 0));
+        // Expand a leading slash command (/summarise, /layman) into its
+        // instruction on the way out only — the stored message and the session
+        // title keep the compact text the user typed, the model gets the full
+        // instruction.
+        const apiMessages = expandCommands(
+          store
+            .getState()
+            .getApiMessages()
+            .filter((m) => m.content !== "" || (m.images && m.images.length > 0)),
+        );
 
         const appSystemPrompt = compact
           ? buildSideChatSystemPrompt({ webSearchEnabled, codebase, roots })
