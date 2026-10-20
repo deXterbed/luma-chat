@@ -2,6 +2,24 @@ import { create } from "zustand";
 import { v4 as uuidv4 } from "uuid"; // used by addMessage / addStreamingMessage
 import { useSettingsStore } from "./settingsStore";
 
+// Each chat remembers its own web search toggle, keyed by session id (main
+// pane) or side-chat id (a side tab). The value can't live in the pane store
+// alone: the main pane's store is shared across sessions, and a side tab's
+// ChatPane unmounts when the panel closes. Hydrated from the `webSearch` field
+// `load_sessions` returns, and every change is written back through
+// `db.setSessionWebSearch` / `db.setSideChatWebSearch`.
+const _webSearchByChat = new Map();
+
+export const getRememberedWebSearch = (chatId) =>
+  chatId ? _webSearchByChat.get(chatId) : undefined;
+
+// A null/absent persisted value means the user never chose one, so it is
+// ignored and the pane falls back to its default.
+export const rememberWebSearch = (chatId, enabled) => {
+  if (chatId && typeof enabled === "boolean")
+    _webSearchByChat.set(chatId, enabled);
+};
+
 // Factory to create an independent chat store
 // Both main chat and side chat use this same factory — fully isolated state
 export const createChatStore = (id) => {
@@ -21,8 +39,9 @@ export const createChatStore = (id) => {
     projectRoots: [],
     // Per-pane web search toggle. Lives in the store (not local component
     // state) so a side chat pane can read its parent's value via `contextStore`
-    // and inherit it as its own starting default — see ChatPane. Not persisted:
-    // like the thinking toggle it re-derives per chat/session.
+    // and inherit it as its own starting default — see ChatPane. Each chat's
+    // value is remembered in `_webSearchByChat` above; `clearMessages` seeds a
+    // brand-new chat from the setting.
     webSearchEnabled: false,
     isStreaming: false,
     abortController: null,
@@ -195,6 +214,9 @@ export const createChatStore = (id) => {
         isStreaming: false,
         abortController: null,
         model: useSettingsStore.getState().defaultModel || "",
+        // A new chat starts from the setting, not from the previous chat's
+        // toggle. Switching to an existing chat leaves it alone (see ChatPane).
+        webSearchEnabled: useSettingsStore.getState().webSearchDefault,
         chatNonce: s.chatNonce + 1,
         focusNonce: s.focusNonce + 1,
       }));

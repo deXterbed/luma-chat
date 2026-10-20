@@ -42,6 +42,50 @@ describe("db (frontend wrapper)", () => {
         id: "1",
         title: "Test",
         model: "model",
+        // Absent means "keep whatever the toggle last wrote".
+        webSearch: null,
+      });
+    });
+
+    it("passes the new chat's web search toggle", async () => {
+      invoke.mockResolvedValue(undefined);
+
+      await db.saveSession({
+        id: "1",
+        title: "Test",
+        model: "model",
+        webSearch: true,
+      });
+
+      expect(invoke).toHaveBeenCalledWith("save_session", {
+        id: "1",
+        title: "Test",
+        model: "model",
+        webSearch: true,
+      });
+    });
+  });
+
+  describe("per-chat web search toggle", () => {
+    it("persists a session's toggle", async () => {
+      invoke.mockResolvedValue(undefined);
+
+      await db.setSessionWebSearch("session-1", true);
+
+      expect(invoke).toHaveBeenCalledWith("set_session_web_search", {
+        sessionId: "session-1",
+        enabled: true,
+      });
+    });
+
+    it("persists a side chat's toggle", async () => {
+      invoke.mockResolvedValue(undefined);
+
+      await db.setSideChatWebSearch("sc1", false);
+
+      expect(invoke).toHaveBeenCalledWith("set_side_chat_web_search", {
+        sideChatId: "sc1",
+        enabled: false,
       });
     });
   });

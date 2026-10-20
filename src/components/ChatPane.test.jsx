@@ -17,6 +17,9 @@ describe("ChatPane web search in Codebase mode", () => {
   beforeEach(() => {
     useSettingsStore.setState({ hydrated: true, webSearchDefault: true });
     useSessionStore.setState({ chatSessions: [] });
+    vi.clearAllMocks();
+    vi.spyOn(db, "setSessionWebSearch").mockResolvedValue(undefined);
+    vi.spyOn(db, "setSideChatWebSearch").mockResolvedValue(undefined);
   });
 
   it("seeds on from the default with no project attached", () => {
@@ -32,6 +35,9 @@ describe("ChatPane web search in Codebase mode", () => {
 
     act(() => store.getState().setProjectRoots(["/tmp/some-project"]));
     expect(screen.getByTitle("Web search off")).toBeInTheDocument();
+    // Attaching is a real off, not just a live override: the persisted value
+    // has to match, or a restart while attached would turn search back on.
+    expect(db.setSessionWebSearch).toHaveBeenCalledWith("s1", false);
     unmount();
 
     // A side chat has no roots of its own and reads its session's, so the same
@@ -79,6 +85,82 @@ describe("ChatPane web search in Codebase mode", () => {
       />,
     );
     expect(screen.getByTitle("Web search on")).toBeInTheDocument();
+  });
+
+  // Each chat owns its toggle: switching away and back restores what that chat
+  // had, while a chat that never had a value starts from the default.
+  it("remembers each chat's own toggle", () => {
+    useSettingsStore.setState({ webSearchDefault: false });
+    const store = createChatStore("websearch-per-chat");
+    const { rerender } = render(<ChatPane store={store} sessionId="chat-a" />);
+    expect(screen.getByTitle("Web search off")).toBeInTheDocument();
+
+    act(() => fireEvent.click(screen.getByTitle("Web search off")));
+    expect(screen.getByTitle("Web search on")).toBeInTheDocument();
+    expect(db.setSessionWebSearch).toHaveBeenCalledWith("chat-a", true);
+
+    act(() => {
+      rerender(<ChatPane store={store} sessionId="chat-b" />);
+    });
+    expect(screen.getByTitle("Web search off")).toBeInTheDocument();
+
+    act(() => {
+      rerender(<ChatPane store={store} sessionId="chat-a" />);
+    });
+    expect(screen.getByTitle("Web search on")).toBeInTheDocument();
+  });
+
+  // The first message is what turns an unsaved chat into a session row; the
+  // toggle picked before sending belongs to that row (see `useChatSession`'s
+  // test — this pins the pane half: an id with a remembered value wins).
+  it("restores a chat's remembered value after an unsaved chat", () => {
+    useSettingsStore.setState({ webSearchDefault: false });
+    const store = createChatStore("websearch-unsaved");
+    const { rerender } = render(<ChatPane store={store} sessionId="remembered-chat" />);
+
+    act(() => fireEvent.click(screen.getByTitle("Web search off")));
+    expect(screen.getByTitle("Web search on")).toBeInTheDocument();
+
+    act(() => rerender(<ChatPane store={store} sessionId={null} />));
+    expect(screen.getByTitle("Web search off")).toBeInTheDocument();
+
+    act(() => rerender(<ChatPane store={store} sessionId="remembered-chat" />));
+    expect(screen.getByTitle("Web search on")).toBeInTheDocument();
+  });
+
+  it("persists a side chat's toggle to its own row", () => {
+    useSettingsStore.setState({ webSearchDefault: false });
+    const parentStore = createChatStore("persist-parent");
+    const store = createChatStore("persist-side");
+    render(
+      <ChatPane
+        store={store}
+        contextStore={parentStore}
+        sessionId="persist-session"
+        sideChatId="persist-sc"
+        isSideChat
+      />,
+    );
+
+    act(() => fireEvent.click(screen.getByTitle("Web search off")));
+
+    expect(db.setSideChatWebSearch).toHaveBeenCalledWith("persist-sc", true);
+    expect(db.setSessionWebSearch).not.toHaveBeenCalled();
+  });
+
+  it("re-seeds from the default on New Chat", () => {
+    useSettingsStore.setState({ webSearchDefault: false });
+    const store = createChatStore("websearch-new-chat");
+    const { rerender } = render(<ChatPane store={store} sessionId="new-chat-session" />);
+
+    act(() => fireEvent.click(screen.getByTitle("Web search off")));
+    expect(screen.getByTitle("Web search on")).toBeInTheDocument();
+
+    act(() => {
+      store.getState().clearMessages();
+      rerender(<ChatPane store={store} sessionId={null} />);
+    });
+    expect(screen.getByTitle("Web search off")).toBeInTheDocument();
   });
 });
 

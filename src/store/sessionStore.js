@@ -1,14 +1,28 @@
 import { create } from "zustand";
 import { v4 as uuidv4 } from "uuid";
 import { db } from "../lib/db";
-import { getSideChatStore, deleteSideChatStore } from "./chatStore";
+import {
+  getSideChatStore,
+  deleteSideChatStore,
+  rememberWebSearch,
+} from "./chatStore";
 import { useSettingsStore } from "./settingsStore";
 
 export const useSessionStore = create((set, get) => ({
   chatSessions: [],
   activeChatId: null,
 
-  setSessionsFromDb: (sessions) => set({ chatSessions: sessions }),
+  setSessionsFromDb: (sessions) => {
+    // The pane's per-chat web search toggle is keyed by id, not held on the
+    // session record, so hydrate it from the rows the DB just returned.
+    sessions.forEach((sess) => {
+      rememberWebSearch(sess.id, sess.webSearch);
+      (sess.sideChats ?? []).forEach((sc) =>
+        rememberWebSearch(sc.id, sc.webSearch),
+      );
+    });
+    set({ chatSessions: sessions });
+  },
 
   // Fetch messages for a session that was loaded with empty messages at startup.
   // Stores them in the session object so subsequent opens are instant.
@@ -73,6 +87,9 @@ export const useSessionStore = create((set, get) => ({
       id: session.id,
       title: session.title,
       model: session.model,
+      // A brand-new chat's toggle was chosen before the row existed; write it
+      // in the same INSERT rather than racing a separate update.
+      webSearch: session.webSearch,
     });
     // Roots have their own column and their own command, so editing a title or
     // model can never clobber an attached project (see `set_project_roots`).

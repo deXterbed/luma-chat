@@ -1,6 +1,6 @@
 import { useSessionStore } from "./sessionStore";
 import { db } from "../lib/db";
-import { getSideChatStore, deleteSideChatStore } from "./chatStore";
+import { getSideChatStore, deleteSideChatStore, rememberWebSearch } from "./chatStore";
 import { useSettingsStore } from "./settingsStore";
 
 // Mock the db module
@@ -25,6 +25,7 @@ vi.mock("../lib/db", () => ({
 vi.mock("./chatStore", () => ({
   getSideChatStore: vi.fn(),
   deleteSideChatStore: vi.fn(),
+  rememberWebSearch: vi.fn(),
 }));
 
 describe("sessionStore", () => {
@@ -46,6 +47,22 @@ describe("sessionStore", () => {
       store.getState().setSessionsFromDb(sessions);
 
       expect(store.getState().chatSessions).toEqual(sessions);
+    });
+
+    // The pane's per-chat toggle is keyed by id, so loading sessions also has to
+    // hydrate it — otherwise every chat would come back on its default after a
+    // restart.
+    it("hydrates each chat's remembered web search toggle", () => {
+      store.getState().setSessionsFromDb([
+        {
+          id: "hydrate-1",
+          webSearch: true,
+          sideChats: [{ id: "hydrate-sc1", webSearch: false }],
+        },
+      ]);
+
+      expect(rememberWebSearch).toHaveBeenCalledWith("hydrate-1", true);
+      expect(rememberWebSearch).toHaveBeenCalledWith("hydrate-sc1", false);
     });
   });
 

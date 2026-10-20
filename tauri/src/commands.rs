@@ -109,8 +109,21 @@ pub fn load_session_messages(db: State<Database>, session_id: String) -> Session
 }
 
 #[tauri::command]
-pub fn save_session(db: State<Database>, id: String, title: String, model: String) {
-    db.save_session(&id, &title, &model);
+pub fn save_session(
+    db: State<Database>,
+    id: String,
+    title: String,
+    model: String,
+    web_search: Option<bool>,
+) {
+    db.save_session(&id, &title, &model, web_search);
+}
+
+/// Persist the chat's own web search toggle. Separate from `save_session` so a
+/// title/model edit can never clobber it (and so only one path writes it).
+#[tauri::command]
+pub fn set_session_web_search(db: State<Database>, session_id: String, enabled: bool) {
+    db.set_session_web_search(&session_id, enabled);
 }
 
 #[tauri::command]
@@ -143,6 +156,7 @@ pub fn upsert_side_chat(
         &side_chat.model,
         position,
         side_chat.parent_side_chat_id.as_deref(),
+        None,
     );
 }
 
@@ -154,6 +168,12 @@ pub fn save_side_chat_messages(db: State<Database>, side_chat_id: String, messag
 #[tauri::command]
 pub fn set_active_side_chat(db: State<Database>, session_id: String, side_chat_id: Option<String>) {
     db.set_active_side_chat(&session_id, side_chat_id.as_deref());
+}
+
+/// Persist a side chat's own web search toggle (per tab, same as a session's).
+#[tauri::command]
+pub fn set_side_chat_web_search(db: State<Database>, side_chat_id: String, enabled: bool) {
+    db.set_side_chat_web_search(&side_chat_id, enabled);
 }
 
 #[tauri::command]
@@ -1074,6 +1094,7 @@ mod tests {
             title: "Title".to_string(),
             model: "llama3".to_string(),
             project_roots: Some(vec!["/tmp/luma-project".to_string()]),
+            web_search: Some(true),
             messages: vec![Message {
                 id: "m1".to_string(),
                 role: "user".to_string(),
@@ -1104,6 +1125,7 @@ mod tests {
             decoded[0].project_roots,
             Some(vec!["/tmp/luma-project".to_string()])
         );
+        assert_eq!(decoded[0].web_search, Some(true));
     }
 
     #[test]

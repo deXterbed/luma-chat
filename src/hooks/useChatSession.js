@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { useSessionStore } from "../store/sessionStore";
+import { rememberWebSearch } from "../store/chatStore";
 
 export function useChatSession({ sideChatId, sessionId, store }) {
   // Subscribe narrowly: only `activeChatId` is reactive state. The rest are
@@ -19,7 +20,17 @@ export function useChatSession({ sideChatId, sessionId, store }) {
       // The pane's attached folder(s), if any, belong to the new session — this
       // is the only moment they get written (the row doesn't exist before it).
       const projectRoots = store.getState().projectRoots ?? [];
-      addChatSession({ id, title: text.slice(0, 60), model, projectRoots });
+      // The web search toggle chosen before the first message belongs to this
+      // chat, not to the one the pane was showing before (see ChatPane).
+      const webSearch = store.getState().webSearchEnabled;
+      addChatSession({
+        id,
+        title: text.slice(0, 60),
+        model,
+        projectRoots,
+        webSearch,
+      });
+      rememberWebSearch(id, webSearch);
       setActiveChatId(id);
       return id;
     },

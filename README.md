@@ -85,7 +85,7 @@ Off by default (Settings → Agent log), because it contains the prompt and exce
 
 ### Search controls
 - **Per-pane web search toggle** — disable web tools in either pane for sessions that don't need them. The renderer filters the tool list before passing it to the model.
-- **Global web search default** — the per-pane toggle seeds from a setting you can change in the Settings page, and a side chat inherits its parent pane's current value instead. The per-pane override itself isn't persisted.
+- **Global web search default** — the per-pane toggle seeds from a setting you can change in the Settings page, and a side chat inherits its parent pane's current value instead. Each chat remembers its own toggle (persisted per chat in SQLite, so it survives restarts); a new chat starts from the default.
 - **Search provider** — choose DuckDuckGo (no key) or Ollama cloud search (needs an API key) in Settings. Quota/auth failures from the Ollama provider surface as a dismissible app-wide banner that links to Settings, instead of failing silently mid-response.
 
 ### Settings
@@ -100,7 +100,7 @@ A dedicated settings page (gear icon in the title bar) covers the most common kn
 - **Agent log** — opt-in structured log of the agent loop (see Agent log above), for tuning how the model actually behaves
 
 ### Persistence
-- **SQLite via Tauri Rust backend** — sessions, messages, side chats, custom model aliases, attached project folders, and user settings are all stored locally (rusqlite) and restored on launch
+- **SQLite via Tauri Rust backend** — sessions, messages, side chats, custom model aliases, attached project folders, per-chat web search toggles, and user settings are all stored locally (rusqlite) and restored on launch
 - **Immediate writes** — messages are persisted as they arrive, so a session survives a crash, an aborted generation, or an error mid-stream
 - **No cloud sync** — research is the user's private work, not a collaborative product
 - **…unless you point Luma at a remote server** — an Ollama URL that isn't loopback means your prompts, and in Codebase mode the files the model reads, are sent there. Luma gives a one-time notice when you attach a folder in that setup; a local Ollama keeps everything on the machine

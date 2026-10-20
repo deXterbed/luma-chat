@@ -6,6 +6,7 @@ import { useStreamingChat } from "../hooks/useStreamingChat";
 import { useUiStore } from "../store/uiStore";
 import { useSettingsStore } from "../store/settingsStore";
 import { useSessionStore } from "../store/sessionStore";
+import { getRememberedWebSearch, rememberWebSearch } from "../store/chatStore";
 import { db } from "../lib/db";
 import { isCloudModel, isModelUnavailable, loadModelWindow } from "../lib/modelContext";
 import { Trash2, Check, X, GitBranch, FolderOpen, FolderPlus, FolderMinus } from "lucide-react";
@@ -75,48 +76,63 @@ export default function ChatPane({
     [projectRoots, sessionRoots],
   );
 
-  // Seed the per-pane web search toggle. Re-derives on each new chat or loaded
-  // session (chatNonce bump) so the toggle doesn't carry over from the previous
-  // chat; within a chat the user's manual toggle wins. Gated on `hydrated`
-  // since the default comes from settings.
+  // Seed the per-pane web search toggle from the chat's own remembered value.
+  // Each chat keeps its own: switching to another chat restores that chat's
+  // toggle instead of carrying the previous one over, and a chat that has never
+  // had a value falls back to its default. Gated on `hydrated` since the default
+  // comes from settings.
   //
-  // The value lives in the pane's store (not local state) so a side chat can
-  // read its parent pane's value and inherit it. The parent is the pane whose
-  // conversation supplies this chat's context — the main chat for a top-level
-  // side chat, the parent side chat for a branch (`contextStore`, set by
-  // SidePanel; the main pane has none, so it uses the global default).
+  // The value also lives in the pane's store (not local state) so a side chat
+  // can read its parent pane's value and inherit it. The parent is the pane
+  // whose conversation supplies this chat's context — the main chat for a
+  // top-level side chat, the parent side chat for a branch (`contextStore`, set
+  // by SidePanel; the main pane has none, so it uses the global default).
   const settingsHydrated = useSettingsStore((s) => s.hydrated);
   const webSearchEnabled = store((s) => s.webSearchEnabled);
   const setWebSearchEnabled = store((s) => s.setWebSearchEnabled);
   const webSearchTouchedRef = useRef(false);
-  const prevWebNonceRef = useRef(chatNonce);
   const prevCodebaseRef = useRef(codebase);
+  // The chat this pane is showing: a side tab's own id, else the session's.
+  // A brand-new main chat has neither until its first message creates the row.
+  const chatId = sideChatId ?? sessionId ?? null;
+  const prevChatIdRef = useRef(chatId);
+  // Apply a toggle change everywhere it has to land: the live value, this
+  // chat's remembered value, and its row. A brand-new main chat has no row yet
+  // — `createSession` writes its value with the session it creates.
+  const setWebSearch = (next) => {
+    setWebSearchEnabled(next);
+    rememberWebSearch(chatId, next);
+    if (sideChatId) db.setSideChatWebSearch(sideChatId, next);
+    else if (sessionId) db.setSessionWebSearch(sessionId, next);
+  };
   useEffect(() => {
-    if (chatNonce !== prevWebNonceRef.current) {
-      prevWebNonceRef.current = chatNonce;
-      webSearchTouchedRef.current = false;
-    }
-    // Attaching a folder is the moment file reads and web access start sharing a
-    // context, which is Luma's egress pair: a fetched page can order a file read,
-    // and a file's contents can leave inside a URL. So off is the *default* in
-    // Codebase mode, and turning it back on there is a deliberate act.
-    if (codebase !== prevCodebaseRef.current) {
-      prevCodebaseRef.current = codebase;
-      webSearchTouchedRef.current = false;
-    }
+    const chatChanged = chatId !== prevChatIdRef.current;
+    const codebaseChanged = codebase !== prevCodebaseRef.current;
+    prevChatIdRef.current = chatId;
+    prevCodebaseRef.current = codebase;
+    if (chatChanged || codebaseChanged) webSearchTouchedRef.current = false;
     if (!settingsHydrated) return;
     if (webSearchTouchedRef.current) return;
-    // A side chat inherits its parent pane's current value instead of the global
-    // default: the toggle decides whether a pane may reach the web, so a
-    // question asked of a pane with search on should start with search on too.
+    // Attaching a folder to *this* chat forces web search off: file reads plus
+    // web access is Luma's egress pair. Recorded like a user toggle so the
+    // persisted value matches what is on screen (a restart while attached must
+    // not bring search back on). Switching to a chat that already had a folder
+    // is not an attach — that chat's own remembered value applies below.
+    if (!chatChanged && codebaseChanged && codebase) {
+      setWebSearch(false);
+      return;
+    }
+    const remembered = getRememberedWebSearch(chatId);
     setWebSearchEnabled(
-      codebase
-        ? false
-        : contextStore
-          ? contextStore.getState().webSearchEnabled
-          : useSettingsStore.getState().webSearchDefault,
+      remembered !== undefined
+        ? remembered
+        : codebase
+          ? false
+          : contextStore
+            ? contextStore.getState().webSearchEnabled
+            : useSettingsStore.getState().webSearchDefault,
     );
-  }, [settingsHydrated, chatNonce, codebase, contextStore, setWebSearchEnabled]);
+  }, [settingsHydrated, chatId, codebase, contextStore, setWebSearchEnabled]);
 
   // Thinking defaults on for cloud models (which reason quickly) and off for
   // local models (where the extra reasoning pass is slow). Each new chat or
@@ -466,7 +482,7 @@ export default function ChatPane({
                 }
               }
               webSearchTouchedRef.current = true;
-              setWebSearchEnabled(!webSearchEnabled);
+              setWebSearch(!webSearchEnabled);
             }}
             title={webSearchEnabled ? "Web search on" : "Web search off"}
             className={`${styles.headerBtn} ${compact ? styles.headerBtnCompact : ""} ${webSearchEnabled ? styles.webBtnActive : ""}`}

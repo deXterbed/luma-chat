@@ -17,7 +17,22 @@ export const db = {
     invoke("load_session_messages", { sessionId: sid }).then(
       (r) => r ?? { messages: [], sideChats: [] },
     ),
-  saveSession: (s) => invoke("save_session", { id: s.id, title: s.title, model: s.model }).catch(noop),
+  saveSession: (s) =>
+    invoke("save_session", {
+      id: s.id,
+      title: s.title,
+      model: s.model,
+      // null means "no per-chat choice" — the title/model edit paths pass it,
+      // and the DB keeps whatever the toggle last wrote (see
+      // `set_session_web_search`).
+      webSearch: s.webSearch ?? null,
+    }).catch(noop),
+  // Per-chat web search toggle. Separate commands because sessions and side
+  // chats live in different tables; a title/model edit can't clobber either.
+  setSessionWebSearch: (sid, enabled) =>
+    invoke("set_session_web_search", { sessionId: sid, enabled }).catch(noop),
+  setSideChatWebSearch: (scid, enabled) =>
+    invoke("set_side_chat_web_search", { sideChatId: scid, enabled }).catch(noop),
   updateSessionActivity: (id) =>
     invoke("update_session_activity", { id }).catch(noop),
   saveMessages: (sid, msgs) =>

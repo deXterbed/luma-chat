@@ -14,6 +14,11 @@ pub struct Session {
     /// session, which is what makes the mode derivable rather than stored.
     #[serde(rename = "projectRoots", default)]
     pub project_roots: Option<Vec<String>>,
+    /// The chat's own web search toggle. `None` means the user never chose one
+    /// here, so the pane falls back to its default (the setting, or the parent
+    /// pane for a side chat).
+    #[serde(rename = "webSearch", default)]
+    pub web_search: Option<bool>,
     pub messages: Vec<Message>,
     #[serde(rename = "sideChats")]
     pub side_chats: Vec<SideChat>,
@@ -51,6 +56,9 @@ pub struct SideChat {
     // context is the main session chat (the original/default behavior).
     #[serde(rename = "parentSideChatId", default)]
     pub parent_side_chat_id: Option<String>,
+    /// Same meaning as `Session::web_search`, per side chat.
+    #[serde(rename = "webSearch", default)]
+    pub web_search: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -192,6 +200,19 @@ const MIGRATIONS: &[fn(&Connection)] = &[
             .ok();
         }
     },
+    // Per-chat web search toggle (`sessions` and `side_chats`). NULL means the
+    // chat has no choice recorded, so the pane falls back to its default; 0/1 is
+    // an explicit choice. Kept in its own column (not settings) because it is
+    // per chat and must survive a session reload.
+    |conn| {
+        for table in &["sessions", "side_chats"] {
+            conn.execute_batch(&format!(
+                "ALTER TABLE {} ADD COLUMN web_search INTEGER",
+                table
+            ))
+            .ok();
+        }
+    },
 ];
 
 fn run_migrations(conn: &Connection) {
@@ -279,7 +300,7 @@ impl Database {
     pub fn load_sessions(&self) -> Vec<Session> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn
-            .prepare("SELECT id, title, model, project_roots, created_at, updated_at FROM sessions ORDER BY updated_at DESC")
+            .prepare("SELECT id, title, model, project_roots, web_search, created_at, updated_at FROM sessions ORDER BY updated_at DESC")
             .unwrap();
 
         let sessions: Vec<Session> = stmt
@@ -293,11 +314,12 @@ impl Database {
                     project_roots: row
                         .get::<_, Option<String>>(3)?
                         .and_then(|raw| serde_json::from_str(&raw).ok()),
+                    web_search: row.get::<_, Option<i64>>(4)?.map(|v| v != 0),
                     messages: vec![],
                     side_chats: vec![],
                     active_side_chat_id: None,
-                    created_at: row.get(4)?,
-                    updated_at: row.get(5)?,
+                    created_at: row.get(5)?,
+                    updated_at: row.get(6)?,
                 })
             })
             .unwrap()
@@ -310,7 +332,7 @@ impl Database {
                 // Load side chat stubs
                 let mut sc_stmt = conn
                     .prepare(
-                        "SELECT id, model, parent_side_chat_id FROM side_chats WHERE session_id = ? ORDER BY position",
+                        "SELECT id, model, parent_side_chat_id, web_search FROM side_chats WHERE session_id = ? ORDER BY position",
                     )
                     .unwrap();
                 s.side_chats = sc_stmt
@@ -320,6 +342,7 @@ impl Database {
                             model: row.get(1)?,
                             messages: vec![],
                             parent_side_chat_id: row.get(2)?,
+                            web_search: row.get::<_, Option<i64>>(3)?.map(|v| v != 0),
                         })
                     })
                     .unwrap()
@@ -368,7 +391,7 @@ impl Database {
 
         let side_chats: Vec<SideChat> = {
             let mut sc_stmt = conn
-                .prepare("SELECT id, model, parent_side_chat_id FROM side_chats WHERE session_id = ? ORDER BY position")
+                .prepare("SELECT id, model, parent_side_chat_id, web_search FROM side_chats WHERE session_id = ? ORDER BY position")
                 .unwrap();
 
             sc_stmt
@@ -377,11 +400,12 @@ impl Database {
                         row.get::<_, String>(0)?,
                         row.get::<_, String>(1)?,
                         row.get::<_, Option<String>>(2)?,
+                        row.get::<_, Option<i64>>(3)?.map(|v| v != 0),
                     ))
                 })
                 .unwrap()
                 .filter_map(|r| r.ok())
-                .map(|(sc_id, model, parent_side_chat_id)| {
+                .map(|(sc_id, model, parent_side_chat_id, web_search)| {
                     let mut msg_stmt = conn
                         .prepare("SELECT id, role, content, images, tool_calls, thinking, position FROM side_chat_messages WHERE side_chat_id = ? ORDER BY position")
                         .unwrap();
@@ -405,7 +429,7 @@ impl Database {
                         .filter_map(|r| r.ok())
                         .collect();
 
-                    SideChat { id: sc_id, model, messages, parent_side_chat_id }
+                    SideChat { id: sc_id, model, messages, parent_side_chat_id, web_search }
                 })
                 .collect()
         };
@@ -447,13 +471,14 @@ impl Database {
                 // cross-machine restore case, where those paths won't exist and
                 // get marked missing instead of failing the import.
                 conn.execute(
-                    "INSERT INTO sessions (id, title, model, project_roots, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-                     ON CONFLICT(id) DO UPDATE SET title = excluded.title, model = excluded.model, project_roots = COALESCE(sessions.project_roots, excluded.project_roots), created_at = excluded.created_at, updated_at = excluded.updated_at",
+                    "INSERT INTO sessions (id, title, model, project_roots, web_search, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                     ON CONFLICT(id) DO UPDATE SET title = excluded.title, model = excluded.model, project_roots = COALESCE(sessions.project_roots, excluded.project_roots), web_search = COALESCE(excluded.web_search, sessions.web_search), created_at = excluded.created_at, updated_at = excluded.updated_at",
                     params![
                         s.id,
                         s.title,
                         s.model,
                         encode_roots(s.project_roots.as_deref()),
+                        s.web_search.map(|v| v as i64),
                         s.created_at,
                         s.updated_at
                     ],
@@ -468,6 +493,7 @@ impl Database {
                     &sc.model,
                     i as i64,
                     sc.parent_side_chat_id.as_deref(),
+                    sc.web_search,
                 );
                 self.save_side_chat_messages(&sc.id, &sc.messages);
             }
@@ -476,14 +502,34 @@ impl Database {
         sessions.len()
     }
 
-    pub fn save_session(&self, id: &str, title: &str, model: &str) {
+    pub fn save_session(&self, id: &str, title: &str, model: &str, web_search: Option<bool>) {
         let conn = self.conn.lock().unwrap();
         let now = chrono_now();
         conn.execute(
-            "INSERT INTO sessions (id, title, model, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(id) DO UPDATE SET title = excluded.title, model = excluded.model, updated_at = excluded.updated_at",
-            params![id, title, model, now, now],
+            "INSERT INTO sessions (id, title, model, web_search, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON CONFLICT(id) DO UPDATE SET title = excluded.title, model = excluded.model, web_search = COALESCE(excluded.web_search, sessions.web_search), updated_at = excluded.updated_at",
+            params![id, title, model, web_search.map(|v| v as i64), now, now],
         )
         .ok();
+    }
+
+    /// Persist the chat's own web search toggle. Deliberately separate from
+    /// `save_session`: a title or model edit passes no value there, so it can't
+    /// clobber this, and the toggle is written from exactly one place.
+    fn set_web_search(&self, table: &str, id: &str, enabled: bool) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            &format!("UPDATE {} SET web_search = ?1 WHERE id = ?2", table),
+            params![enabled as i64, id],
+        )
+        .ok();
+    }
+
+    pub fn set_session_web_search(&self, id: &str, enabled: bool) {
+        self.set_web_search("sessions", id, enabled);
+    }
+
+    pub fn set_side_chat_web_search(&self, id: &str, enabled: bool) {
+        self.set_web_search("side_chats", id, enabled);
     }
 
     /// Deliberately separate from `save_session`: a title or model edit must
@@ -525,11 +571,19 @@ impl Database {
         model: &str,
         position: i64,
         parent_side_chat_id: Option<&str>,
+        web_search: Option<bool>,
     ) {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO side_chats (id, session_id, model, position, parent_side_chat_id) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(id) DO UPDATE SET model = excluded.model",
-            params![side_chat_id, session_id, model, position, parent_side_chat_id],
+            "INSERT INTO side_chats (id, session_id, model, position, parent_side_chat_id, web_search) VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON CONFLICT(id) DO UPDATE SET model = excluded.model, web_search = COALESCE(excluded.web_search, side_chats.web_search)",
+            params![
+                side_chat_id,
+                session_id,
+                model,
+                position,
+                parent_side_chat_id,
+                web_search.map(|v| v as i64)
+            ],
         )
         .ok();
     }
@@ -1052,12 +1106,12 @@ mod tests {
         let dir1 = std::env::temp_dir().join(format!("luma_export_test_{}", std::process::id()));
         let db1 = Database::new(dir1.clone());
 
-        db1.save_session("s1", "Title", "llama3");
+        db1.save_session("s1", "Title", "llama3", Some(true));
         db1.save_messages(
             "s1",
             &[msg("m1", "user", "hi"), msg("m2", "assistant", "hello")],
         );
-        db1.upsert_side_chat("s1", "sc1", "llama3", 0, None);
+        db1.upsert_side_chat("s1", "sc1", "llama3", 0, None, Some(false));
         db1.save_side_chat_messages("sc1", &[msg("sm1", "user", "side question")]);
         db1.set_active_side_chat("s1", Some("sc1"));
 
@@ -1067,6 +1121,8 @@ mod tests {
         assert_eq!(exported[0].side_chats.len(), 1);
         assert_eq!(exported[0].side_chats[0].messages.len(), 1);
         assert_eq!(exported[0].active_side_chat_id.as_deref(), Some("sc1"));
+        assert_eq!(exported[0].web_search, Some(true));
+        assert_eq!(exported[0].side_chats[0].web_search, Some(false));
 
         // Import into a fresh, separate DB (simulates restoring on another machine).
         let dir2 = std::env::temp_dir().join(format!("luma_import_test_{}", std::process::id()));
@@ -1080,6 +1136,8 @@ mod tests {
         assert_eq!(sessions2[0].title, "Title");
         assert_eq!(sessions2[0].created_at, exported[0].created_at);
         assert_eq!(sessions2[0].active_side_chat_id.as_deref(), Some("sc1"));
+        assert_eq!(sessions2[0].web_search, Some(true));
+        assert_eq!(sessions2[0].side_chats[0].web_search, Some(false));
 
         let msgs2 = db2.load_session_messages("s1");
         assert_eq!(msgs2.messages.len(), 2);
