@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.3.0] - 2026-10-23
+
+### Added
+- Read-only Codebase mode: attach one or more project folders and the model can `read_file`, `search_code`, and `list_dir` inside them, bounded by a root guard and a per-run byte/call budget
+- `@`-mention file references in the composer, resolved into per-turn context before the model replies
+- Chat title search in the sidebar, with a clear button and `Escape` to reset
+- Sidebar chats grouped by last activity (Recent, This week, Last week, Older)
+- Slash-command palette for `/layman` and `/summarise`, expanded at send time so the chat bubble keeps the short command
+- Per-chat web search toggle, remembered per chat and inherited by side chats from their parent pane
+- Model reasoning (`think`) is persisted with the message and shown in a collapsible block after a reload
+- Agent log (Settings → Agent log) writing structured JSONL runs to the app data directory
+- Native macOS window frame (traffic lights, rounded corners native to a titled window) via a platform config
+- Codebase mode sizes `num_ctx` from the model's real context window, raising it only for cloud models
+- `search_code` results and `list_dir` listings carry file sizes so the model pages large files instead of reading them whole
+
+### Fixed
+- A non-2xx Ollama response now emits `ollama://error` instead of an empty `ollama://done` (401/403/429 get a usage-limit message)
+- Streamed responses no longer lose a chunk that ends mid-codepoint, which could drop a JSON line and splice two objects together
+- Switching sessions or starting a new chat mid-run now stops the run instead of writing the new chat's messages into the old session
+- Project folders attached from the main pane are persisted to the session (the pane was rendered without its `sessionId`)
+- Chat panes stay mounted behind the settings page, so scroll positions survive opening and closing settings
+- Single-dollar inline math (e.g. `$2^n$`) renders while bare currency (`$40`) stays literal
+- Markdown links are legible on dark surfaces
+
 ## [1.2.0] - 2026-09-06
 
 ### Added
