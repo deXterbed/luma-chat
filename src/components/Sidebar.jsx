@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import {
   Check,
   Plus,
@@ -14,6 +14,7 @@ import { db } from "../lib/db";
 import { useUiStore } from "../store/uiStore";
 import { useSessionStore } from "../store/sessionStore";
 import { useDragResize } from "../hooks/useDragResize";
+import { groupSessionsByRecency } from "../lib/sessionGroups";
 import styles from "./Sidebar.module.css";
 
 export default function Sidebar() {
@@ -35,6 +36,7 @@ export default function Sidebar() {
         (session.title ?? "").toLowerCase().includes(trimmedQuery)
       )
     : chatSessions;
+  const sessionGroups = groupSessionsByRecency(filteredSessions);
 
   const { width: sidebarWidth, onMouseDown } = useDragResize({
     initial: 220,
@@ -116,8 +118,6 @@ export default function Sidebar() {
       </div>
 
       <div className={styles.chatList}>
-        <div className={styles.sectionLabel}>Recent</div>
-
         {chatSessions.length === 0 && (
           <div className={styles.emptyHint}>
             No chats yet. Start a conversation.
@@ -128,14 +128,19 @@ export default function Sidebar() {
           <div className={styles.emptyHint}>No chats match your search.</div>
         )}
 
-        {filteredSessions.map((session) => (
-          <SessionRow
-            key={session.id}
-            session={session}
-            isActive={activeChatId === session.id}
-            onLoad={() => handleLoadSession(session)}
-            onDelete={(e) => handleDeleteSession(session, e)}
-          />
+        {sessionGroups.map((group) => (
+          <Fragment key={group.key}>
+            <div className={styles.sectionLabel}>{group.label}</div>
+            {group.sessions.map((session) => (
+              <SessionRow
+                key={session.id}
+                session={session}
+                isActive={activeChatId === session.id}
+                onLoad={() => handleLoadSession(session)}
+                onDelete={(e) => handleDeleteSession(session, e)}
+              />
+            ))}
+          </Fragment>
         ))}
       </div>
 

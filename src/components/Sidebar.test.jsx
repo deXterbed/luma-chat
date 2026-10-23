@@ -54,4 +54,18 @@ describe("Sidebar search", () => {
     expect(searchInput().value).toBe("");
     expect(screen.getByText("Beta notes")).toBeInTheDocument();
   });
+
+  it("groups chats by recency", () => {
+    const monthAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    useSessionStore.setState({
+      chatSessions: [
+        { ...sessions[0], updated_at: Date.now() },
+        { ...sessions[1], updated_at: monthAgo },
+      ],
+    });
+    render(<Sidebar />);
+
+    expect(screen.getByText("Recent")).toBeInTheDocument();
+    expect(screen.getByText("Older")).toBeInTheDocument();
+  });
 });
