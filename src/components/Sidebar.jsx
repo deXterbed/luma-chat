@@ -3,6 +3,7 @@ import {
   Check,
   Plus,
   MessageSquare,
+  Search,
   Trash2,
   Wifi,
   WifiOff,
@@ -26,6 +27,14 @@ export default function Sidebar() {
   const { ollamaConnected, setSideChatOpen } = useUiStore();
   const clearMain = useMainChat((s) => s.clearMessages);
   const loadMessages = useMainChat((s) => s.loadMessages);
+  const [query, setQuery] = useState("");
+
+  const trimmedQuery = query.trim().toLowerCase();
+  const filteredSessions = trimmedQuery
+    ? chatSessions.filter((session) =>
+        (session.title ?? "").toLowerCase().includes(trimmedQuery)
+      )
+    : chatSessions;
 
   const { width: sidebarWidth, onMouseDown } = useDragResize({
     initial: 220,
@@ -81,6 +90,31 @@ export default function Sidebar() {
         </button>
       </div>
 
+      <div className={styles.searchArea}>
+        <Search size={12} className={styles.searchIcon} />
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setQuery("");
+          }}
+          placeholder="Search chats..."
+          aria-label="Search chats"
+          className={styles.searchInput}
+        />
+        {query && (
+          <button
+            onClick={() => setQuery("")}
+            aria-label="Clear search"
+            title="Clear search"
+            className={styles.searchClear}
+          >
+            <X size={11} />
+          </button>
+        )}
+      </div>
+
       <div className={styles.chatList}>
         <div className={styles.sectionLabel}>Recent</div>
 
@@ -90,7 +124,11 @@ export default function Sidebar() {
           </div>
         )}
 
-        {chatSessions.map((session) => (
+        {chatSessions.length > 0 && filteredSessions.length === 0 && (
+          <div className={styles.emptyHint}>No chats match your search.</div>
+        )}
+
+        {filteredSessions.map((session) => (
           <SessionRow
             key={session.id}
             session={session}
