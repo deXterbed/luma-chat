@@ -84,7 +84,7 @@ export function useStreamingChat({
   // an inline edit (so the new assistant turn won't re-create the session or
   // re-add a user message). For normal sends it's undefined.
   const runStream = useCallback(
-    async ({ text, images = [], afterMessageId }) => {
+    async ({ text, images = [], files = [], afterMessageId }) => {
       // Use store.getState() for all imperative calls inside the callback so
       // async callbacks (onToken, onDone, etc.) always read fresh state rather
       // than stale closures captured at render time.
@@ -101,12 +101,15 @@ export function useStreamingChat({
 
       const isFirstMessage = store.getState().messages.length === 0;
       if (!afterMessageId) {
-        store.getState().addMessage("user", text, images);
+        store.getState().addMessage("user", text, images, files);
       }
 
       let currentSessionId = activeChatId;
       if (!sideChatId && isFirstMessage && !afterMessageId) {
-        currentSessionId = createSession(text, model);
+        // A file-only first turn has no words to name the session, so the
+        // attachment's name stands in.
+        const title = text || files[0]?.name || "";
+        currentSessionId = createSession(title, model);
       }
 
       // Persist the user message before streaming starts so it survives a
@@ -189,7 +192,9 @@ export function useStreamingChat({
         const systemMessages = [{ role: "system", content: appSystemPrompt }];
 
         if (contextStore) {
-          const ctxMessages = contextStore.getState().getApiMessages();
+          // No attachments: a stored file would swamp the 4000-char transcript
+          // the side chat actually gets as context.
+          const ctxMessages = contextStore.getState().getApiMessages({ files: false });
           if (ctxMessages.length > 0) {
             // Limit to the most recent 10 messages to avoid overflowing small
             // local model context windows on long sessions.
@@ -248,6 +253,10 @@ export function useStreamingChat({
           }
         }
 
+        // Attached files ride with the message in `getApiMessages`, so there is
+        // nothing to inject here: an attachment is part of the conversation the
+        // user can see, not a per-turn flourish.
+
         const loopPolicy = codebase
           ? {
               maxToolRounds: CODEBASE_MAX_TOOL_ROUNDS,
@@ -268,7 +277,7 @@ export function useStreamingChat({
         const generateSubtopics = async (messageId) => {
           const began = Date.now();
           try {
-            const recent = store.getState().getApiMessages().slice(-4);
+            const recent = store.getState().getApiMessages({ files: false }).slice(-4);
             if (recent.length === 0) return;
             let raw = "";
             await streamChat({
@@ -446,10 +455,10 @@ export function useStreamingChat({
   );
 
   const handleSend = useCallback(
-    async (text, images = []) => {
-      if (!text && images.length === 0) return;
+    async (text, images = [], files = []) => {
+      if (!text && images.length === 0 && files.length === 0) return;
       if (isStreaming) return;
-      await runStream({ text, images });
+      await runStream({ text, images, files });
     },
     [isStreaming, runStream],
   );

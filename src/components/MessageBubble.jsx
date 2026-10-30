@@ -5,6 +5,7 @@ import {
   CornerDownLeft,
   Brain,
   ChevronRight,
+  FileText,
 } from "lucide-react";
 import { useUiStore } from "../store/uiStore";
 import { useSettingsStore } from "../store/settingsStore";
@@ -215,6 +216,17 @@ const MessageBubble = memo(function MessageBubble({
               alt="attached"
               className={styles.attachedImg}
             />
+          ))}
+        </div>
+      )}
+
+      {message.files && message.files.length > 0 && (
+        <div className={styles.fileRow}>
+          {message.files.map((file, i) => (
+            <span key={i} className={styles.fileChip} title={file.name}>
+              <FileText size={10} />
+              {file.name}
+            </span>
           ))}
         </div>
       )}

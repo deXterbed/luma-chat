@@ -9,6 +9,61 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 
+// A run that never settles: these tests assert on what reached the store before
+// streaming starts, so the stream itself only has to not interfere.
+const { streamChatMock } = vi.hoisted(() => ({
+  streamChatMock: vi.fn(() => new Promise(() => {})),
+}));
+vi.mock("../lib/ollama", async (importOriginal) => ({
+  ...(await importOriginal()),
+  streamChat: streamChatMock,
+}));
+
+// `ChatPane` wraps `handleSend` to set its scroll flag. That wrapper used to
+// take only (text, images), silently dropping the attached files, so a file
+// looked attached in the composer and then reached neither the store nor the
+// model. This pins the third argument through the wrapper.
+describe("ChatPane attachments", () => {
+  beforeEach(() => {
+    useSettingsStore.setState({ hydrated: true, webSearchDefault: false });
+    useSessionStore.setState({ chatSessions: [] });
+    vi.clearAllMocks();
+    vi.spyOn(db, "saveMessages").mockResolvedValue(undefined);
+    vi.spyOn(db, "saveSession").mockResolvedValue(undefined);
+    vi.spyOn(db, "updateSessionActivity").mockResolvedValue(undefined);
+    vi.spyOn(db, "setProjectRoots").mockResolvedValue(undefined);
+  });
+
+  it("keeps an attached file on the message it was sent with", async () => {
+    const store = createChatStore("attachment-chat");
+    render(<ChatPane store={store} sessionId="s1" />);
+
+    const input = document.querySelector('input[type="file"]');
+    Object.defineProperty(input, "files", {
+      value: [new File(["# Hi"], "notes.md", { type: "" })],
+      configurable: true,
+    });
+    await act(async () => {
+      fireEvent.change(input);
+    });
+    expect(await screen.findByText("notes.md")).toBeInTheDocument();
+
+    const textarea = screen.getByRole("textbox");
+    fireEvent.change(textarea, { target: { value: "here" } });
+    await act(async () => {
+      fireEvent.keyDown(textarea, { key: "Enter" });
+    });
+
+    const userMessage = store
+      .getState()
+      .messages.find((m) => m.role === "user");
+    expect(userMessage.content).toBe("here");
+    expect(userMessage.files).toEqual([
+      { name: "notes.md", content: "# Hi" },
+    ]);
+  });
+});
+
 // File reads and web access in one context is Luma's egress pair: a fetched page
 // can order a file read, and a file's contents can leave inside a URL. So the
 // pane whose project folder is attached must start with web search *off*, even

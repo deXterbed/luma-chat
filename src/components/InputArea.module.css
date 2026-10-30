@@ -10,6 +10,58 @@
     padding: 10px 12px;
 }
 
+.attachNotice {
+    margin-bottom: 8px;
+    padding: 5px 8px;
+    background: var(--error-bg);
+    border: 1px solid var(--error-border);
+    border-radius: 5px;
+    color: var(--status-err);
+    font-size: 11px;
+}
+
+.fileChips {
+    margin-bottom: 8px;
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.fileChip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 220px;
+    padding: 3px 6px;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 5px;
+    color: var(--text-subtle);
+    font-size: 11px;
+}
+
+.fileChipName {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.fileChipRemove {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    color: var(--text-faint);
+    flex-shrink: 0;
+}
+
+.fileChipRemove:hover {
+    color: var(--status-err);
+}
+
 .imagePreviews {
     margin-bottom: 8px;
     display: flex;

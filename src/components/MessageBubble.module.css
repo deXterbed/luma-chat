@@ -32,6 +32,29 @@
     flex-wrap: wrap;
 }
 
+.fileRow {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+}
+
+.fileChip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 220px;
+    padding: 3px 7px;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 5px;
+    color: var(--text-subtle);
+    font-size: 11px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
 .imageRowUser {
     justify-content: flex-end;
 }

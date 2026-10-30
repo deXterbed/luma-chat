@@ -1,6 +1,15 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from "react";
-import { Send, Square, Paperclip, X } from "lucide-react";
+import { Send, Square, Paperclip, X, FileText } from "lucide-react";
 import { fileToBase64 } from "../lib/ollama";
+import {
+  ACCEPT_ATTRIBUTE,
+  IMAGE_TYPES,
+  MAX_TOTAL_BYTES,
+  attachProblem,
+  attachmentKind,
+  fileToText,
+  unsupportedNotice,
+} from "../lib/attachments";
 import { matchCommands } from "../lib/commands";
 import { activeMention, insertMention } from "../lib/fileMentions";
 import {
@@ -31,6 +40,11 @@ export default function InputArea({
 }) {
   const [input, setInput] = useState("");
   const [attachedImages, setAttachedImages] = useState([]);
+  // Text-like files, read in the renderer and stored on the message as
+  // `{name, content}` — the extracted text is the only copy, since the picker
+  // never yields a path.
+  const [attachedFiles, setAttachedFiles] = useState([]);
+  const [attachNotice, setAttachNotice] = useState("");
   const [cmdIndex, setCmdIndex] = useState(0);
   const [cmdDismissed, setCmdDismissed] = useState(false);
   // `@`-mention autocomplete: the token the caret sits inside (see
@@ -44,6 +58,13 @@ export default function InputArea({
 
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
+
+  // The notice is transient; anything longer-lived belongs in the transcript.
+  useEffect(() => {
+    if (!attachNotice) return;
+    const timer = setTimeout(() => setAttachNotice(""), 4000);
+    return () => clearTimeout(timer);
+  }, [attachNotice]);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -97,19 +118,23 @@ export default function InputArea({
   const doSend = useCallback(
     (overrideText) => {
       const text = (overrideText ?? input).trim();
-      if (!text && attachedImages.length === 0) return;
+      if (!text && attachedImages.length === 0 && attachedFiles.length === 0)
+        return;
       if (isStreaming) return;
       onSend(
         text,
         attachedImages.map((img) => img.base64),
+        attachedFiles.map((f) => ({ name: f.name, content: f.content })),
       );
       setInput("");
       setAttachedImages([]);
+      setAttachedFiles([]);
+      setAttachNotice("");
       setCmdIndex(0);
       setCmdDismissed(false);
       setMention(null);
     },
-    [input, attachedImages, isStreaming, onSend],
+    [input, attachedImages, attachedFiles, isStreaming, onSend],
   );
 
   // ── @-mention autocomplete ──
@@ -254,17 +279,60 @@ export default function InputArea({
   };
 
   const handleFileAttach = async (e) => {
-    const files = Array.from(e.target.files).filter((f) =>
-      f.type.startsWith("image/"),
-    );
-    const converted = await Promise.all(
-      files.map(async (f) => ({
+    const picked = Array.from(e.target.files);
+    const problems = [];
+    const images = [];
+    const texts = [];
+    // `content.length` is what is actually sent, so it is what the cap counts.
+    let total = attachedFiles.reduce((n, f) => n + f.content.length, 0);
+
+    for (const file of picked) {
+      const problem = attachProblem(file);
+      if (problem) {
+        problems.push(problem);
+        continue;
+      }
+      if (attachmentKind(file) === "image") {
+        images.push(file);
+        continue;
+      }
+      if (total + file.size > MAX_TOTAL_BYTES) {
+        problems.push(
+          `Can't attach ${file.name}: attachments are capped at ${MAX_TOTAL_BYTES / 1000} KB per message.`,
+        );
+        continue;
+      }
+      total += file.size;
+      texts.push(file);
+    }
+
+    const convertedImages = await Promise.all(
+      images.map(async (f) => ({
         base64: await fileToBase64(f),
         name: f.name,
         preview: URL.createObjectURL(f),
       })),
     );
-    setAttachedImages((prev) => [...prev, ...converted]);
+    const readText = await Promise.all(
+      texts.map(async (f) => {
+        try {
+          return { name: f.name, content: await fileToText(f) };
+        } catch {
+          // One unreadable file must not discard the rest of the pick.
+          problems.push(`Can't read ${f.name}.`);
+          return null;
+        }
+      }),
+    ).then((rows) => rows.filter(Boolean));
+
+    setAttachedImages((prev) => [...prev, ...convertedImages]);
+    setAttachedFiles((prev) => [...prev, ...readText]);
+    setAttachNotice(
+      problems.length > 0
+        ? problems[0] +
+            (problems.length > 1 ? ` (+${problems.length - 1} more)` : "")
+        : "",
+    );
     e.target.value = "";
   };
 
@@ -272,10 +340,17 @@ export default function InputArea({
     const items = Array.from(e.clipboardData?.items || []).filter((i) =>
       i.type.startsWith("image/"),
     );
+    // A plain text paste has no image items and must fall through untouched.
+    // Text files are picked from the dialog, never pasted: intercepting
+    // `text/plain` would swallow ordinary copying.
     if (items.length === 0) return;
     e.preventDefault();
+
+    const accepted = items.filter((i) => IMAGE_TYPES.includes(i.type));
+    const rejected = items.filter((i) => !IMAGE_TYPES.includes(i.type));
+
     const converted = await Promise.all(
-      items.map(async (item) => {
+      accepted.map(async (item) => {
         const file = item.getAsFile();
         return {
           base64: await fileToBase64(file),
@@ -285,13 +360,21 @@ export default function InputArea({
       }),
     );
     setAttachedImages((prev) => [...prev, ...converted]);
+    setAttachNotice(rejected.length > 0 ? unsupportedNotice(null) : "");
   }, []);
 
   const removeImage = (index) => {
     setAttachedImages((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const hasContent = input.trim() || attachedImages.length > 0;
+  const removeFile = (index) => {
+    setAttachedFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  // A text file counts as content on its own now that it is stored with the
+  // message: the bubble shows the chip, so a file-only turn is legible.
+  const hasContent =
+    input.trim() || attachedImages.length > 0 || attachedFiles.length > 0;
 
   return (
     <div
@@ -339,6 +422,31 @@ export default function InputArea({
         </div>
       )}
 
+      {/* Attached text files */}
+      {attachedFiles.length > 0 && (
+        <div className={styles.fileChips}>
+          {attachedFiles.map((file, i) => (
+            <div key={`${file.name}-${i}`} className={styles.fileChip}>
+              <FileText size={11} />
+              <span className={styles.fileChipName}>{file.name}</span>
+              <button
+                onClick={() => removeFile(i)}
+                className={styles.fileChipRemove}
+                title={`Remove ${file.name}`}
+              >
+                <X size={8} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {attachNotice && (
+        <div className={styles.attachNotice} role="alert">
+          {attachNotice}
+        </div>
+      )}
+
       <div className={styles.inputRow}>
         {paletteOpen && (
           <div className={styles.cmdPalette}>
@@ -360,7 +468,7 @@ export default function InputArea({
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*"
+          accept={ACCEPT_ATTRIBUTE}
           multiple
           style={{ display: "none" }}
           onChange={handleFileAttach}
@@ -368,7 +476,7 @@ export default function InputArea({
         <button
           onClick={() => fileInputRef.current?.click()}
           className={styles.attachBtn}
-          title="Attach image"
+          title="Attach image or text file"
         >
           <Paperclip size={14} />
         </button>

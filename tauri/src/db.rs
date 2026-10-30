@@ -37,6 +37,9 @@ pub struct Message {
     pub images: Vec<String>,
     #[serde(rename = "toolCalls", default)]
     pub tool_calls: Vec<serde_json::Value>,
+    /// Text files attached to this message, contents inlined.
+    #[serde(default)]
+    pub files: Vec<MessageFile>,
     /// Live reasoning (`think: true`). Display-only: kept so a reloaded session
     /// can still show it, but never fed back into a request.
     #[serde(default)]
@@ -45,6 +48,15 @@ pub struct Message {
     pub position: i64,
     #[serde(rename = "isStreaming", default)]
     pub is_streaming: bool,
+}
+
+/// A text file the user attached to a message. The contents are stored inline
+/// because they cannot be re-derived: a file picker never exposes a path, and
+/// Ollama has no file channel, so the extracted text *is* the attachment.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageFile {
+    pub name: String,
+    pub content: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -213,6 +225,18 @@ const MIGRATIONS: &[fn(&Connection)] = &[
             .ok();
         }
     },
+    // Attached text files, as a JSON array of `{name, content}`. Stored inline
+    // because a file picker never exposes a path: the extracted text is the
+    // only copy there is, so losing it would lose the attachment.
+    |conn| {
+        for table in &["messages", "side_chat_messages"] {
+            conn.execute_batch(&format!(
+                "ALTER TABLE {} ADD COLUMN files TEXT NOT NULL DEFAULT '[]'",
+                table
+            ))
+            .ok();
+        }
+    },
 ];
 
 fn run_migrations(conn: &Connection) {
@@ -261,6 +285,7 @@ impl Database {
                 role TEXT NOT NULL,
                 content TEXT NOT NULL DEFAULT '',
                 images TEXT NOT NULL DEFAULT '[]',
+                files TEXT NOT NULL DEFAULT '[]',
                 position INTEGER NOT NULL
             );
             CREATE TABLE IF NOT EXISTS side_chats (
@@ -276,6 +301,7 @@ impl Database {
                 role TEXT NOT NULL,
                 content TEXT NOT NULL DEFAULT '',
                 images TEXT NOT NULL DEFAULT '[]',
+                files TEXT NOT NULL DEFAULT '[]',
                 position INTEGER NOT NULL
             );
             CREATE TABLE IF NOT EXISTS custom_models (
@@ -367,21 +393,23 @@ impl Database {
         let conn = self.conn.lock().unwrap();
 
         let mut stmt = conn
-            .prepare("SELECT id, role, content, images, tool_calls, thinking, position FROM messages WHERE session_id = ? ORDER BY position")
+            .prepare("SELECT id, role, content, images, tool_calls, files, thinking, position FROM messages WHERE session_id = ? ORDER BY position")
             .unwrap();
 
         let messages: Vec<Message> = stmt
             .query_map(params![session_id], |row| {
                 let images_str: String = row.get(3)?;
                 let tool_calls_str: String = row.get(4)?;
+                let files_str: String = row.get(5)?;
                 Ok(Message {
                     id: row.get(0)?,
                     role: row.get(1)?,
                     content: row.get(2)?,
                     images: serde_json::from_str(&images_str).unwrap_or_default(),
                     tool_calls: serde_json::from_str(&tool_calls_str).unwrap_or_default(),
-                    thinking: row.get(5)?,
-                    position: row.get(6)?,
+                    files: serde_json::from_str(&files_str).unwrap_or_default(),
+                    thinking: row.get(6)?,
+                    position: row.get(7)?,
                     is_streaming: false,
                 })
             })
@@ -407,21 +435,23 @@ impl Database {
                 .filter_map(|r| r.ok())
                 .map(|(sc_id, model, parent_side_chat_id, web_search)| {
                     let mut msg_stmt = conn
-                        .prepare("SELECT id, role, content, images, tool_calls, thinking, position FROM side_chat_messages WHERE side_chat_id = ? ORDER BY position")
+                        .prepare("SELECT id, role, content, images, tool_calls, files, thinking, position FROM side_chat_messages WHERE side_chat_id = ? ORDER BY position")
                         .unwrap();
 
                     let messages: Vec<Message> = msg_stmt
                         .query_map(params![sc_id], |row| {
                             let images_str: String = row.get(3)?;
                             let tool_calls_str: String = row.get(4)?;
+                            let files_str: String = row.get(5)?;
                             Ok(Message {
                                 id: row.get(0)?,
                                 role: row.get(1)?,
                                 content: row.get(2)?,
                                 images: serde_json::from_str(&images_str).unwrap_or_default(),
                                 tool_calls: serde_json::from_str(&tool_calls_str).unwrap_or_default(),
-                                thinking: row.get(5)?,
-                                position: row.get(6)?,
+                                files: serde_json::from_str(&files_str).unwrap_or_default(),
+                                thinking: row.get(6)?,
+                                position: row.get(7)?,
                                 is_streaming: false,
                             })
                         })
@@ -705,19 +735,21 @@ fn sync_messages(
     let tx = conn.transaction()?;
     {
         let mut upsert = tx.prepare(&format!(
-            "INSERT INTO {table} (id, {fk_col}, role, content, images, tool_calls, thinking, position)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            "INSERT INTO {table} (id, {fk_col}, role, content, images, tool_calls, files, thinking, position)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
              ON CONFLICT(id) DO UPDATE SET
                  role = excluded.role,
                  content = excluded.content,
                  images = excluded.images,
                  tool_calls = excluded.tool_calls,
+                 files = excluded.files,
                  thinking = excluded.thinking,
                  position = excluded.position
              WHERE role IS NOT excluded.role
                 OR content IS NOT excluded.content
                 OR images IS NOT excluded.images
                 OR tool_calls IS NOT excluded.tool_calls
+                OR files IS NOT excluded.files
                 OR thinking IS NOT excluded.thinking
                 OR position IS NOT excluded.position"
         ))?;
@@ -729,6 +761,7 @@ fn sync_messages(
                 m.content,
                 serde_json::to_string(&m.images).unwrap_or_default(),
                 serde_json::to_string(&m.tool_calls).unwrap_or_default(),
+                serde_json::to_string(&m.files).unwrap_or_default(),
                 m.thinking,
                 i as i64,
             ])?;
@@ -791,6 +824,7 @@ mod tests {
             content: content.to_string(),
             images: vec![],
             tool_calls: vec![],
+            files: vec![],
             thinking: String::new(),
             position: 0,
             is_streaming: false,
@@ -807,6 +841,7 @@ mod tests {
                 content TEXT NOT NULL DEFAULT '',
                 images TEXT NOT NULL DEFAULT '[]',
                 tool_calls TEXT NOT NULL DEFAULT '[]',
+                files TEXT NOT NULL DEFAULT '[]',
                 thinking TEXT NOT NULL DEFAULT '',
                 position INTEGER NOT NULL
             );",
@@ -825,6 +860,28 @@ mod tests {
             .unwrap()
             .map(|r| r.unwrap())
             .collect()
+    }
+
+    #[test]
+    fn sync_messages_persists_attached_files() {
+        let mut conn = messages_test_conn();
+        let mut m = msg("m1", "user", "summarise");
+        m.files = vec![MessageFile {
+            name: "notes.md".to_string(),
+            content: "# Hi".to_string(),
+        }];
+
+        sync_messages(&mut conn, "messages", "session_id", "s1", &[m]).unwrap();
+
+        let files: String = conn
+            .query_row("SELECT files FROM messages WHERE id = 'm1'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        let parsed: Vec<MessageFile> = serde_json::from_str(&files).unwrap();
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].name, "notes.md");
+        assert_eq!(parsed[0].content, "# Hi");
     }
 
     #[test]
@@ -1081,6 +1138,7 @@ mod tests {
                 "content",
                 "images",
                 "toolCalls",
+                "files",
                 "position",
                 "isStreaming",
             ] {

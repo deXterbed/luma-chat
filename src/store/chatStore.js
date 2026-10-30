@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { v4 as uuidv4 } from "uuid"; // used by addMessage / addStreamingMessage
 import { useSettingsStore } from "./settingsStore";
+import { buildAttachmentBlock } from "../lib/attachments";
 
 // Each chat remembers its own web search toggle, keyed by session id (main
 // pane) or side-chat id (a side tab). The value can't live in the pane store
@@ -64,12 +65,13 @@ export const createChatStore = (id) => {
 
     setWebSearchEnabled: (enabled) => set({ webSearchEnabled: !!enabled }),
 
-    addMessage: (role, content, images = []) => {
+    addMessage: (role, content, images = [], files = []) => {
       const msg = {
         id: uuidv4(),
         role,
         content,
         images,
+        files,
         isStreaming: false,
         toolCalls: [],
         // Transient follow-up suggestion chips (not persisted to SQLite —
@@ -263,12 +265,21 @@ export const createChatStore = (id) => {
     // addSideChat so a freshly created side chat's input auto-focuses.
     bumpFocus: () => set((s) => ({ focusNonce: s.focusNonce + 1 })),
 
-    // Build messages array for Ollama API (includes image data)
-    getApiMessages: () => {
+    // Build messages array for Ollama API (includes image data and the text of
+    // any attached files). `files: false` returns the bare conversation, which
+    // the side-chat transcript and the follow-up call need: a full attachment
+    // would crowd out the conversation they are actually summarising.
+    getApiMessages: ({ files: includeFiles = true } = {}) => {
       return get()
         .messages.filter((m) => !m.isStreaming || m.content)
         .map((m) => {
-          const msg = { role: m.role, content: m.content };
+          const content =
+            includeFiles && m.files?.length
+              ? [m.content, buildAttachmentBlock(m.files)]
+                  .filter(Boolean)
+                  .join("\n\n")
+              : m.content;
+          const msg = { role: m.role, content };
           if (m.images && m.images.length > 0) {
             msg.images = m.images;
           }

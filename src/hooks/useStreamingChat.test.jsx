@@ -28,6 +28,66 @@ import { db } from "../lib/db";
 // id captured at send time. `sync_messages` upserts by id and deletes ids that
 // are absent, so the switch replaced A's stored conversation with B's, or with
 // nothing at all when the empty message list hit the delete branch.
+describe("attached text files", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.spyOn(db, "saveMessages").mockResolvedValue(undefined);
+    vi.spyOn(db, "saveSession").mockResolvedValue(undefined);
+    vi.spyOn(db, "updateSessionActivity").mockResolvedValue(undefined);
+    streamChatMock.mockReset();
+    lastRun.signal = null;
+    lastRun.onDone = null;
+    streamChatMock.mockImplementation(
+      ({ signal, onDone }) =>
+        new Promise((_resolve, reject) => {
+          lastRun.signal = signal;
+          lastRun.onDone = onDone;
+          signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        }),
+    );
+    useMainChat.getState().loadMessages([], "", []);
+    useSessionStore.setState({
+      activeChatId: "A",
+      chatSessions: [
+        {
+          id: "A",
+          title: "A",
+          model: "test-model",
+          messages: [{ id: "a1", role: "user", content: "earlier" }],
+          sideChats: [],
+          activeSideChatId: null,
+          updated_at: 1,
+        },
+      ],
+    });
+    useMainChat
+      .getState()
+      .loadMessages([{ id: "a1", role: "user", content: "earlier" }], "test-model", []);
+  });
+
+  it("sends the file's text with the message the model receives", async () => {
+    const { result } = renderHook(() =>
+      useStreamingChat({
+        store: useMainChat,
+        sessionId: "A",
+        webSearchEnabled: false,
+        thinkingEnabled: false,
+      }),
+    );
+
+    await act(async () => {
+      result.current.handleSend("here", [], [
+        { name: "notes.md", content: "# Hi" },
+      ]);
+    });
+
+    const { messages } = streamChatMock.mock.calls[0][0];
+    const lastUser = messages.filter((m) => m.role === "user").at(-1);
+    expect(lastUser.content).toContain("here");
+    expect(lastUser.content).toContain("--- notes.md ---\n# Hi");
+  });
+});
+
 describe("replacing the pane while a run is in flight", () => {
   const messageA = { id: "a1", role: "user", content: "A's earlier question" };
   const messageB = { id: "b1", role: "user", content: "B's own question" };

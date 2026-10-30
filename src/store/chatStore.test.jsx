@@ -304,6 +304,36 @@ describe("chatStore", () => {
   });
 
   describe("getApiMessages", () => {
+    it("appends an attached file's text to its own message", () => {
+      store.getState().addMessage("user", "summarise", [], [
+        { name: "notes.md", content: "# Hi" },
+      ]);
+
+      const [msg] = store.getState().getApiMessages();
+      expect(msg.content).toContain("summarise");
+      expect(msg.content).toContain("--- notes.md ---\n# Hi");
+    });
+
+    it("omits files when asked, for the side-chat transcript and follow-ups", () => {
+      store.getState().addMessage("user", "summarise", [], [
+        { name: "notes.md", content: "# Hi" },
+      ]);
+
+      expect(store.getState().getApiMessages({ files: false })[0].content).toBe(
+        "summarise",
+      );
+    });
+
+    it("sends a file-only message as the attachment block alone", () => {
+      store.getState().addMessage("user", "", [], [
+        { name: "rows.csv", content: "a,b\n1,2" },
+      ]);
+
+      const [msg] = store.getState().getApiMessages();
+      expect(msg.content).toContain("--- rows.csv ---\na,b\n1,2");
+      expect(msg.content.startsWith("The user attached")).toBe(true);
+    });
+
     it("returns messages formatted for API", () => {
       store.getState().addMessage("user", "Hello", ["img1"]);
       store.getState().addMessage("assistant", "Hi there");

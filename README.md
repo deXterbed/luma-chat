@@ -39,7 +39,8 @@ A research workbench for deep-dive topic exploration, built as a dual-pane deskt
 - **Follow-up subtopic chips** — after an answer finishes, 1–3 clickable follow-up questions appear beneath it. Clicking one sends it as your next message in the same pane, so you keep exploring without retyping. Suggestions come from a separate focused model call made after the answer (not a tool the main response calls) and are transient — they disappear on reload
 
 ### Vision
-- **Image attachments** — file picker or clipboard paste (Ctrl/Cmd+V) into either pane
+- **Image attachments** — file picker or clipboard paste (Ctrl/Cmd+V) into either pane. JPEG, PNG, WebP and GIF only; anything else is refused with a short message rather than silently dropped
+- **Text file attachments** — a text, code, CSV, JSON or Markdown file is read in the renderer and stored with the message, so the transcript and a reload both keep it. Its contents are added to that message when the conversation is sent, because Ollama has no file channel: the extracted text is the attachment
 - **Vision-capable models** — any Ollama model that supports image input works automatically
 
 ### Research tools (tool-calling)
@@ -100,7 +101,7 @@ A dedicated settings page (gear icon in the title bar) covers the most common kn
 - **Agent log** — opt-in structured log of the agent loop (see Agent log above), for tuning how the model actually behaves
 
 ### Persistence
-- **SQLite via Tauri Rust backend** — sessions, messages, side chats, custom model aliases, attached project folders, per-chat web search toggles, and user settings are all stored locally (rusqlite) and restored on launch
+- **SQLite via Tauri Rust backend** — sessions, messages (including attached images and file contents), side chats, custom model aliases, attached project folders, per-chat web search toggles, and user settings are all stored locally (rusqlite) and restored on launch
 - **Immediate writes** — messages are persisted as they arrive, so a session survives a crash, an aborted generation, or an error mid-stream
 - **No cloud sync** — research is the user's private work, not a collaborative product
 - **…unless you point Luma at a remote server** — an Ollama URL that isn't loopback means your prompts, and in Codebase mode the files the model reads, are sent there. Luma gives a one-time notice when you attach a folder in that setup; a local Ollama keeps everything on the machine

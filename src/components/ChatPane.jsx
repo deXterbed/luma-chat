@@ -347,10 +347,13 @@ export default function ChatPane({
     });
   };
 
+  // The third argument is the attached text files. Dropping it here is silent:
+  // the message still sends, just without the file, so it has to be forwarded
+  // verbatim rather than re-listed.
   const onSend = useCallback(
-    (text, images) => {
+    (text, images, files) => {
       justSentRef.current = true;
-      handleSend(text, images);
+      handleSend(text, images, files);
     },
     [handleSend],
   );
