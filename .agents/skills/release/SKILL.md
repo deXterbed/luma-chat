@@ -1,6 +1,7 @@
 ---
 name: release
 description: Cut a Luma release. Use when bumping the version, updating the changelog, tagging, or debugging a release or CI gate failure.
+disable-model-invocation: true
 ---
 
 Versions, lockfiles, CI gates and changelog.

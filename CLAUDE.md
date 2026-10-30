@@ -2,6 +2,6 @@
 
 @AGENTS.md
 
-This repo keeps its agent instructions in `AGENTS.md` (tool-agnostic, shared with other agents) and
-the import above is the whole of what Claude needs from this file. Path-scoped rules are in
-`.claude/rules/`, task procedures in `.claude/skills/`, subsystem detail in `docs/architecture/`.
+Instructions live in `AGENTS.md` (tool-agnostic) and the import above is all this file needs to be.
+Task procedures are in `.agents/skills/`, subsystem detail in `docs/architecture/`. If you never run
+Claude Code, this file is safe to delete; nothing else reads it.

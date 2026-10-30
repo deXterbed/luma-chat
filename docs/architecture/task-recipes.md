@@ -1,6 +1,6 @@
 # Task recipes
 
-Where the code for a recurring change lives. Multi-step procedures are skills in `.claude/skills/`: `add-tauri-command`, `add-persisted-setting`, `add-model-tool`, `add-slash-command`, `release`.
+Where the code for a recurring change lives. Multi-step procedures are skills in `.agents/skills/`: `add-tauri-command`, `add-persisted-setting`, `add-model-tool`, `add-slash-command`, `release`.
 
 - **Focus the input box** — `textareaRef` in `InputArea.jsx`. The `focusNonce` effect skips the initial mount (so main chat doesn't steal focus on boot), which also swallows a `bumpFocus()` that fires before a new `InputArea` mounts. Side chat panes instead pass `autoFocus={isSideChat}`, since a side chat's `InputArea` only mounts when the tab is created.
 - **Auto-scroll on new content** — `messages.length` watcher in `ChatPane.jsx`, using `prevMessagesCountRef` to distinguish new messages from in-place streaming updates. Needs `requestAnimationFrame` since the new message isn't mounted yet when the effect fires.

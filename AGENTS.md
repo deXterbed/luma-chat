@@ -5,9 +5,8 @@ Canary: begin your first response with "Luma: Tauri + React, done means npm run 
 Luma is a dual-pane Ollama chat desktop app: Tauri (Rust) + React/Vite + SQLite. This file is the
 canonical agent entry point for the repo; `CLAUDE.md` imports it.
 
-Deeper material loads on demand: path-scoped rules in `.claude/rules/`, task procedures in
-`.claude/skills/`, subsystem detail in `docs/architecture/`. Read one when the task needs it, not all
-of them up front.
+Deeper material loads on demand: task procedures in `.agents/skills/`, subsystem detail and the traps that bite in
+`docs/architecture/`. Read one when the task needs it, not all of them up front.
 
 ## Commands
 
@@ -85,6 +84,11 @@ npm run check      # lint + Vitest + `cargo check --all-targets`. The pre-push g
 | New tool the model can call | `add-model-tool` |
 | New slash command | `add-slash-command` |
 | Cut a release | `release` |
+
+Skills live in `.agents/skills/`, the location Zed, Codex, Cursor, Copilot and Gemini CLI all read.
+Zed only discovers direct children (`<root>/<name>/SKILL.md`), so don't nest them. `release` sets
+`disable-model-invocation: true` — invoke it with `/release` rather than letting the agent decide to tag.
+Project skills load only from trusted worktrees in Zed.
 
 Where a recurring change lives (focus, auto-scroll, per-pane toggles, side chats, tests) is in
 `docs/architecture/task-recipes.md`.
