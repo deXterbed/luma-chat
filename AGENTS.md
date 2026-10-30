@@ -21,12 +21,16 @@ npm run test:rust  # Cargo tests for the Tauri backend
 npm run test:all   # Both test suites sequentially
 npm run lint       # cargo fmt --check + clippy --all-targets -- -D warnings. There is
                    # no JS linter — this is all of "the lint" for this repo.
-npm run check      # lint + Vitest + `cargo check --all-targets`. The pre-push gate:
-                   # `cargo check` is what catches a missing/renamed symbol, which
-                   # `tauri dev`'s watcher only surfaces if it happens to rebuild.
+npm run audit:context # Budgets on AGENTS.md, resolve every doc it references, validate
+                   # `.agents/skills` frontmatter. Runs first in `npm run check`.
+npm run check      # audit:context + lint + Vitest + `cargo check --all-targets`. The
+                   # pre-push gate: `cargo check` is what catches a missing/renamed
+                   # symbol, which `tauri dev`'s watcher only surfaces if it rebuilds.
 ```
 
 **Definition of done: `npm run check`.** It is the honest signal, not the `tauri dev` watcher.
+`git config core.hooksPath .githooks` wires the same command to pre-push (per clone, not
+committed), so it stops being something you have to remember.
 
 ### Prerequisites
 
@@ -38,6 +42,17 @@ npm run check      # lint + Vitest + `cargo check --all-targets`. The pre-push g
 ### Three `cargo test` failures that are not your fault
 
 `test_load_sessions_from_existing_db`, `test_session_serialization`, and `test_serialization_matches_frontend` read the **legacy Electron-era DB** (`dirs_next()` → `~/Library/Application Support/Luma`) and assert it has sessions. On a machine whose chats live in `app_data_dir()` (`com.luma.chat`), that legacy file has 0 rows, so they fail on `sessions[0]` / `!sessions.is_empty()` regardless of the code. Everything else in `cargo test` passing is the signal; these three are environment-dependent. `ci.yml` skips exactly these three by name (they fail on any clean machine, so CI can still run the suite).
+
+## How work happens
+
+1. **Non-trivial task: the spec comes first**, written to a file: intent, constraints, acceptance
+   criteria. Skip this for a one-line fix, the ceremony is the cost.
+2. **Restate the plan before editing.** A wrong plan is cheaper to correct than a wrong diff.
+3. **One slice at a time**, then `npm run check`.
+4. **Review in a fresh context** (new thread or subagent). The context that wrote the code believes
+   its own reasoning.
+5. **A correction that repeats is a context bug.** Fix `AGENTS.md` or the doc that should have
+   prevented it, not just this instance. That is the only step that compounds.
 
 ## Orientation
 
@@ -101,5 +116,5 @@ Where a recurring change lives (focus, auto-scroll, per-pane toggles, side chats
 ## Editor tooling
 
 - **Ignore Prettier-only churn in diffs.** The editor's file-write tool reformats the whole file on save; don't revert those hunks, just focus on the semantic change.
-- **Verify UI/CSS tweaks with a throwaway HTML repro, not the repo.** Build a minimal standalone HTML mirroring the global reset + bubble + `markdownBody`, screenshot via Playwright MCP, and write both to `/tmp` — not the repo root, since the screenshot tool defaults there and a stray file lands in the commit (there is **no** pre-commit hook here; `.git/hooks/` holds only samples and `core.hooksPath` is unset, so `git add -A` is what sweeps it up). Check `git show --stat HEAD` after committing to catch stray screenshots.
+- **Verify UI/CSS tweaks with a throwaway HTML repro, not the repo.** Build a minimal standalone HTML mirroring the global reset + bubble + `markdownBody`, screenshot via Playwright MCP, and write both to `/tmp` — not the repo root, since the screenshot tool defaults there and a stray file lands in the commit (there is **no** pre-commit hook here: `.githooks/pre-push` runs `npm run check`, which never looks at staged paths, so `git add -A` is what sweeps it up). Check `git show --stat HEAD` after committing to catch stray screenshots.
 - **Do a symbol and its call site in one edit (or define it first).** `tauri dev`'s watcher can rebuild between two edit steps and surface a transient `E0425 … not found in this scope` that isn't real — `npm run check` is the honest signal, not the watcher's output.

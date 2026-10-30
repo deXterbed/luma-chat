@@ -1,0 +1,8 @@
+#!/bin/sh
+# Pre-push gate. Git only runs this once the repo is pointed at it:
+#   git config core.hooksPath .githooks
+# (that config is per clone, so a fresh checkout needs it again).
+set -e
+
+echo "pre-push: npm run check"
+npm run check
