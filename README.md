@@ -172,7 +172,7 @@ npm run lint
 npm run check
 ```
 
-The frontend test suite covers Zustand store logic, tool definitions and argument coercion, the agent log, system prompts, Ollama streaming utilities and loop policy, follow-up subtopic parsing, the `@`-mention token rules, and the DB command wrapper. The Rust test suite covers HTML-to-markdown conversion, DB serialization and migrations, the backup container, and the Codebase file-tool guard (path escapes, symlink refusal, root validation). Three `cargo test` cases read a legacy Electron-era database and fail on a machine that doesn't have one — `CLAUDE.md` explains which and why, and `.github/workflows/ci.yml` skips them by name so the rest of the suite still runs on CI. No integration tests against a live Ollama instance are included.
+The frontend test suite covers Zustand store logic, tool definitions and argument coercion, the agent log, system prompts, Ollama streaming utilities and loop policy, follow-up subtopic parsing, the `@`-mention token rules, and the DB command wrapper. The Rust test suite covers HTML-to-markdown conversion, DB serialization and migrations, the backup container, and the Codebase file-tool guard (path escapes, symlink refusal, root validation). Three `cargo test` cases read a legacy Electron-era database and fail on a machine that doesn't have one — `AGENTS.md` explains which and why, and `.github/workflows/ci.yml` skips them by name so the rest of the suite still runs on CI. No integration tests against a live Ollama instance are included.
 
 ## Architecture
 

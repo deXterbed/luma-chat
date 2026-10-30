@@ -123,7 +123,7 @@ Beyond the linker issue, Tauri on Windows also requires:
   - Windows 11 SDK (or Windows 10 SDK)
 - **WebView2 Runtime** — usually pre-installed on Windows 10/11. Tauri needs it at runtime to render the UI.
 
-See `CLAUDE.md` at the project root for the full setup checklist.
+See `AGENTS.md` at the project root for the full setup checklist.
 
 ## Why Does Tauri Need a C++ Compiler?
 

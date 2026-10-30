@@ -45,7 +45,7 @@ jobs:
 
       # The three skipped tests read a developer's legacy Electron DB and assert
       # it has rows, so they fail on any machine that doesn't have one —
-      # environment-dependent, not a signal (see CLAUDE.md).
+      # environment-dependent, not a signal (see AGENTS.md).
       - name: Rust tests
         run: |
           cd tauri
