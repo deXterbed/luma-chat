@@ -5,7 +5,7 @@
 A research workbench for deep-dive topic exploration, built as a dual-pane desktop app on top of local LLMs. The main chat is the spine of a research session, and side chats are branches for drilling into subtopics and sources — with live web search and fetch so the model can ground its answers. Attach a project folder and the same loop becomes **Codebase mode**: read-only file tools, so you can ask how real code works and branch off any answer to keep drilling.
 
 - **Stack:** Tauri + React/Vite + SQLite + [Ollama](https://ollama.com)
-- **Not a general chatbot:** every capability exists to help a user research and deeply understand a topic. See `ROADMAP.md` for the long-term plan.
+- **Not a general chatbot:** every capability exists to help a user research and deeply understand a topic.
 
 ## Features
 
@@ -222,8 +222,6 @@ luma-chat/
 ├── index.html, vite.config.mjs
 └── package.json
 ```
-
-See `ROADMAP.md` for what's planned next and what's deliberately out of scope.
 
 ## License
 
