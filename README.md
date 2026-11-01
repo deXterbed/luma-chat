@@ -113,6 +113,12 @@ A dedicated settings page (gear icon in the title bar) covers the most common kn
 - **No FOUC** — an inline `<script>` in `index.html` sets `data-theme` on `<html>` before React mounts, so the first paint already uses the right palette
 - **CSS Modules** — scoped per-component styles (`*.module.css`); no Tailwind
 
+### Updates
+- **Signed auto-updates** — Luma checks for a new release a few seconds after launch and shows `Install x.y.z` in the title bar when there is one. The download is verified against a signing key built into the app, so a tampered build is refused rather than installed
+- **Manual check** — **Luma → Check for Updates…** (macOS). On Windows and Linux the launch check is currently the only trigger
+- **Up to date stays quiet** — an automatic check that finds nothing, or fails (offline, release host down), reports nothing at all
+- **Ad-hoc signed, not notarized** — see the Gatekeeper note below; it applies to the first install only
+
 ## Requirements
 
 - [Ollama](https://ollama.com) running locally on `http://localhost:11434`
@@ -138,6 +144,8 @@ xattr -cr /path/to/Luma.app
 
 Then open the app normally. Alternatively: **System Settings → Privacy & Security** → scroll down → click **Open Anyway**.
 
+This is a one-time step per install. macOS only sets the quarantine flag on files a browser or similar app downloads, so versions Luma fetches itself for auto-updates arrive unquarantined and open without this.
+
 ### Windows: `linking with link.exe failed`
 
 If you see an error mentioning `link: extra operand` during `npm run build` (or `npm run dev`, which compiles internally), the GNU `link.exe` shipped with Git for Windows is shadowing the MSVC linker. See [`docs/windows-link-exe-conflict.md`](docs/windows-link-exe-conflict.md) for the diagnosis and three ways to fix it.
@@ -148,7 +156,7 @@ If you see an error mentioning `link: extra operand` during `npm run build` (or 
 npm run build
 ```
 
-Runs `vite build` then `tauri build`.
+Runs `vite build` then `tauri build`. `createUpdaterArtifacts` is on, so the bundle step also signs the update artifact: a build without `TAURI_SIGNING_PRIVATE_KEY` (key contents or path) and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` set stops at an interactive `Password:` prompt. The password is empty; the variable still has to be present.
 
 ## Tests
 
@@ -179,7 +187,7 @@ The frontend test suite covers Zustand store logic, tool definitions and argumen
 The app runs with a Rust backend and a React frontend:
 
 - **Rust backend** (`tauri/`) — owns the SQLite DB, window controls, all outbound HTTP (web search/fetch via `reqwest` + `scraper` + `readability`), and the read-only project file tools (ripgrep's `ignore`/`grep-*` crates, root-bounded). Also appends the opt-in agent log. Exposed through Tauri commands.
-- **Frontend** (`src/`) — React UI. Reaches the Rust backend through `@tauri-apps/api/core` → `invoke()` calls, wrapped in thin client modules (`src/lib/db.js`, `src/lib/tools.js`).
+- **Frontend** (`src/`) — React UI. Reaches the Rust backend through `@tauri-apps/api/core` → `invoke()` calls, wrapped in thin client modules (`src/lib/db.js`, `src/lib/tools.js`, `src/lib/updater.js`).
 
 State lives in four independent Zustand stores. None of them persist to `localStorage`; durability is the DB's job (settings included).
 
@@ -187,12 +195,13 @@ State lives in four independent Zustand stores. None of them persist to `localSt
 |---|---|---|
 | `useMainChat` / `getSideChatStore(id)` | `src/store/chatStore.js` | Per-pane messages, streaming state, tool-call records, attached project folders (same factory; one store per side chat tab, keyed by id) |
 | `useSessionStore` | `src/store/sessionStore.js` | Session list, side-chat metadata (including parent/branch relationships), a session's attached project folders — the only store that writes chat data to SQLite |
-| `useUiStore` | `src/store/uiStore.js` | Transient view state: side-chat open/closed, Ollama connectivity, settings page open |
+| `useUiStore` | `src/store/uiStore.js` | Transient view state: side-chat open/closed, Ollama connectivity, settings page open, update check lifecycle |
 | `useSettingsStore` | `src/store/settingsStore.js` | Persisted settings: theme, default model, web search default, tool call limit, context window, temperature, search provider, Ollama API key, agent log — write-through to the `settings` SQLite table |
 
 ## Stack
 
 - **Tauri 2** — desktop shell, Rust-powered with OS-native webviews
+- **tauri-plugin-updater + tauri-plugin-process** — signed auto-updates, and the relaunch that installs one
 - **React 18 + Vite 5** — UI and dev server
 - **Zustand 4** — state management
 - **rusqlite** — synchronous local persistence in the Rust backend
@@ -213,7 +222,7 @@ luma-chat/
 ├── src/                   React UI
 │   ├── components/        ChatPane, SidePanel, Sidebar, SettingsPage, InputArea, MessageBubble, ToolActivity, SubtopicChips…
 │   ├── hooks/             useStreamingChat, useDbInit, useChatSession
-│   ├── lib/               ollama.js, ollamaStream.js, tools.js, followups.js, fileMentions.js, projectFiles.js, agentLog.js, db.js, systemPrompt.js
+│   ├── lib/               ollama.js, ollamaStream.js, tools.js, followups.js, fileMentions.js, projectFiles.js, agentLog.js, db.js, updater.js, systemPrompt.js
 │   │   └── *.test.js      Unit tests for lib modules
 │   ├── store/             chatStore, sessionStore, uiStore, settingsStore
 │   │   └── *.test.js      Unit tests for store logic

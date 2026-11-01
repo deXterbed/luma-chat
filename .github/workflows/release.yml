@@ -61,12 +61,19 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Signs the updater artifacts. The key is passwordless, but the
+          # password env var must still be set: when it is absent the CLI prompts
+          # for one, which blocks a non-interactive CI step.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           tagName: ${{ github.ref_name }}
           releaseName: Luma ${{ github.ref_name }}
           releaseBody: |
             See the assets below to download and install Luma ${{ github.ref_name }}.
-          releaseDraft: true
+          # Must not be a draft: the updater reads
+          # `releases/latest/download/latest.json`, which skips drafts.
+          releaseDraft: false
           prerelease: false
           tauriScript: npx tauri
           projectPath: .

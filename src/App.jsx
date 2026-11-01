@@ -26,6 +26,7 @@ export default function App() {
     setCustomModels,
     settingsOpen,
     openSettings,
+    checkForUpdates,
     webSearchNotice,
     clearWebSearchNotice,
   } = useUiStore();
@@ -53,6 +54,37 @@ export default function App() {
       .then(setCustomModels)
       .catch(() => {});
   }, [setCustomModels]);
+
+  // Native macOS "Check for Updates…" menu item. Rust owns the menu, so the click
+  // arrives as an event; the store runs the check and the TitleBar renders the
+  // result next to the theme toggle.
+  useEffect(() => {
+    let unlisten = null;
+    let cancelled = false;
+    import("@tauri-apps/api/event")
+      .then(({ listen }) =>
+        listen("menu:check-updates", () => {
+          checkForUpdates();
+        }),
+      )
+      .then((fn) => {
+        if (cancelled) fn();
+        else unlisten = fn;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  }, [checkForUpdates]);
+
+  // One check per launch, a few seconds in, so the first paint isn't competing
+  // with a network round trip. Silent: an up-to-date build should stay quiet, and
+  // a failed check (offline, GitHub down) should not greet the user with an error.
+  useEffect(() => {
+    const id = setTimeout(() => checkForUpdates({ silent: true }), 3000);
+    return () => clearTimeout(id);
+  }, [checkForUpdates]);
 
   // Warm the Temml module cache on idle so the first math-containing message
   // doesn't have to wait for the chunk to download — `MathSpan`'s own

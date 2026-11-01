@@ -32,6 +32,10 @@ npm run check      # audit:context + lint + Vitest + `cargo check --all-targets`
 `git config core.hooksPath .githooks` wires the same command to pre-push (per clone, not
 committed), so it stops being something you have to remember.
 
+One gap: `npm run check` does not validate `tauri.conf.json`'s bundle schema. A wrong key casing
+(`macos` for `macOS`) passes `cargo check` and only fails at `tauri build`, so the gate can be
+fully green on a config that cannot build. Run a build after touching `bundle`.
+
 ### Prerequisites
 
 - **Rust**: Install via [rustup](https://rustup.rs/) (`rustup stable`)
@@ -73,6 +77,7 @@ committed), so it stops being something you have to remember.
 | Markdown, math, theming, code splitting | `MarkdownBody.jsx`, `MathSpan.jsx`, `theme.js` | `docs/architecture/markdown-and-theming.md`, `math-rendering.md`, `code-splitting.md` |
 | Window + platform config | `tauri/tauri.conf.json`, `tauri.macos.conf.json` | `docs/architecture/window-controls.md` |
 | Attachments, task recipes | | `docs/architecture/attachments.md`, `task-recipes.md` |
+| Auto-updates, signing key, release manifest | `src/lib/updater.js`, `src/store/uiStore.js`, `tauri/src/lib.rs` (menu) | `docs/architecture/updates.md` |
 
 ## Invariants that apply everywhere
 
@@ -82,6 +87,7 @@ committed), so it stops being something you have to remember.
 - **Store actions, not components, write to SQLite.**
 - **Tab switching in the side panel never calls `loadMessages`.** Each tab owns its store permanently via `_sideChatStores`; switching is pure UI state (`activeSideChatId`).
 - **`activeChatId` is for navigation, not activity.** Bump `updated_at` only via `bumpSessionActivity(id)` on real user actions.
+- **The updater's private key is unrecoverable and load-bearing.** `plugins.updater.pubkey` is baked into every install; losing the key locks out every installed copy for good. Never regenerate it casually. See `docs/architecture/updates.md`.
 
 ## Tauri / WebView pitfalls
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Minus, Square, X, Maximize2, Settings } from "lucide-react";
+import { Minus, Square, X, Maximize2, Settings, Download } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
 import { useUiStore } from "../store/uiStore";
 import styles from "./TitleBar.module.css";
@@ -7,6 +7,9 @@ import styles from "./TitleBar.module.css";
 export default function TitleBar() {
   const [isMaximized, setIsMaximized] = useState(false);
   const openSettings = useUiStore((s) => s.openSettings);
+  const updateCheck = useUiStore((s) => s.updateCheck);
+  const installUpdate = useUiStore((s) => s.installUpdate);
+  const setUpdateCheck = useUiStore((s) => s.setUpdateCheck);
   // macOS draws its own window controls (the traffic lights) over this bar —
   // see tauri.macos.conf.json, which is the one place the two platforms' window
   // config diverges. Rendering the app's own buttons there would show two sets
@@ -74,6 +77,29 @@ export default function TitleBar() {
     } catch {}
   };
 
+  // Only an available update is actionable; the rest are progress or results, so
+  // they render as disabled states of the same control.
+  let updateLabel = null;
+  if (updateCheck.phase === "checking") updateLabel = "Checking...";
+  else if (updateCheck.phase === "available")
+    updateLabel = `Install ${updateCheck.update.version}`;
+  else if (updateCheck.phase === "downloading")
+    updateLabel =
+      updateCheck.percent == null
+        ? "Downloading..."
+        : `Downloading ${updateCheck.percent}%`;
+  else if (updateCheck.phase === "installing") updateLabel = "Restarting...";
+  else if (updateCheck.phase === "current") updateLabel = "Up to date";
+  else if (updateCheck.phase === "error") updateLabel = "Update failed";
+
+  // "Up to date" and "Update failed" are dead ends; clear them so the title bar
+  // doesn't keep a permanent notice.
+  useEffect(() => {
+    if (updateCheck.phase !== "current" && updateCheck.phase !== "error") return;
+    const id = setTimeout(() => setUpdateCheck({ phase: "idle" }), 6000);
+    return () => clearTimeout(id);
+  }, [updateCheck.phase, setUpdateCheck]);
+
   return (
     <div
       className={`${styles.titlebar} ${nativeWindowControls ? styles.titlebarMac : ""}`}
@@ -85,8 +111,27 @@ export default function TitleBar() {
         <span className={styles.brandText}>Luma</span>
       </div>
 
-      {/* Right side: theme toggle + settings + window controls */}
+      {/* Right side: update + theme toggle + settings + window controls */}
       <div className={styles.controls}>
+        {updateLabel && (
+          <button
+            type="button"
+            onClick={installUpdate}
+            disabled={updateCheck.phase !== "available"}
+            className={`${styles.updateBtn} ${
+              updateCheck.phase === "available" ? styles.updateBtnReady : ""
+            }`}
+            title={
+              updateCheck.phase === "error"
+                ? updateCheck.text
+                : updateLabel
+            }
+          >
+            {updateCheck.phase === "available" && <Download size={11} />}
+            {updateLabel}
+          </button>
+        )}
+
         <ThemeToggle />
 
         <button
