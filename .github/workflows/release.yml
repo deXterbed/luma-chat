@@ -62,8 +62,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Signs the updater artifacts. The key is passwordless, but the
-          # password env var must still be set: when it is absent the CLI prompts
-          # for one, which blocks a non-interactive CI step.
+          # bundler prompts for a password when the variable is unset;
+          # `CI=true` skips that prompt too, and Actions sets it anyway.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:

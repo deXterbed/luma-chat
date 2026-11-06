@@ -156,7 +156,7 @@ If you see an error mentioning `link: extra operand` during `npm run build` (or 
 npm run build
 ```
 
-Runs `vite build` then `tauri build`. `createUpdaterArtifacts` is on, so the bundle step also signs the update artifact: a build without `TAURI_SIGNING_PRIVATE_KEY` (key contents or path) and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` set stops at an interactive `Password:` prompt. The password is empty; the variable still has to be present.
+Runs `vite build` then `tauri build`. `createUpdaterArtifacts` is on, so the bundle step also signs the update artifact: without the private key in the environment the build fails with `A public key has been found, but no private key`. Set `TAURI_SIGNING_PRIVATE_KEY` to the key's contents (as `tauri signer generate` writes them) or to a path to the key file — a `.env` file does **not** work, Tauri reads only real environment variables. The key's password is blank, but the CLI asks for it anyway, so the script passes `--ci` to skip the prompt; without that flag it accepts a bare Enter. Don't try to feed the blank password through the environment on Windows — a space is rejected as a wrong password, and PowerShell's `$env:X = ""` deletes the variable. Keep the key outside the repo (e.g. `~/.tauri/luma.key`). For a local build that does not need signing, turn the artifacts off for that run: `npx tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'`.
 
 ## Tests
 

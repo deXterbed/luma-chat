@@ -36,6 +36,16 @@ One gap: `npm run check` does not validate `tauri.conf.json`'s bundle schema. A 
 (`macos` for `macOS`) passes `cargo check` and only fails at `tauri build`, so the gate can be
 fully green on a config that cannot build. Run a build after touching `bundle`.
 
+### Local builds sign the updater artifact
+
+`createUpdaterArtifacts` is on, so `npm run build` also writes `.sig` files and needs
+`TAURI_SIGNING_PRIVATE_KEY` (contents or a path; a `.env` file is ignored) — without it the bundler says
+"A public key has been found, but no private key". The key's password is blank and `tauri-cli` prompts for it
+anyway; `npm run build` passes `--ci` to supply the empty password. A space is rejected as a wrong password and
+Windows cannot hold an empty env var, so fix the prompt with `--ci`, not the environment. Trap: `tauri signer
+sign` does not path-detect that variable (only `build`/`bundle` do), so it reports a bogus "Invalid symbol 58"
+base64 error when handed a path.
+
 ### Prerequisites
 
 - **Rust**: Install via [rustup](https://rustup.rs/) (`rustup stable`)
